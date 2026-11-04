@@ -73,6 +73,9 @@ export function makeTeam(cfg: Partial<TeamConfig> = {}, opts: TeamOptions = {}):
   const config: TeamConfig = { ...structuredClone(TEST_CONFIG), ...cfg };
   opts.beforeStore?.(teamDir, config);
   const store = new Store(teamDir, config);
+  // A team set to herdr would otherwise probe the host's real herdr (its default
+  // session) on every capability read; tests that care set their own answer.
+  store.setTerminalProbe(() => ({ canSpawn: true }));
   if (cfg.workflows) {
     for (const [name, wf] of Object.entries(cfg.workflows)) store.saveWorkflow(name, wf);
   }

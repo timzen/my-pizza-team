@@ -7,8 +7,8 @@
  *
  *   1. **The setting is validated and live.** `PUT /api/config` takes `terminal`
  *      (one of TERMINAL_KINDS; null clears it), saves it, and the spawn and
- *      assistant-start capability checks re-read it. herdr is accepted but refused
- *      with a clear "not available yet" — never silently opened in tmux.
+ *      assistant-start capability checks re-read it. herdr windows open in herdr
+ *      (tests/herdr-backend.test.ts covers the backend) — never silently in tmux.
  *   2. **Metadata reads prefer the neutral keys** (`terminal`, `terminalSession`,
  *      `terminalWindow`, `terminalHandle`) and fall back to the pre-herdr
  *      `tmuxSession`/`tmuxWindow`, which mean "tmux".
@@ -38,6 +38,7 @@ import {
 import { assistantStartability, startLeader } from "../daemon/leader-start.ts";
 import { createTerminalBackend, getTerminalBackend } from "../daemon/terminal/index.ts";
 import type { ExecResult, TmuxExec } from "../daemon/terminal/tmux.ts";
+import { fakeHerdr } from "./_herdr.ts";
 
 /** A fake tmux holding `windows` in every session; records every call. */
 function fakeTmux(windows: string[] = []) {
@@ -75,26 +76,17 @@ test("terminal defaults to tmux; unknown values resolve to the default but are r
 
   assertEquals(terminalChoiceCapability({}).canSpawn, true);
   assertEquals(terminalChoiceCapability({ terminal: "tmux" }).canSpawn, true);
-  const herdr = terminalChoiceCapability({ terminal: "herdr" });
-  assertEquals(herdr.canSpawn, false);
-  assertStringIncludes(herdr.canSpawn ? "" : herdr.reason, "not available yet");
-  assertStringIncludes(herdr.canSpawn ? "" : herdr.fix, "Config → General");
+  assertEquals(terminalChoiceCapability({ terminal: "herdr" }).canSpawn, true);
   const unknown = terminalChoiceCapability({ terminal: "screen" as never });
   assertStringIncludes(unknown.canSpawn ? "" : unknown.reason, '"screen"');
 });
 
-test("getTerminalBackend follows the config; herdr is a backend that is never available", () => {
+test("getTerminalBackend follows the config", () => {
   assertEquals(getTerminalBackend({}).kind, "tmux");
-  const herdr = getTerminalBackend({ terminal: "herdr" });
+  const h = fakeHerdr();
+  const herdr = getTerminalBackend({ terminal: "herdr" }, { herdrExec: h.exec, herdrLaunch: h.launch });
   assertEquals(herdr.kind, "herdr");
-  assertEquals(herdr.available(), false);
-  assertEquals(herdr.unavailableReason(), "not-implemented");
-  assertStringIncludes(herdr.unavailable()?.reason ?? "", "not available yet");
-  assertEquals(herdr.identity(), null);
-  // Window operations refuse with the same message rather than touching anything.
-  let thrown = "";
-  try { herdr.listWindows("team"); } catch (e) { thrown = (e as Error).message; }
-  assertStringIncludes(thrown, "not available yet");
+  assertEquals(herdr.available(), true);
 });
 
 test("PUT /api/config validates, saves and clears terminal", async () => {
@@ -112,9 +104,10 @@ test("PUT /api/config validates, saves and clears terminal", async () => {
     const onDisk = JSON.parse(fs.readFileSync(path.join(teamDir, "config.json"), "utf8"));
     assertEquals(onDisk.terminal, "herdr");
 
-    // Live: spawning and the assistant start now say herdr isn't available yet.
+    // Live: spawning and the assistant start now follow herdr's capability, not tmux's.
+    store.setTerminalProbe(() => ({ canSpawn: false, reason: "herdr is not on this process's PATH", fix: "install herdr" }));
     const spawning = store.getSpawnCapability();
-    assertStringIncludes(spawning.canSpawn ? "" : spawning.reason, "herdr terminal backend is not available yet");
+    assertStringIncludes(spawning.canSpawn ? "" : spawning.reason, "herdr is not on this process's PATH");
     const health = await (await get(app, "/health")).json();
     assertEquals(health.terminal, "herdr");
     assertEquals(health.spawning.canSpawn, false);
@@ -133,25 +126,35 @@ test("PUT /api/config validates, saves and clears terminal", async () => {
 test("config.json writes terminal after tmuxSession, and omits it when unset", () => {
   const keys = Object.keys(serializeTeamConfig({ ...config(), terminal: "herdr" }));
   assertEquals(keys.indexOf("terminal"), keys.indexOf("tmuxSession") + 1);
+  const herdrKeys = Object.keys(serializeTeamConfig({ ...config(), terminal: "herdr", herdrSession: "team" }));
+  assertEquals(herdrKeys.indexOf("herdrSession"), herdrKeys.indexOf("terminal") + 1);
+  assertEquals("herdrSession" in serializeTeamConfig({ ...config(), herdrSession: "" }), false);
   assertEquals("terminal" in serializeTeamConfig(config()), false);
 });
 
-test("selecting herdr refuses spawns with the reason, and opens nothing in tmux", () => {
+test("selecting herdr opens spawns in herdr, and nothing in tmux", () => {
   const { store, updates } = fakeStore([{ id: "s1", action: "spawn", params: { name: "neo", cwd: process.cwd() } }]);
   const tmux = fakeTmux();
-  realizePending(store, { config: config({ terminal: "herdr" }), daemonUrl: "http://x", fallbackCwd: process.cwd(), exec: tmux.exec });
-  assertEquals(updates[0]?.status, "failed");
-  assertStringIncludes(updates[0]?.error ?? "", "could not spawn: the herdr terminal backend is not available yet");
+  const h = fakeHerdr();
+  realizePending(store, {
+    config: config({ terminal: "herdr" }), daemonUrl: "http://x", fallbackCwd: process.cwd(),
+    exec: tmux.exec, herdrExec: h.exec, herdrLaunch: h.launch,
+  });
+  assertEquals(updates, [{ id: "s1", status: "done", error: undefined }]);
+  assertStringIncludes(h.tab("team", "neo")?.pane.typed[0] ?? "", "--ppt-terminal=herdr");
   assertEquals(tmux.calls, []);
 });
 
-test("selecting herdr refuses the assistant start with a terminal-unavailable code", () => {
+test("selecting herdr starts the assistant in herdr; an unusable herdr is a terminal error", () => {
   const cfg = config({ terminal: "herdr" });
-  const startable = assistantStartability(cfg);
-  assertEquals(startable.ok, false);
+  assertEquals(assistantStartability(cfg).ok, true);
+  const refused = assistantStartability(cfg, { canSpawn: false, reason: "herdr 0.9.0 is older than 0.9.5", fix: "herdr update" });
+  assertEquals(refused.ok === false && refused.reason, "herdr 0.9.0 is older than 0.9.5");
   const tmux = fakeTmux();
-  const result = startLeader({ config: cfg, teamDir: "/tmp/x/.my-pizza-team", daemonUrl: "http://x", exec: tmux.exec });
-  assertEquals(result.status === "error" && result.code, "terminal-unavailable");
+  const h = fakeHerdr();
+  const result = startLeader({ config: cfg, teamDir: "/tmp/x/.my-pizza-team", daemonUrl: "http://x", exec: tmux.exec, herdrExec: h.exec, herdrLaunch: h.launch });
+  assertEquals(result.status, "started");
+  assertStringIncludes(h.tab("team", "leader")?.pane.typed[0] ?? "", "--ppt-lead");
   assertEquals(tmux.calls, []);
 });
 
@@ -217,17 +220,35 @@ test("dismiss closes a tmux window after the team switched to herdr", () => {
   assertEquals(updates, [{ id: "d1", status: "done", error: undefined }]);
 });
 
-test("dismiss of a window recorded under herdr goes to herdr (refused for now), never to tmux", () => {
+test("dismiss of a window recorded under herdr goes to herdr, never to tmux", () => {
   const member = { id: "a1", name: "neo", metadata: { terminal: "herdr", terminalSession: "team", terminalWindow: "neo" } };
   const params = dismissParams(member, config(), 0)!; // config is tmux
   assertEquals(params.terminal, "herdr");
-  const { store, updates } = fakeStore([{ id: "d1", action: "dismiss", params, metadata: member.metadata }]);
+  const h = fakeHerdr();
+  getTerminalBackend({ terminal: "herdr" }, { herdrExec: h.exec }).openWindow({ session: "team", window: "neo", cwd: "/p", command: "x" });
+  const { store, updates } = fakeStore([{ id: "d1", action: "dismiss", params: { ...params, deadline: 0 }, metadata: member.metadata }]);
   const tmux = fakeTmux(["neo"]);
-  realizePending(store, { config: config(), daemonUrl: "http://x", fallbackCwd: process.cwd(), exec: tmux.exec });
+  let t = 10_000;
+  const deps = { config: config(), daemonUrl: "http://x", fallbackCwd: process.cwd(), exec: tmux.exec, herdrExec: h.exec, now: () => t, interrupts: new Map() };
+  realizePending(store, deps); // C-c
+  t += 5_000;
+  realizePending(store, deps); // close
+  assertEquals(updates, [{ id: "d1", status: "done", error: undefined }]);
+  assertEquals(h.tab("team", "neo"), undefined, "the herdr tab is closed");
+  assertEquals(tmux.calls, [], "the tmux window of the same name is left alone");
+});
+
+test("dismiss of a herdr window while herdr is unusable fails, and the agent still exits", () => {
+  const member = { id: "a1", name: "neo", metadata: { terminal: "herdr", terminalSession: "team", terminalWindow: "neo" } };
+  const { store, updates } = fakeStore([{ id: "d1", action: "dismiss", params: dismissParams(member, config(), 0)!, metadata: member.metadata }]);
+  const h = fakeHerdr();
+  h.state.missing = true;
+  const tmux = fakeTmux(["neo"]);
+  realizePending(store, { config: config(), daemonUrl: "http://x", fallbackCwd: process.cwd(), exec: tmux.exec, herdrExec: h.exec });
   assertEquals(updates[0]?.status, "failed");
   assertStringIncludes(updates[0]?.error ?? "", "the agent still exits");
-  assertStringIncludes(updates[0]?.error ?? "", "herdr terminal backend is not available yet");
-  assertEquals(tmux.calls, [], "the tmux window of the same name is left alone");
+  assertStringIncludes(updates[0]?.error ?? "", "herdr is not on this process's PATH");
+  assertEquals(tmux.calls, []);
 });
 
 test("dismissTerminal reads the directive's params, then the pre-herdr shape, then metadata", () => {
@@ -243,8 +264,9 @@ test("focus goes to the backend the agent was started under", () => {
   const cfg = config({ terminal: "herdr" });
   assertEquals(focusMember({ name: "neo", metadata: { terminal: "tmux", terminalSession: "team", terminalWindow: "neo" } }, cfg, tmux.exec), null);
   assertEquals(tmux.calls, [["select-window", "-t", "team:neo"]]);
-  const refused = focusMember({ name: "neo", metadata: { terminal: "herdr", terminalWindow: "neo" } }, config(), tmux.exec);
-  assertStringIncludes(refused ?? "", "not available yet");
+  const h = fakeHerdr();
+  const missing = focusMember({ name: "neo", metadata: { terminal: "herdr", terminalWindow: "neo" } }, config(), tmux.exec, { herdrExec: h.exec });
+  assertEquals(missing, "no herdr window team:neo");
   assertEquals(tmux.calls.length, 1, "nothing sent to tmux for a herdr window");
 });
 
@@ -270,5 +292,5 @@ test("agentsOnOtherTerminal lists online agents started under another terminal",
 
 test("createTerminalBackend builds the backend for a recorded kind", () => {
   assertEquals(createTerminalBackend("tmux").kind, "tmux");
-  assertEquals(createTerminalBackend("herdr").kind, "herdr");
+  assertEquals(createTerminalBackend("herdr", { herdrExec: fakeHerdr().exec }).kind, "herdr");
 });

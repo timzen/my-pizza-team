@@ -1965,9 +1965,9 @@ session control.
   (`session`, `window`), never by a backend's IDs, because herdr's are
   server-assigned and change; tmux addresses windows by name anyway.
 - **The terminal is a team choice, and a window stays where it was opened.**
-  `terminal` in config (tmux by default; herdr accepted but refused as "not available
-  yet" until its backend lands — refused, never silently opened in tmux instead)
-  picks where *new* windows open. Each agent reports which backend and window it is
+  `terminal` in config (tmux by default, or herdr; a backend that can't run here —
+  herdr missing or too old — refuses spawns with its reason, never silently opening
+  them in tmux instead) picks where *new* windows open. Each agent reports which backend and window it is
   in (`terminal`, `terminalSession`, `terminalWindow` metadata, filled from the
   template's `{terminal*}` placeholders), and dismiss and `/ppt-hop` go to *that*
   backend, not the configured one: switching the setting mid-day must not strand

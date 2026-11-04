@@ -35,9 +35,11 @@ import {
 } from "../shared/types.ts";
 import {
   createTerminalBackend,
-  terminalNotImplemented,
+  terminalOptions,
   type TerminalBackend,
+  type TerminalBackendOptions,
 } from "./terminal/index.ts";
+import type { HerdrExec, HerdrLaunch } from "./terminal/herdr.ts";
 import { renderTemplate, unresolvedPlaceholders } from "./terminal/template.ts";
 import { realTmux, type TmuxExec } from "./terminal/tmux.ts";
 
@@ -47,16 +49,22 @@ export type SpawnCapability =
   | { canSpawn: false; reason: string; fix: string };
 
 /**
- * Can this daemon process drive tmux?
+ * Can this daemon process realize a spawn under `config`?
  *
- * The full answer: tmux reachability (`probeTmuxCapability`), then whether the
- * config names a usable terminal (`terminalChoiceCapability`) and a spawnable
- * default harness (`harnessCapability`).
+ * The full answer: whether the config names a known terminal
+ * (`terminalChoiceCapability`), whether this process can drive it
+ * (`probeTerminalCapability` — tmux reachable, or herdr installed, new enough and
+ * compatible), and a spawnable default harness (`harnessCapability`).
  */
-export function probeSpawnCapability(config: TeamConfig, exec: TmuxExec = realTmux): SpawnCapability {
-  const tmux = probeTmuxCapability(exec);
-  if (!tmux.canSpawn) return tmux;
-  const terminal = terminalChoiceCapability(config);
+export function probeSpawnCapability(
+  config: TeamConfig,
+  exec: TmuxExec = realTmux,
+  opts: TerminalBackendOptions = {},
+): SpawnCapability {
+  const choice = terminalChoiceCapability(config);
+  if (!choice.canSpawn) return choice;
+  const backend = createTerminalBackend(resolveTerminal(config), terminalOptions(config, { tmuxExec: exec, ...opts }));
+  const terminal = probeTerminalCapability(backend);
   return terminal.canSpawn ? harnessCapability(config) : terminal;
 }
 
@@ -81,13 +89,14 @@ export function probeTerminalCapability(backend: TerminalBackend): SpawnCapabili
 }
 
 /**
- * Does the config name a terminal this version of mpt can open windows in?
+ * Does the config name a terminal this version of mpt knows?
  *
  * A property of config, like `harnessCapability`, so re-checked on every use: the
- * Config page switches `terminal` live, and the startup probe (`probeTmuxCapability`)
- * only answers for tmux. Refuses an unknown value (a hand-edited config.json) and a
- * known but unimplemented one (herdr, for now) — never silently falling back to
- * tmux, which would open windows somewhere the user didn't choose.
+ * Config page switches `terminal` live. Refuses an unknown value (a hand-edited
+ * config.json) — never silently falling back to tmux, which would open windows
+ * somewhere the user didn't choose. Whether the named backend can actually run here
+ * is `probeTerminalCapability`'s question (cached per kind by
+ * `cachedTerminalCapability`).
  */
 export function terminalChoiceCapability(config: Partial<Pick<TeamConfig, "terminal">>): SpawnCapability {
   const configured: unknown = config.terminal;
@@ -98,8 +107,38 @@ export function terminalChoiceCapability(config: Partial<Pick<TeamConfig, "termi
       fix: 'set Terminal in Config → General, or "terminal" in the team\'s config.json, to "tmux"',
     };
   }
-  const missing = terminalNotImplemented(resolveTerminal(config));
-  return missing ? { canSpawn: false, ...missing } : { canSpawn: true };
+  return { canSpawn: true };
+}
+
+/** How long a non-tmux backend's capability probe is reused (`cachedTerminalCapability`). */
+export const TERMINAL_PROBE_TTL_MS = 5_000;
+
+/**
+ * A capability probe for the configured terminal, cached for `ttlMs` per (kind,
+ * herdr session).
+ *
+ * tmux is probed once at startup (`probeTmuxCapability`); herdr can't be, because
+ * the Config page switches `terminal` live and herdr can be installed, upgraded or
+ * its server restarted while the daemon runs. But the spawn capability is read on
+ * every `/health`, team snapshot and pool pass, and each herdr probe is two process
+ * spawns — so the answer is kept for a few seconds. `make` builds the backend
+ * (tests: a fake exec).
+ */
+export function cachedTerminalCapability(
+  ttlMs = TERMINAL_PROBE_TTL_MS,
+  make: (config: Partial<TeamConfig>) => TerminalBackend = (config) =>
+    createTerminalBackend(resolveTerminal(config), terminalOptions(config)),
+  now: () => number = Date.now,
+): (config: Partial<TeamConfig>) => SpawnCapability {
+  const cache = new Map<string, { at: number; capability: SpawnCapability }>();
+  return (config) => {
+    const key = `${resolveTerminal(config)}\u0000${config.herdrSession ?? ""}`;
+    const hit = cache.get(key);
+    if (hit && now() - hit.at < ttlMs) return hit.capability;
+    const capability = probeTerminalCapability(make(config));
+    cache.set(key, { at: now(), capability });
+    return capability;
+  };
 }
 
 /**
@@ -274,11 +313,12 @@ export function agentsOnOtherTerminal(
  */
 export function focusMember(
   member: { name: string; metadata?: Record<string, unknown> },
-  config: Pick<TeamConfig, "tmuxSession" | "terminal">,
+  config: Pick<TeamConfig, "tmuxSession" | "terminal" | "herdrSession">,
   exec: TmuxExec = realTmux,
+  opts: TerminalBackendOptions = {},
 ): string | null {
   const { terminal: kind, session, window } = memberTerminal(member, config);
-  const terminal = createTerminalBackend(kind, { tmuxExec: exec });
+  const terminal = createTerminalBackend(kind, terminalOptions(config, { tmuxExec: exec, ...opts }));
   try {
     if (terminal.focusWindow(terminal.windowRef(session, window))) return null;
   } catch (e) {
@@ -316,6 +356,9 @@ export interface RealizeDeps {
   mpt?: string[];
   /** A fake tmux for tests; backends are `createTerminalBackend(kind, { tmuxExec })`. */
   exec?: TmuxExec;
+  /** A fake herdr for tests (and how it starts a server), like `exec` for tmux. */
+  herdrExec?: HerdrExec;
+  herdrLaunch?: HerdrLaunch;
   /** Clock, injectable for tests. */
   now?: () => number;
   /** Dismiss interrupts in flight; injectable so tests don't share module state. */
@@ -357,7 +400,10 @@ export function realizePending(
   const backends = new Map<TerminalKind, TerminalBackend>();
   const backendFor = (kind: TerminalKind): TerminalBackend => {
     let backend = backends.get(kind);
-    if (!backend) backends.set(kind, backend = createTerminalBackend(kind, { tmuxExec: deps.exec }));
+    if (!backend) {
+      const opts = terminalOptions(deps.config, { tmuxExec: deps.exec, herdrExec: deps.herdrExec, herdrLaunch: deps.herdrLaunch });
+      backends.set(kind, backend = createTerminalBackend(kind, opts));
+    }
     return backend;
   };
   const realized: string[] = [];
@@ -366,9 +412,14 @@ export function realizePending(
 
   const tmuxUnreachable = capabilityError(deps.tmux ?? { canSpawn: true });
   // Why a backend can't be used: tmux's startup probe, else the backend's own answer
-  // (herdr's "not available yet"), never re-probing tmux per directive.
-  const unusable = (kind: TerminalKind): string | null =>
-    kind === "tmux" ? tmuxUnreachable : capabilityError(probeTerminalCapability(backendFor(kind)));
+  // (herdr: not installed, too old, an incompatible server), probed once per pass
+  // and never re-probing tmux per directive.
+  const probed = new Map<TerminalKind, string | null>();
+  const unusable = (kind: TerminalKind): string | null => {
+    if (kind === "tmux") return tmuxUnreachable;
+    if (!probed.has(kind)) probed.set(kind, capabilityError(probeTerminalCapability(backendFor(kind))));
+    return probed.get(kind)!;
+  };
 
   for (const directive of store.getLeaderDirectives()) {
     if (directive.action !== "spawn" && directive.action !== "dismiss") continue;

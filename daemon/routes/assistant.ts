@@ -101,7 +101,7 @@ export function registerAssistantRoutes(ctx: RouteContext): void {
       teamDir: ctx.teamDir,
       daemonUrl: store.getDaemonUrl(),
       mpt: mptInvocation(),
-      tmux: store.getTmuxCapability(),
+      tmux: store.getTerminalCapability(),
       leaderOnline: store.getLeader() !== null,
     });
     if (result.status === "error") {

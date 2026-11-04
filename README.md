@@ -270,9 +270,10 @@ most of it is editable on the **Config** page. Minimal:
 
   // ─── Team ──────────────────────────────────────────────────────
   "tmuxSession": "my-pizza-team",        // The team's session (tmux) / workspace (herdr) name
-  "terminal": "tmux",                    // tmux (default) or herdr (accepted, not available yet).
+  "terminal": "tmux",                    // tmux (default) or herdr (≥ 0.9.5; docs/herdr.md).
                                          // A switch applies to new windows only; running agents
                                          // are still dismissed/focused where they started.
+  "herdrSession": "default",             // herdr only: the herdr session (server); unset = herdr's default.
   "maxTeammates": 4,
   "minTeammates": 2,                     // Declared team size (omit = half of maxTeammates; 0 = none)
   "agentTimeoutSeconds": 90,             // Silence before an agent is reaped

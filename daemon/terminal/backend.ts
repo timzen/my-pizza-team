@@ -9,10 +9,9 @@
  * leader (`mpt assistant`), and `mpt doctor` reports which server it talks to. This
  * interface is exactly that set and no more, so a second backend (herdr, docs/herdr.md)
  * is one more implementation rather than a branch in every caller. tmux
- * (daemon/terminal/tmux.ts) is today's only working implementation;
- * `getTerminalBackend` (daemon/terminal/index.ts) picks the one the team's
- * `terminal` config names, and herdr is, for now, a stand-in that is never
- * available (daemon/terminal/unavailable.ts).
+ * (daemon/terminal/tmux.ts) is the default; herdr (daemon/terminal/herdr.ts) the
+ * alternative. `getTerminalBackend` (daemon/terminal/index.ts) picks the one the
+ * team's `terminal` config names.
  *
  * Windows are addressed by **label** — `(session, window)`, the names the user sees
  * and agents report as `terminalSession`/`terminalWindow` metadata (before herdr,
@@ -59,16 +58,22 @@ export interface OpenWindowOptions {
 
 /** The result of `openWindow`: the window's handle, and whether it was just created. */
 export interface OpenedWindow {
-  /** False when a window with that label already existed; nothing was run then. */
+  /**
+   * False when a live window with that label already existed; nothing was run then.
+   * (herdr: an existing tab whose pane runs only its shell — restored by a server
+   * restart without its process — gets the command run into it, and counts as created.)
+   */
   created: boolean;
   ref: WindowRef;
 }
 
 /**
- * Why a backend can't be used from this process: absent, not allowed to run, or
- * not implemented by this version of mpt (herdr, until its backend lands).
+ * Why a backend can't be used from this process: absent, not allowed to run, a
+ * version mpt doesn't support (herdr older than its minimum, or a server
+ * incompatible with its CLI), or a setting the backend can't take (an invalid
+ * herdr session name).
  */
-export type TerminalUnavailableReason = "none" | "not-installed" | "not-permitted" | "not-implemented";
+export type TerminalUnavailableReason = "none" | "not-installed" | "not-permitted" | "unsupported-version" | "misconfigured";
 
 /** A control key that must be sent as a key, not typed as text. */
 export type ControlKey = "C-c";

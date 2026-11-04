@@ -26,13 +26,20 @@ import type { DatabaseSync } from "node:sqlite";
 import {
   generateTeammateName,
   resolveMinTeammates,
+  resolveTerminal,
   type Member,
   type MemberSessionStats,
   type TeamConfig,
   type WorkItemState,
 } from "../../shared/types.ts";
 import { normalizeDirectory } from "../../shared/directory.ts";
-import { capabilityError, harnessCapability, terminalChoiceCapability, type SpawnCapability } from "../spawner.ts";
+import {
+  cachedTerminalCapability,
+  capabilityError,
+  harnessCapability,
+  terminalChoiceCapability,
+  type SpawnCapability,
+} from "../spawner.ts";
 import { assistantStartability, type AssistantStartability } from "../leader-start.ts";
 import type { StoreDomainContext } from "./domain.ts";
 
@@ -142,6 +149,12 @@ export class MemberStore {
    * nobody probed (tests, tools) assumes it can.
    */
   private tmuxCapability: SpawnCapability = { canSpawn: true };
+  /**
+   * Can this process drive the configured terminal when it isn't tmux (herdr)?
+   * Probed on use, cached for a few seconds (daemon/spawner.ts
+   * `cachedTerminalCapability`); replaceable for tests.
+   */
+  private terminalProbe: (config: TeamConfig) => SpawnCapability = cachedTerminalCapability();
 
   constructor(ctx: StoreDomainContext, deps: MemberStoreDeps) {
     this.db = ctx.db;
@@ -444,17 +457,32 @@ export class MemberStore {
     this.tmuxCapability = capability;
   }
 
+  /** Replace the non-tmux terminal probe (tests: a fake herdr's answer). */
+  setTerminalProbe(probe: (config: TeamConfig) => SpawnCapability): void {
+    this.terminalProbe = probe;
+  }
+
+  /**
+   * Can this daemon process drive the *configured* terminal? tmux: the startup
+   * probe; herdr: its own (cached) probe — installed, new enough, a compatible
+   * server. What spawning and the assistant start both need.
+   */
+  getTerminalCapability(): SpawnCapability {
+    return resolveTerminal(this.config) === "tmux" ? this.tmuxCapability : this.terminalProbe(this.config);
+  }
+
   /**
    * Can this daemon realize a spawn of `harness` (default: the team's default
-   * harness)? The configured terminal first (`terminalChoiceCapability`: known and
-   * implemented), then tmux reachability (only when that terminal is tmux), then the
-   * live config's harness checks — re-evaluated on every call, since the Config page
-   * changes the terminal and the harness live.
+   * harness)? The configured terminal first (`terminalChoiceCapability`: one mpt
+   * knows), then whether this process can drive it (`getTerminalCapability`), then
+   * the live config's harness checks — re-evaluated on every call, since the Config
+   * page changes the terminal and the harness live.
    */
   getSpawnCapability(harness?: string): SpawnCapability {
     const terminal = terminalChoiceCapability(this.config);
     if (!terminal.canSpawn) return terminal;
-    if (!this.tmuxCapability.canSpawn) return this.tmuxCapability;
+    const reachable = this.getTerminalCapability();
+    if (!reachable.canSpawn) return reachable;
     return harnessCapability(harness ? { ...this.config, defaultHarness: harness } : this.config);
   }
 
@@ -473,7 +501,7 @@ export class MemberStore {
    * like `getSpawnCapability`.
    */
   getAssistantStartability(): AssistantStartability {
-    return assistantStartability(this.config, this.tmuxCapability);
+    return assistantStartability(this.config, this.getTerminalCapability());
   }
 
   /** Create a directive targeting an existing member. Null if the member is unknown. */

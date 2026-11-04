@@ -36,10 +36,17 @@ export interface TeamConfig {
    * Unset = `"tmux"` (`resolveTerminal`). Applies to *new* windows only: an agent
    * already running stays in the terminal it was started under, and dismiss/focus
    * address it there (its `terminal` metadata), so switching never strands a
-   * window. `"herdr"` is accepted but not available yet — spawns and the assistant
-   * start are refused with that reason until the herdr backend lands.
+   * window. `"herdr"` needs herdr ≥ 0.9.5 on the daemon's PATH (daemon/terminal/herdr.ts,
+   * docs/herdr.md); without it spawns are refused with the reason and fix.
    */
   terminal?: TerminalKind;
+  /**
+   * The herdr session (server) agent windows open in when `terminal` is `"herdr"`.
+   * Unset = herdr's default session, the one plain `herdr` attaches to; a name
+   * (letters, digits, `.`, `_`, `-`) gives the team its own server, attached with
+   * `herdr session attach <name>`. config.json only — not on the Config page.
+   */
+  herdrSession?: string;
   /** Built-in default workflows (used when no workflows/ directory exists). */
   workflows?: Record<string, WorkflowConfig>;
   defaultWorkflow: string;
@@ -905,9 +912,8 @@ export const DEFAULT_TMUX_SESSION = "my-pizza-team";
 
 /**
  * The terminal backends a team can choose (`TeamConfig.terminal`). tmux is the
- * default and the only one implemented so far; herdr (docs/herdr.md) is accepted in
- * config and refused with a "not available yet" capability error until its backend
- * lands (daemon/terminal/index.ts).
+ * default; herdr (docs/herdr.md, daemon/terminal/herdr.ts) is the alternative
+ * (daemon/terminal/index.ts picks one).
  */
 export const TERMINAL_KINDS = ["tmux", "herdr"] as const;
 

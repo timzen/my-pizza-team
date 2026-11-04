@@ -31,8 +31,9 @@
  *   - /health names the tmux server the daemon talks to — the sandbox's own,
  *     resolved from TMUX_TMPDIR like the user's default server;
  *   - switching the team's `terminal` applies to new windows only: a teammate
- *     started under tmux is still focused and dismissed there, and herdr (not
- *     available yet) refuses new spawns with the reason.
+ *     started under tmux is still focused and dismissed there, and new spawns open
+ *     in herdr (the sandbox's isolated one, tests/e2e/_herdr.ts) — or, on a host
+ *     without herdr, are refused with herdr's reason.
  *
  * Agent commands are stand-ins (`echo … ; sleep`), since there is no LLM here. These
  * test mpt's mechanics — windows, directives, statuses — not agent behaviour.
@@ -43,6 +44,7 @@ import * as path from "node:path";
 import { test } from "node:test";
 import { assertEquals, assertStringIncludes } from "../_assert.ts";
 import { hasTmux, sandbox, type Sandbox } from "./_sandbox.ts";
+import { hasHerdr, herdrSandbox } from "./_herdr.ts";
 import { MIN_PROTOCOL_VERSION, PROTOCOL_VERSION } from "../../shared/protocol.ts";
 
 /**
@@ -434,13 +436,16 @@ test("a dismiss closes the teammate's window once it has exited", { skip: !hasTm
 test("switching the team's terminal applies to new windows only: a tmux teammate is still dismissed in tmux", { skip: !hasTmux() }, async () => {
   // Story "herdr as an alternative terminal backend", task 3: dismiss/focus use the
   // backend an agent was started under (its `terminal` metadata), not the current
-  // config, and selecting herdr (not available yet) refuses new spawns with the reason.
+  // config, and new spawns open in herdr (task 4) — never in tmux.
+  const herdr = hasHerdr();
+  await using hs = await herdrSandbox();
   await using sb = await sandbox("terminal-switch");
   sb.writeTeamConfig({
     minTeammates: 0,
+    herdrSession: hs.session, // used once the switch below selects herdr
     harnesses: { pi: { ...HARNESSES.pi, teammate: "echo SPAWNED-$((40+2)) name={name} term={terminal} at={terminalSession}:{terminalWindow}; sleep 30" } },
   });
-  await sb.startDaemon();
+  await sb.startDaemon("cli", { env: hs.daemonEnv });
 
   const created = await api<{ directive: { params: { name: string } } }>(
     sb, "/api/leader/directives", { action: "spawn", params: { cwd: sb.projectDir } },
@@ -463,12 +468,25 @@ test("switching the team's terminal applies to new windows only: a tmux teammate
   const health = await api<{ terminal: string; spawning: { canSpawn: boolean; reason?: string }; agentsOnOtherTerminal: unknown }>(sb, "/health", undefined, "GET");
   assertEquals(health.terminal, "herdr");
   assertEquals(health.agentsOnOtherTerminal, [{ name, terminal: "tmux" }]);
-  assertStringIncludes(health.spawning.reason ?? "", "herdr terminal backend is not available yet");
+  assertEquals(health.spawning.canSpawn, herdr, health.spawning.reason);
 
-  // A new spawn is refused with the reason — never opened in tmux instead.
+  // A new spawn opens in herdr (or, without herdr, is refused with its reason) —
+  // never in tmux instead.
   await api(sb, "/api/leader/directives", { action: "spawn", params: { name: "new-one", cwd: sb.projectDir } });
-  const spawns = await api<{ failed: Array<{ error: string }> }>(sb, "/api/spawn-requests", undefined, "GET");
-  assertStringIncludes(spawns.failed.map((f) => f.error).join("\n"), "not available yet");
+  if (herdr) {
+    const herdrTabs = () => {
+      const ws = (hs.herdr(["workspace", "list"]).json as { result?: { workspaces?: Array<{ label: string; workspace_id: string }> } })
+        ?.result?.workspaces?.find((w) => w.label === sb.session);
+      if (!ws) return [];
+      return ((hs.herdr(["tab", "list", "--workspace", ws.workspace_id]).json as { result?: { tabs?: Array<{ label: string }> } })
+        ?.result?.tabs ?? []).map((t) => t.label);
+    };
+    assertEquals(await sb.waitFor(() => herdrTabs().includes("new-one"), 15_000), true, `no herdr tab: ${herdrTabs()}`);
+  } else {
+    assertStringIncludes(health.spawning.reason ?? "", "herdr");
+    const spawns = await api<{ failed: Array<{ error: string }> }>(sb, "/api/spawn-requests", undefined, "GET");
+    assertStringIncludes(spawns.failed.map((f) => f.error).join("\n"), "herdr");
+  }
   assertEquals((await windows(sb)).includes("new-one"), false);
 
   // Focus and dismiss of the tmux-started teammate still reach its tmux window.

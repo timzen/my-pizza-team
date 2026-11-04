@@ -1,11 +1,12 @@
 # herdr as a terminal backend — spike findings
 
-Status: **spike** (story "herdr as an alternative terminal backend", task 1). No
-production code drives herdr yet: a team can already select it (`"terminal": "herdr"`,
-task 3), but that only gets a never-available stand-in backend
-(`daemon/terminal/unavailable.ts`), so spawns and the assistant start are refused with
-"not available yet" until the herdr backend lands (task 4). This page records what herdr 0.9.5 was verified to do
-and the decisions the later tasks build on. The proof is
+Status: **implemented** in `daemon/terminal/herdr.ts` (story "herdr as an alternative
+terminal backend", task 4): with `"terminal": "herdr"` the daemon spawns, focuses and
+dismisses teammates in herdr, in the session `herdrSession` names (default: herdr's
+default session). `mpt assistant`'s attach, `mpt doctor`'s herdr checks, and the
+systemd placement below are still to come (task 5). [`tests/e2e/herdr-backend.test.ts`](../tests/e2e/herdr-backend.test.ts)
+drives it through the daemon on an isolated herdr. This page records what herdr 0.9.5 was verified to do
+(task 1's spike) and the decisions the backend follows. The proof is
 [`tests/e2e/herdr-contract.test.ts`](../tests/e2e/herdr-contract.test.ts), run against an
 isolated server ([`tests/e2e/_herdr.ts`](../tests/e2e/_herdr.ts)), with every JSON
 response recorded in [`tests/fixtures/herdr/`](../tests/fixtures/herdr/).
@@ -46,7 +47,7 @@ fields mpt reads are still there with the same types.
 - **Server/session:** herdr's **default session** by default — the daemon passes
   `--session default` explicitly on every call (it beats an inherited
   `HERDR_SOCKET_PATH`, which herdr injects into every pane; verified). A team may name
-  another session in config for isolation. *Why:* it is the tmux mapping — one
+  another session in config for isolation (`herdrSession`). *Why:* it is the tmux mapping — one
   user-level server that plain `herdr` attaches to, each team a named container in it
   — and one server process serves every team. A named session per team would also
   work (verified: each is a separate server and socket under

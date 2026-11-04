@@ -104,9 +104,13 @@ A teammate not seeing a variable? See
 
 Teammates and the assistant each run in a window the daemon opens in a terminal
 multiplexer. **Config → General → Terminal** (`terminal` in config.json) picks which
-one: **tmux** (the default) or **herdr**. herdr isn't available yet in this version:
-picking it saves, but new teammates and the assistant won't start until you pick
-tmux again (the Team tab and `mpt doctor` say why).
+one: **tmux** (the default) or **[herdr](https://herdr.dev)**. herdr needs version
+0.9.5 or later on the daemon's PATH; without it, new teammates and the assistant
+won't start (the Team tab and `mpt doctor` say why, and how to fix it). With herdr,
+the team is a workspace in herdr's default session (open it with `herdr`), each
+agent a tab; the daemon starts herdr's server if it isn't running. To give the team
+its own herdr server instead, set `herdrSession` in config.json to a name (letters,
+digits, `.`, `_`, `-`) and open it with `herdr session attach <name>`.
 
 A change applies to **new** windows only. Agents already running stay where they
 were started, and dismissing one or hopping to it (`/ppt-hop`) still works there.

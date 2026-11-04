@@ -27,8 +27,8 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 
-/** The herdr this contract was verified against (docs/herdr.md "Version gating"). */
-export const MIN_HERDR_VERSION = "0.9.5";
+/** The herdr this contract was verified against (docs/herdr.md "Version gating"), as the backend gates on it. */
+export { MIN_HERDR_VERSION } from "../../daemon/terminal/herdr.ts";
 
 /** One herdr CLI invocation: exit code, raw streams, and stdout parsed as JSON when it is JSON. */
 export interface HerdrResult {
@@ -48,11 +48,20 @@ export interface HerdrSandbox extends AsyncDisposable {
   session: string;
   /** The environment every call runs with (no inherited `HERDR_*`). */
   env: Record<string, string>;
+  /**
+   * What a daemon (or `mpt`) needs on top of its own environment to reach *this*
+   * herdr world: the config and state directories. Its herdr session goes in the
+   * team's config (`herdrSession: session`).
+   */
+  daemonEnv: Record<string, string>;
   /** Run `herdr --session <session> <args>`. `extraEnv` is layered on `env`. */
   herdr(args: string[], extraEnv?: Record<string, string>): HerdrResult;
   /** Start `herdr server` for the session in the background and wait until it answers. */
   startServer(extraEnv?: Record<string, string>): Promise<void>;
-  /** Stop the server (`server stop`) and wait for its process to exit. */
+  /**
+   * Stop the server (`server stop`) and wait for it to stop answering — whether this
+   * sandbox or a daemon started it — killing it by its unique session name if it won't.
+   */
   stopServer(): Promise<void>;
   /** Poll until `check` is true or the timeout passes. Returns whether it became true. */
   waitFor(check: () => boolean, timeoutMs?: number): Promise<boolean>;
@@ -145,6 +154,11 @@ export async function herdrSandbox(): Promise<HerdrSandbox> {
     configDir,
     session,
     env,
+    daemonEnv: {
+      XDG_CONFIG_HOME: env["XDG_CONFIG_HOME"]!,
+      XDG_STATE_HOME: env["XDG_STATE_HOME"]!,
+      HERDR_CONFIG_PATH: env["HERDR_CONFIG_PATH"]!,
+    },
 
     herdr(args, extraEnv = {}) {
       // `--session` first, on every call: the belt to the XDG braces above.
@@ -179,6 +193,12 @@ export async function herdrSandbox(): Promise<HerdrSandbox> {
 
     async stopServer() {
       sb.herdr(["server", "stop"]);
+      const stopped = await sb.waitFor(() => sb.herdr(["status", "server", "--json"]).json?.["running"] !== true, 5000);
+      if (!stopped) {
+        // A server someone else (the daemon) launched: no child handle, so find it by
+        // its random session name — which no other herdr on the host can have.
+        spawnSync("pkill", ["-KILL", "-f", `herdr --session ${session} server`], { stdio: "ignore" });
+      }
       if (alive()) {
         const exited = new Promise((r) => server!.once("exit", r));
         const gone = await Promise.race([exited.then(() => true), new Promise((r) => setTimeout(() => r(false), 5000))]);

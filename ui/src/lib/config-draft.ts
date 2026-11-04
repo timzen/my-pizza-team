@@ -107,7 +107,7 @@ export function harnessOptions(harnesses: ConfigData["harnesses"]): Array<{ valu
 /** The terminal backends the Terminal picker offers (shared/types.ts `TERMINAL_KINDS`); tmux first, the default. */
 export const TERMINAL_OPTIONS: Array<{ value: "tmux" | "herdr"; label: string }> = [
   { value: "tmux", label: "tmux (default)" },
-  { value: "herdr", label: "herdr (not available yet)" },
+  { value: "herdr", label: "herdr" },
 ];
 
 /**

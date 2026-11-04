@@ -4,8 +4,8 @@
  *
  * Every caller that opens, types into, closes, focuses or attaches to a window —
  * the spawner, the leader start, the focus route, `mpt assistant`, `mpt doctor`,
- * daemon startup — gets its backend here rather than importing tmux directly, so a
- * second backend (docs/herdr.md) is a choice made in one place.
+ * daemon startup — gets its backend here rather than importing tmux or herdr
+ * directly, so the choice is made in one place.
  *
  * Two entry points, because there are two questions:
  *
@@ -17,44 +17,45 @@
  *     more: switching the setting applies to new windows only, and dismiss/focus
  *     of the old ones still go to the old backend.
  *
- * tmux is the only backend implemented. herdr is accepted in config but is, for
- * now, a backend that is never available (daemon/terminal/unavailable.ts), so
- * selecting it refuses spawns and the assistant start with a clear "not available
- * yet" reason instead of silently opening tmux windows.
+ * tmux (daemon/terminal/tmux.ts) is the default; herdr (daemon/terminal/herdr.ts,
+ * docs/herdr.md) talks to the herdr session `TeamConfig.herdrSession` names.
  */
 
 import { resolveTerminal, type TeamConfig, type TerminalKind } from "../../shared/types.ts";
 import type { TerminalBackend } from "./backend.ts";
+import { createHerdrBackend, type HerdrExec, type HerdrLaunch } from "./herdr.ts";
 import { createTmuxBackend, realTmux, type TmuxExec } from "./tmux.ts";
-import { createUnavailableBackend, type UnavailableBackendReason } from "./unavailable.ts";
 
 export type * from "./backend.ts";
 
-/** Overrides for tests: a fake `TmuxExec` instead of the real `tmux`. */
+/** Which herdr server to use, and fakes for tests (a `TmuxExec` / `HerdrExec` instead of the real CLIs). */
 export interface TerminalBackendOptions {
   tmuxExec?: TmuxExec;
-}
-
-/**
- * Why a terminal kind can't be driven by this version of mpt at all (as opposed to
- * a backend that is implemented but not installed), or null when it can. Today:
- * herdr, until its backend lands.
- */
-export function terminalNotImplemented(kind: TerminalKind): UnavailableBackendReason | null {
-  if (kind === "herdr") {
-    return {
-      reason: "the herdr terminal backend is not available yet in this version of mpt",
-      fix: 'set Terminal back to "tmux" in Config → General (or remove "terminal" from the team\'s config.json)',
-    };
-  }
-  return null;
+  herdrExec?: HerdrExec;
+  /** How the herdr backend starts a server (tests: record instead of spawning). */
+  herdrLaunch?: HerdrLaunch;
+  /** The herdr session (`TeamConfig.herdrSession`); unset = herdr's default session. */
+  herdrSession?: string;
 }
 
 /** The backend for one terminal kind — for a window recorded under it, or for new windows. */
 export function createTerminalBackend(kind: TerminalKind, opts: TerminalBackendOptions = {}): TerminalBackend {
-  const missing = terminalNotImplemented(kind);
-  if (missing) return createUnavailableBackend(kind, kind, missing);
+  if (kind === "herdr") {
+    return createHerdrBackend({ session: opts.herdrSession, exec: opts.herdrExec, launch: opts.herdrLaunch });
+  }
   return createTmuxBackend(opts.tmuxExec ?? realTmux);
+}
+
+/**
+ * The options a team's config implies (its herdr session), with `opts` on top —
+ * what every caller with a config passes to `createTerminalBackend`.
+ */
+export function terminalOptions(
+  config: Partial<Pick<TeamConfig, "herdrSession">> | undefined,
+  opts: TerminalBackendOptions = {},
+): TerminalBackendOptions {
+  const herdrSession = opts.herdrSession ?? config?.herdrSession;
+  return herdrSession ? { ...opts, herdrSession } : opts;
 }
 
 /**
@@ -66,5 +67,5 @@ export function getTerminalBackend(
   config?: Partial<TeamConfig>,
   opts: TerminalBackendOptions = {},
 ): TerminalBackend {
-  return createTerminalBackend(resolveTerminal(config), opts);
+  return createTerminalBackend(resolveTerminal(config), terminalOptions(config, opts));
 }

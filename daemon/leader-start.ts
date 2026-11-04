@@ -24,6 +24,7 @@ import { resolveTemplates, terminalChoiceCapability, type SpawnCapability } from
 import { getTerminalBackend } from "./terminal/index.ts";
 import { renderTemplate, type TemplateVars, unresolvedPlaceholders } from "./terminal/template.ts";
 import type { TmuxExec } from "./terminal/tmux.ts";
+import type { HerdrExec, HerdrLaunch } from "./terminal/herdr.ts";
 
 /** Whether the assistant can be started from here; when not, why and how to fix it. */
 export type AssistantStartability =
@@ -66,9 +67,13 @@ export interface LeaderStartDeps {
   /** How to run this mpt, for a template using `{mpt}` (daemon/self.ts). */
   mpt?: string[];
   exec?: TmuxExec;
+  /** A fake herdr for tests (and how it starts a server), like `exec` for tmux. */
+  herdrExec?: HerdrExec;
+  herdrLaunch?: HerdrLaunch;
   /**
-   * Can this process reach tmux (daemon/spawner.ts probeTmuxCapability)? Absent =
-   * reachable. The daemon passes its startup probe; `mpt lead` checks tmux itself.
+   * Can this process drive the configured terminal? Named for history: the daemon
+   * passes `Store.getTerminalCapability()` (tmux's startup probe, or herdr's probe).
+   * Absent = reachable; `mpt lead` checks the backend itself.
    */
   tmux?: SpawnCapability;
   /**
@@ -91,8 +96,8 @@ export function leaderCwd(teamDir: string): string {
 
 /**
  * Can the assistant be started, as far as can be told without starting it? The
- * configured terminal must be one mpt can drive (`terminalChoiceCapability`), tmux
- * must be reachable (when that terminal is tmux), the default harness must have a `leader` template, and the
+ * configured terminal must be one mpt knows (`terminalChoiceCapability`) and
+ * this process able to drive it (`tmux`: the configured terminal's capability), the default harness must have a `leader` template, and the
  * template must have no unknown placeholders. Cheap and side-effect free, so the
  * daemon reports it on every `/health` and `/api/teammate-pool` read, which is how
  * the UI decides between a Start button and the reason it can't offer one.
@@ -117,7 +122,7 @@ export function assistantStartability(config: TeamConfig, tmux: SpawnCapability 
  * doesn't stop the leader: it starts without it, and `envWarning` says why.
  */
 export function startLeader(deps: LeaderStartDeps): LeaderStartResult {
-  const terminal = getTerminalBackend(deps.config, { tmuxExec: deps.exec });
+  const terminal = getTerminalBackend(deps.config, { tmuxExec: deps.exec, herdrExec: deps.herdrExec, herdrLaunch: deps.herdrLaunch });
   const session = leaderSession(deps.config);
   const cwd = leaderCwd(deps.teamDir);
   if (deps.leaderOnline) return { status: "already-running", session, window: LEADER_WINDOW, cwd };
@@ -150,7 +155,7 @@ export function startLeader(deps: LeaderStartDeps): LeaderStartResult {
     return {
       status: "error",
       code: "tmux-failed",
-      reason: `tmux could not open ${session}:${LEADER_WINDOW}: ${(e as Error).message}`,
+      reason: `${terminal.displayName} could not open ${session}:${LEADER_WINDOW}: ${(e as Error).message}`,
       fix: "run `mpt doctor` to check tmux and the daemon's tmux server",
     };
   }
@@ -158,7 +163,9 @@ export function startLeader(deps: LeaderStartDeps): LeaderStartResult {
 
 /**
  * The checks both `assistantStartability` and `startLeader` make, in order: the
- * configured terminal usable (herdr: not available yet), tmux reachable, a leader template for the default harness, no unknown placeholders.
+ * configured terminal known, this process able to drive it (`tmux` — despite the name, the
+ * configured terminal's capability: tmux's startup probe or herdr's), a leader template for
+ * the default harness, no unknown placeholders.
  * Returns the rendered command, or the first failure's reason and fix.
  *
  * Templates are the built-ins overridden harness by harness (`resolveTemplates`),

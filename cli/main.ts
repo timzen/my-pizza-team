@@ -379,7 +379,7 @@ async function cmdLead(args: string[]): Promise<void> {
       console.error("❌ tmux is not available — the assistant runs in a tmux window.");
       console.error("   Install it (e.g. `brew install tmux`), then run `mpt doctor`.");
     } else {
-      // A terminal this mpt accepts in config but can't drive (herdr, for now).
+      // herdr: not installed, too old, or an incompatible server — its own reason and fix.
       const why = terminal.unavailable();
       console.error(`❌ ${why?.reason ?? `${terminal.displayName} is not available`}.`);
       if (why) console.error(`   Fix: ${why.fix}`);

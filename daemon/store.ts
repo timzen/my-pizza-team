@@ -990,6 +990,16 @@ export class Store {
     return this.members.getSpawnCapability(harness);
   }
 
+  /** Can this daemon process drive the configured terminal (tmux's startup probe, or herdr's)? See MemberStore.getTerminalCapability. */
+  getTerminalCapability(): SpawnCapability {
+    return this.members.getTerminalCapability();
+  }
+
+  /** Replace the non-tmux terminal probe (tests). See MemberStore.setTerminalProbe. */
+  setTerminalProbe(probe: (config: TeamConfig) => SpawnCapability): void {
+    this.members.setTerminalProbe(probe);
+  }
+
   /** Can this daemon process reach tmux at all (the startup probe)? See MemberStore.getTmuxCapability. */
   getTmuxCapability(): SpawnCapability {
     return this.members.getTmuxCapability();
