@@ -1983,6 +1983,19 @@ session control.
   started under the other backend are still online. The container name keeps its
   key, `tmuxSession`, for both backends rather than gaining an alias: renaming it
   would touch every config.json, `/health` reader and the menu bar app, for a word.
+- **tmux stays the default; herdr is an option, not a migration.** tmux is everywhere
+  mpt runs (macOS, Linux, WSL), every existing team and the menu bar app assume it,
+  and it needs no server management: a team that never touches `terminal` sees no
+  change. herdr is a terminal workspace manager built for coding agents: a JSON CLI
+  over a socket (no screen-scraping of `tmux` output formats, typed errors), a
+  workspace/tab UI meant for watching many agents, and its own agent-state
+  detection, which mpt doesn't use yet (TODO.md). What it costs is a server mpt may
+  have to start (`herdr server` doesn't daemonize), IDs it assigns rather than names
+  mpt chooses, and a restart that restores tabs but not their processes — each
+  handled in the backend, not its callers (docs/herdr.md). So it's the team's choice,
+  validated like any config, and a backend that can't run refuses with its reason
+  rather than falling back to the other one: a silent fallback would open windows
+  where the user isn't looking.
 
 ## The Agent Environment Is a File
 
@@ -1992,7 +2005,9 @@ an account id — live in one file the team names (`agentEnvFile`), in systemd's
 shell expansion. Every window mpt opens gets them: the daemon re-reads the file
 each time it opens a teammate's window, `mpt lead` reads it for the leader's, and
 both pass the variables with `tmux new-window -e` (or `new-session -e` for a fresh
-session's first window). `mpt install` points the systemd unit at the same file
+session's first window), or under herdr with `tab create --env` (`workspace create
+--env` for the first) — a herdr pane gets the server's environment plus `--env`, never
+the calling CLI's. `mpt install` points the systemd unit at the same file
 (`EnvironmentFile=-<path>`), so the daemon process has them too; launchd can't read
 one, so its plist gets the values copied in at install time.
 

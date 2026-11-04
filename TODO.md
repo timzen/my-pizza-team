@@ -12,6 +12,18 @@ number. Delete an item when it's done.
   recommends `systemd-run --user --collect` when `$INVOCATION_ID` is set; it needs the
   server's environment passed explicitly, since a pane gets the server's env.
 
+- **herdr's agent-state detection as a signal:** herdr detects what a pane's agent is
+  doing (working, waiting for input, done; docs at herdr.dev "agent automation") and
+  can report it per pane. mpt ignores it: liveness is the agent's own heartbeat, and
+  `daemon/terminal/herdr.ts` only uses `pane process-info` to tell a restored empty
+  shell from a running agent. A future signal could feed the Team tab ("waiting on a
+  prompt" for a teammate stuck at a permission question) or the reaper. It would be a
+  herdr-only optional `TerminalBackend` method, never required for correctness.
+- **macOS menu bar app's Launch Leader is tmux-only:** `desktop/macos/Sources/DaemonManager.swift`
+  still defaults to a `tmux new-session … pi --ppt-lead` template, starting the leader
+  outside the daemon. It should call `POST /api/assistant/start` (which picks the
+  team's terminal, tmux or herdr) and show its `attach` command.
+
 - **Helper copies outside `shared/`:** `harnesses/pi/src/leader.ts` writes
   `err instanceof Error ? err.message : String(err)` inline, because the Pi
   extension can't import `shared/`. (`ui/src/lib/structural.ts` keeps its own

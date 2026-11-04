@@ -83,12 +83,29 @@ tab) does it take you to that section's list.
 ## Troubleshooting
 
 Start with `mpt doctor` in a terminal: a read-only checklist with the fix for each
-problem. Two that come up:
+problem. Three that come up:
+
+**Nothing spawns, or no window shows up where you look.** The daemon opens every
+window in the team's [terminal](08-configuration.md#terminal), tmux or herdr, so check
+what `mpt doctor` says about it:
+
+- The **tmux** or **herdr** line: whether it's installed (herdr must be 0.9.5 or
+  later), its version, and whether its server is running (for herdr, also the
+  session). A herdr team doesn't need tmux, and a tmux team doesn't need herdr.
+- **Spawning**: ✗ with the daemon's reason and fix when it can't open windows (the
+  Team tab shows the same).
+- **tmux server** / **herdr server** ⚠: the daemon talks to a different server than
+  your shell, so its windows open where `tmux attach` (or `herdr`) doesn't look.
+  Usually the service started with a different `HOME`, `TMUX_TMPDIR` or
+  `XDG_CONFIG_HOME` than your shell.
+- **Terminal** ⚠: agents started before a switch of the Terminal setting are still
+  running in the other one. They work there; dismiss them to get replacements in
+  the new one.
 
 **A teammate doesn't see an environment variable** (say, an MCP server stays
 read-only). Put the variable in the [agent env file](08-configuration.md#agent-environment-file),
 not your shell's rc file or `tmux set-environment`: the daemon doesn't read your rc
-file, and a tmux server keeps the environment it started with, often weeks ago. Then:
+file, and a tmux (or herdr) server keeps the environment it started with, often weeks ago. Then:
 
 - `mpt doctor`'s **Agent env** line shows the file and how many variables it has, or
   why it can't be used (missing, or an invalid line — it names the line). A bad file

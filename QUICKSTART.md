@@ -3,6 +3,9 @@
 Get a π pizza team running in about five minutes.
 
 You'll need **tmux** (teammates run in tmux windows) and **Node.js 24+** (for mpt; Pi itself needs 22.19+).
+([herdr](https://herdr.dev) 0.9.5+ works instead of tmux: install it, then pick it in
+**Config → General → Terminal** once the daemon is running; see
+[Terminal](docs/guide/08-configuration.md#terminal).)
 Everything below runs in **your project folder** — the repository you want the team
 to work on.
 
@@ -14,8 +17,8 @@ mpt is an npm package and needs **Node.js 24 or later**:
 npm i -g my-pizza-team
 ```
 
-Windows works too (daemon and web UI, no background service); teammates need tmux,
-so run them under WSL. On macOS there is also an optional menu bar app (the DMG on
+Windows works too (daemon and web UI, no background service); teammates need tmux
+(or herdr), so run them under WSL. On macOS there is also an optional menu bar app (the DMG on
 [GitHub Releases](https://github.com/timzen/my-pizza-team/releases/latest)); it runs
 the mpt you installed with npm.
 
@@ -78,7 +81,7 @@ The daemon runs in the background and serves the web UI at
 checklist**, and its first step is **Start the assistant** — the agent you chat
 with. Click it; the daemon opens the assistant in a tmux window in your project
 folder, and the step ticks off once it connects (a few seconds). If the daemon
-can't start it (for example it can't reach tmux), the button is replaced by the
+can't start it (for example it can't reach tmux, or herdr), the button is replaced by the
 reason and the command that fixes it.
 
 The checklist then walks you through the rest — a first teammate, a one-click

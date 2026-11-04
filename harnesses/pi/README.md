@@ -2,7 +2,7 @@
 
 Because the industry has "two pizza teams" and "one pizza teams", but we're a **π pizza team** (3.14 pizzas, the perfect size).
 
-A [Pi](https://pi.mariozechner.at/) extension for multi-agent task orchestration. Connects to the [my-pizza-team daemon](https://github.com/timzen/my-pizza-team) for state management; the daemon runs each teammate in its own tmux window.
+A [Pi](https://pi.mariozechner.at/) extension for multi-agent task orchestration. Connects to the [my-pizza-team daemon](https://github.com/timzen/my-pizza-team) for state management; the daemon runs each teammate in its own terminal window (tmux, or herdr).
 
 ## What It Does
 
@@ -108,7 +108,7 @@ pi --ppt-worker
 | `/ppt-help` | Shows setup instructions (install mpt, run `mpt start`) |
 | `/ppt-spawn [name] [cwd]` | Ask the daemon to spawn a teammate (in its own tmux window); reports the name, or why the spawn failed |
 | `/ppt-dismiss <name>` | Stop a registered teammate (via the daemon, like the UI's dismiss; its window closes once it exits) |
-| `/ppt-hop <name>` | Jump to a teammate's tmux window (the daemon selects it) |
+| `/ppt-hop <name>` | Jump to a teammate's window — tmux window or herdr tab (the daemon selects it, in the terminal the teammate was started in) |
 | `/ppt-status` | Quick status summary from the daemon, with its teammates |
 | `/ppt-browse` | Show recently used directories for spawning |
 

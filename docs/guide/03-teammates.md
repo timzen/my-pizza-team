@@ -69,6 +69,11 @@ On the Assistant tab you can still see the team at a glance: the Team tab shows 
 many are online, and an amber dot when a team size can't be met (at-risk work shows
 in the queue strip instead). The collapsed dock shows everyone as avatars.
 
+To watch a teammate's own terminal, attach to the team's terminal (`tmux attach -t
+<session>`, or `herdr` under herdr) and switch to the window (tmux) or tab (herdr)
+with its name; from the assistant, `/ppt-hop <name>` brings it to the front. Under
+herdr the Team tab works the same: only the window it lives in differs.
+
 ## Watching a teammate
 
 Click a teammate to watch it work, live, in the middle of the page — its prompt, its

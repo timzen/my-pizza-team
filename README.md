@@ -3,7 +3,8 @@
 > A **π pizza team** (3.14 pizzas, the perfect size) — a daemon for multi-agent team coordination.
 
 Manages stories, tasks, workflows, and agent lifecycle, and runs a team of
-autonomous coding agents against them — each in its own tmux window you can watch.
+autonomous coding agents against them — each in its own terminal window you can watch
+(a tmux window by default, or a [herdr](https://herdr.dev) tab).
 Agents run on [Pi](https://pi.mariozechner.at/) today; see
 [Other harnesses](#other-harnesses) for what that means for anything else.
 
@@ -44,6 +45,38 @@ An empty list explains what goes there and offers the next step — **New story*
 **Ask the assistant**, **Spawn a teammate**, **Start the assistant** — and a list
 filtered down to nothing says so, with a way to clear the filters.
 Writing a plugin? See [docs/PLUGINS.md](docs/PLUGINS.md).
+
+## Requirements
+
+- **Node.js 24+** for mpt (Pi itself needs 22.19+), and [Pi](https://pi.mariozechner.at/).
+- **A terminal multiplexer** for the daemon to run agents in — one of:
+  - **tmux** (the default; any recent version), or
+  - **[herdr](https://herdr.dev) 0.9.5 or later**, a terminal workspace manager for
+    coding agents.
+
+  Only the one the team uses needs to be installed, on the daemon's PATH.
+
+**Choosing.** A team uses tmux unless it says otherwise: pick **herdr** in
+**Config → General → Terminal** (or set `"terminal": "herdr"` in
+`.my-pizza-team/config.json`). The switch applies to windows opened from then on;
+agents already running stay, and are dismissed, where they were started. Optionally
+set `herdrSession` to give the team its own herdr server. See
+[Terminal](docs/guide/08-configuration.md#terminal) and
+[docs/DESIGN.md](docs/DESIGN.md) "The Daemon Is the Supervisor" for why.
+
+**Watching the agents.** `mpt assistant` takes you to the assistant's window in
+either terminal, and `mpt assistant --no-attach` prints the command. By hand:
+
+| | tmux | herdr |
+|---|---|---|
+| Team container | session `<tmuxSession>` | workspace `<tmuxSession>` in session `herdrSession` (default: herdr's default) |
+| One agent | window, named `leader` or the teammate's name | tab, labelled the same |
+| Attach | `tmux attach -t <tmuxSession>` | `herdr` (default session) or `herdr session attach <herdrSession>` |
+| Detach | `Ctrl-b d` | `Ctrl-b q` |
+| From inside it | `mpt assistant` switches your client | `mpt assistant` focuses the tab |
+
+`mpt doctor` checks the team's terminal (installed, version, server, and that your
+shell talks to the same server as the daemon).
 
 ---
 
@@ -306,7 +339,7 @@ most of it is editable on the **Config** page. Minimal:
   "readinessProbe": "my-credentials-check",
 
   // Optional: variables every agent window gets (teammates and the leader), passed
-  // with `tmux new-window -e` and re-read at each spawn — no restart after an edit.
+  // with `tmux new-window -e` (herdr: `tab create --env`) and re-read at each spawn — no restart after an edit.
   // systemd EnvironmentFile syntax (KEY=value, # comments, optional quotes, no shell
   // expansion); ~ expanded, relative = the team dir. A bad file never blocks a spawn
   // (the window opens without it; `mpt doctor` says why). `mpt install` points the
@@ -699,7 +732,7 @@ versions — `mpt upgrade` moves both together.
 The **assistant** (internally the leader) is the Pi you chat with; the web UI's **Start the assistant** or `mpt assistant` starts it. **Teammates** are
 started by the daemon in their own windows (tmux, or herdr) and run an autonomous loop: poll →
 claim → execute → set state → repeat. The daemon is the only thing that opens and
-closes their windows: if it can't reach tmux (possible when it runs as a login
+closes their windows: if it can't reach the team's terminal (possible when it runs as a login
 service without your PATH), a spawn fails at once with the reason and a fix, shown
 in the Team tab, and `mpt doctor` fails its "Spawning" check. `mpt doctor` reports
 the team's terminal — its version and whether its server is running (for herdr, also
@@ -722,7 +755,7 @@ pi install ./harnesses/pi
 
 **Pi is the only fully supported harness.** Kiro and Claude Code can run as
 **experimental teammates**, over the [Agent Client Protocol](https://agentclientprotocol.com):
-`mpt agent` runs in the teammate's tmux window, starts the agent as a child speaking
+`mpt agent` runs in the teammate's terminal window, starts the agent as a child speaking
 ACP, and speaks the daemon's protocol for it. See
 [docs/DESIGN.md](docs/DESIGN.md#harness-tiers-and-why-not-mcp).
 
@@ -818,7 +851,7 @@ Full route table: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#api-routes)
 my-pizza-team/
 ├── main.ts            # The npm package's `mpt` entry (→ cli/main.ts; dist/main.js once built)
 ├── plugin/            # `my-pizza-team/plugin`: the types and constants plugin authors import
-├── daemon/            # HTTP server (Hono on @hono/node-server), Store, tmux supervisor
+├── daemon/            # HTTP server (Hono on @hono/node-server), Store, terminal supervisor (tmux / herdr)
 │   ├── server.ts      # Route orchestrator
 │   ├── store.ts       # SQLite index + file sync (a facade over domain modules in store/)
 │   └── routes/        # Route modules
@@ -854,7 +887,7 @@ Gates — all must pass before a commit:
 ```bash
 npm run check            # type-check daemon/, cli/, runtime/, shared/, scripts/, tests/ + generated files in step
 npm test                 # fast suite (seconds; node:test, Node >=24)
-npm run test:e2e         # real git, tmux, and shell — run before pushing
+npm run test:e2e         # real git, tmux, herdr (when installed), shell — before pushing
 npm run typecheck:ext    # the Pi extension
 npm run test:ext         # the Pi extension's suites
 (cd ui && npx tsc -b && npx eslint .)   # the web UI (lint includes jsx-a11y)
