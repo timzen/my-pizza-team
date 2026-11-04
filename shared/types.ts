@@ -952,7 +952,7 @@ export interface HarnessTemplates {
  * `mpt setup` has already trusted it.
  *
  * Both pass their tmux location so the agent reports it at registration, which is
- * how the daemon addresses the right window later (spawn, dismiss, reset-session).
+ * how the daemon addresses the right window later (dismiss, focus).
  */
 export const DEFAULT_HARNESS_TEMPLATES: Record<string, HarnessTemplates> = {
   pi: {

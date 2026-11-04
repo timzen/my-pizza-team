@@ -344,10 +344,11 @@ function teamToken(teamDir: string): string | null {
 /**
  * `mpt lead` — start the leader in tmux and attach to it.
  *
- * The leader is the agent you chat with, and it also realizes the daemon's spawn
- * asks, so a team with no leader has no way to grow and nobody answering
- * (docs/DESIGN.md "One Agent to Talk To"). Starting it was the last step
- * still done by hand.
+ * The leader is the agent you chat with, and the team pool waits for it before
+ * spawning, so a team with no leader has nobody answering and no teammates
+ * (docs/DESIGN.md "One Agent to Talk To", "Team Size: Declared, not Clicked").
+ * Its window is opened with the daemon's tmux module; the leader itself never
+ * touches tmux. Starting it was the last step still done by hand.
  *
  * This is also the first consumer of the daemon's tmux module (P3-1), deliberately in
  * the easy case: a foreground command with the user's own environment, so it exercises

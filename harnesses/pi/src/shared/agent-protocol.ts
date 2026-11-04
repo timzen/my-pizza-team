@@ -212,9 +212,13 @@ export interface AssistantInboxResponse {
   messages: AssistantInboxItem[];
 }
 
-// ─── Leader directives (the single daemon -> leader work queue) ──────
+// ─── Directives (asks to do something about an agent) ────────────────
 
-/** A directive is an ask to the leader: "do X about an agent" (spawn, reset-session, ...). */
+/**
+ * A directive is an ask to do something about an agent. The daemon realizes
+ * `spawn` and `dismiss` itself (it is the only terminal owner); the target agent
+ * realizes `new-session` / `resume-session`.
+ */
 export interface LeaderDirective {
   id: string;
   action: string;
@@ -222,9 +226,9 @@ export interface LeaderDirective {
   memberId?: string;
   /** Action params, e.g. spawn { name, cwd, storyId, reason }. */
   params: Record<string, unknown>;
-  /** Target member's opaque metadata (e.g. tmux window), resolved for the leader. */
+  /** Target member's opaque metadata (e.g. tmux window), resolved for the realizer. */
   metadata: Record<string, unknown>;
-  /** Only pending directives are listed; the rest are the states a leader (or the daemon) can set. */
+  /** Only pending directives are listed; the rest are the states its realizer (the daemon or the agent) can set. */
   status: "pending" | "done" | "failed" | "cancelled";
   createdAt: string;
 }
