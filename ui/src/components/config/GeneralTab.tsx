@@ -1,9 +1,9 @@
 /**
  * GeneralTab — Config → General (`/config`): the Work items feature toggles,
- * the Assistant card (chat mode + persona), Server, Scheduling, favorite
- * directories, and Autosave. Everything except the favorites and the
- * assistant's persona edits the page's config.json draft (ConfigPage), saved
- * with its Save Configuration button. Its non-obvious fields carry their
+ * the Assistant card (chat mode + persona), Server, Scheduling (the readiness
+ * probe and the agent env file), favorite directories, and Autosave.
+ * Everything except the favorites and the assistant's persona edits the page's
+ * config.json draft (ConfigPage), saved with its Save Configuration button. Its non-obvious fields carry their
  * one-line hints (components/ui/field-hint; copy in lib/field-help.ts).
  */
 
@@ -109,6 +109,21 @@ export function GeneralTab({ config, setConfig, saved, featureError }: {
           <FieldHint id="config-readiness-probe-hint" field="readinessProbe" />
           <p id="config-readiness-probe-detail" className="text-xs text-muted-foreground">
             Run by the leader. Exit 0 = ready; non-zero = not ready (stdout = reason). Held work fires once on recovery.
+          </p>
+          <div className="grid grid-cols-[160px_1fr] gap-3 items-center">
+            <Label htmlFor="config-agent-env-file">Agent Env File</Label>
+            <Input
+              id="config-agent-env-file"
+              value={config.agentEnvFile || ""}
+              onChange={(e) => update("agentEnvFile", e.target.value)}
+              placeholder="e.g. ~/.config/mpt/env"
+              className="max-w-[400px] font-mono text-xs"
+              aria-describedby="config-agent-env-file-hint config-agent-env-file-detail"
+            />
+          </div>
+          <FieldHint id="config-agent-env-file-hint" field="agentEnvFile" />
+          <p id="config-agent-env-file-detail" className="text-xs text-muted-foreground">
+            systemd EnvironmentFile syntax, no shell expansion. Relative to the team folder. A missing or invalid file never blocks a spawn; <code>mpt doctor</code> says why.
           </p>
         </CardContent>
       </Card>

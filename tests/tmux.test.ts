@@ -33,6 +33,7 @@ import {
   switchClient,
   type TmuxExec,
   defaultTmuxSocketPath,
+  envArgs,
   tmuxSocketPath,
   unresolvedPlaceholders,
 } from "../daemon/tmux.ts";
@@ -158,6 +159,51 @@ test("if renaming fails, a window is created instead", () => {
   ]);
   spawnWindow({ session: "mpt", window: "swift-ripley", cwd: "/w", command: "pi" }, exec);
   assertEquals(calls.some((c) => c[0] === "new-window"), true);
+});
+
+// ─── Agent env (`-e`, never the shell) ──────────────────────────────
+
+test("envArgs: one -e KEY=VALUE argv pair per variable, values verbatim", () => {
+  assertEquals(envArgs(undefined), []);
+  assertEquals(envArgs({}), []);
+  assertEquals(envArgs({ B: "two words", A: "$HOME'\"x" }), ["-e", `A=$HOME'"x`, "-e", "B=two words"]);
+});
+
+test("a new window in an existing session gets the env via new-window -e, not send-keys", () => {
+  const { exec, calls } = fakeTmux([
+    { ok: true }, // has-session → exists
+    { ok: true, stdout: "leader\n" }, // list-windows
+    { ok: true }, // new-window
+    { ok: true }, // send-keys
+  ]);
+  spawnWindow({ session: "mpt", window: "swift-ripley", cwd: "/w", command: "pi", env: { TOKEN: "s3cr3t", A: "1" } }, exec);
+  assertEquals(calls[2], ["new-window", "-n", "swift-ripley", "-t", "mpt", "-e", "A=1", "-e", "TOKEN=s3cr3t"]);
+  const typed = calls.find((c) => c[0] === "send-keys")![3]!;
+  assertEquals(typed.includes("s3cr3t"), false, "a value must never be typed into the shell");
+});
+
+test("a fresh session's reused first window gets the env via new-session -e", () => {
+  const { exec, calls } = fakeTmux([
+    { ok: false }, // has-session
+    { ok: true }, // new-session
+    { ok: true }, // rename-window
+    { ok: true }, // send-keys
+  ]);
+  spawnWindow({ session: "mpt", window: "leader", cwd: "/w", command: "pi", env: { A: "1" } }, exec);
+  assertEquals(calls[1], ["new-session", "-d", "-s", "mpt", "-e", "A=1"]);
+  assertEquals(calls[2], ["rename-window", "-t", "mpt", "leader"]);
+});
+
+test("the rename-failed fallback window gets the env too", () => {
+  const { exec, calls } = fakeTmux([{ ok: false }, { ok: true }, { ok: false }, { ok: true }, { ok: true }]);
+  spawnWindow({ session: "mpt", window: "w1", cwd: "/w", command: "pi", env: { A: "1" } }, exec);
+  assertEquals(calls[3], ["new-window", "-n", "w1", "-t", "mpt", "-e", "A=1"]);
+});
+
+test("no env: the tmux argv is exactly what it always was", () => {
+  const { exec, calls } = fakeTmux([{ ok: true }, { ok: true, stdout: "" }, { ok: true }, { ok: true }]);
+  spawnWindow({ session: "mpt", window: "w1", cwd: "/w", command: "pi", env: {} }, exec);
+  assertEquals(calls[2], ["new-window", "-n", "w1", "-t", "mpt"]);
 });
 
 test("control keys are sent as keys, not typed as text", () => {

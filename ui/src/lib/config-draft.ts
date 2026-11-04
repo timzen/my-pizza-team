@@ -28,6 +28,8 @@ export interface ConfigData {
   teammates?: TeammateConfig;
   defaultNouns?: string[];
   readinessProbe?: string;
+  /** The agent env file's path (shared/env-file.ts); "" clears it on save. */
+  agentEnvFile?: string;
   /** Auto triage (docs/DESIGN.md "Auto Triage"). Unset = on, hourly, 10 min quiet. */
   triage?: { enabled?: boolean; intervalMinutes?: number; quietMinutes?: number; persona?: string | null };
   /** Opt-ins for unfinished features. `harnesses` allows non-Pi (ACP) teammates. */

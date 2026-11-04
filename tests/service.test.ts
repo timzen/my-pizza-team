@@ -58,6 +58,29 @@ describe("service installer", () => {
     assertEquals(parseSystemdProgram(unit), { node, entry: "/p q/dist/main.js" });
   });
 
+  it("with agentEnvFile, the systemd unit reads it (optional, % escaped); without, no line", () => {
+    const withFile = generateSystemdUnit({ teamDir: "/t", port: 1, node: NODE, entry: "/e.js", envFile: "/home/u/.config/mpt/env" });
+    assertStringIncludes(withFile, "\nEnvironmentFile=-/home/u/.config/mpt/env\n");
+    // Inside [Service], after the Environment= lines.
+    assertEquals(withFile.indexOf("EnvironmentFile=") > withFile.indexOf("[Service]"), true);
+    assertEquals(withFile.indexOf("EnvironmentFile=") < withFile.indexOf("[Install]"), true);
+    assertStringIncludes(generateSystemdUnit({ teamDir: "/t", port: 1, node: NODE, envFile: "/a%b/env" }), "EnvironmentFile=-/a%%b/env");
+    assertEquals(generateSystemdUnit({ teamDir: "/t", port: 1, node: NODE }).includes("EnvironmentFile"), false);
+    assertEquals(generateSystemdUnit({ teamDir: "/t", port: 1, node: NODE, envFile: null }).includes("EnvironmentFile"), false);
+    assertEquals(parseSystemdProgram(withFile), { node: NODE, entry: "/e.js" });
+  });
+
+  it("with agentEnvFile, the launchd plist carries its variables, XML-escaped", () => {
+    const plist = generateLaunchdPlist({
+      teamDir: "/t", port: 1, logDir: "/l", node: NODE, entry: "/e.js",
+      agentEnv: { OUTLOOK_MCP_ENABLE_WRITES: "true", Q: "a<b&c" },
+    });
+    assertStringIncludes(plist, "<key>OUTLOOK_MCP_ENABLE_WRITES</key>\n    <string>true</string>");
+    assertStringIncludes(plist, "<string>a&lt;b&amp;c</string>");
+    assertStringIncludes(plist, "<key>TEAM_DIR</key>");
+    assertEquals(parsePlistProgram(plist), { node: NODE, entry: "/e.js" });
+  });
+
   it("an old compiled-binary service parses with no entry", () => {
     assertEquals(parseSystemdProgram("[Service]\nExecStart=/usr/local/bin/mpt start\n"), { node: "/usr/local/bin/mpt", entry: null });
   });

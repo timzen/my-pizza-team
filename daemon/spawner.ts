@@ -20,6 +20,7 @@
  */
 
 import * as fs from "node:fs";
+import { agentEnvWarning, loadAgentEnv } from "../shared/env-file.ts";
 import {
   DEFAULT_HARNESS,
   DEFAULT_HARNESS_TEMPLATES,
@@ -235,6 +236,11 @@ export interface RealizeDeps {
   daemonUrl: string;
   /** Where a spawn lands when the directive names no cwd. */
   fallbackCwd: string;
+  /**
+   * The team directory, which a relative `agentEnvFile` is resolved against.
+   * Absent = relative paths resolve against this process's cwd.
+   */
+  teamDir?: string;
   /** How to run this mpt, for templates using `{mpt}` (daemon/self.ts). */
   mpt?: string[];
   exec?: TmuxExec;
@@ -271,10 +277,11 @@ export function capabilityError(capability: SpawnCapability): string | null {
 export function realizePending(
   store: SpawnerStore,
   deps: RealizeDeps,
-): { realized: string[]; failed: Array<{ id: string; error: string }> } {
+): { realized: string[]; failed: Array<{ id: string; error: string }>; warnings: string[] } {
   const exec = deps.exec ?? realTmux;
   const realized: string[] = [];
   const failed: Array<{ id: string; error: string }> = [];
+  const warnings: string[] = [];
 
   const unreachable = capabilityError(deps.tmux ?? { canSpawn: true });
 
@@ -288,7 +295,10 @@ export function realizePending(
           ? `could not spawn: ${unreachable}`
           : `could not close the dismissed agent's window (the agent still exits): ${unreachable}`);
       }
-      if (directive.action === "spawn") realizeSpawn(directive, deps, exec, store);
+      if (directive.action === "spawn") {
+        const warning = realizeSpawn(directive, deps, exec, store);
+        if (warning) warnings.push(`spawn ${directive.id}: ${warning}`);
+      }
       else if (realizeDismiss(directive, deps, exec, store) === "pending") continue;
       store.updateLeaderDirective(directive.id, "done");
       realized.push(directive.id);
@@ -301,15 +311,20 @@ export function realizePending(
     }
   }
 
-  return { realized, failed };
+  return { realized, failed, warnings };
 }
 
+/**
+ * Open one spawn directive's window. Returns a warning when the window opened
+ * without the agent env file it should have had (missing/invalid file — never a
+ * reason to fail the spawn), else null. Throws when the spawn itself can't happen.
+ */
 function realizeSpawn(
   directive: SpawnableDirective,
   deps: RealizeDeps,
   exec: TmuxExec,
   store: SpawnerStore,
-): void {
+): string | null {
   const name = typeof directive.params.name === "string" ? directive.params.name : "";
   if (!name) throw new Error("spawn directive has no name (the daemon assigns one)");
 
@@ -327,7 +342,7 @@ function realizeSpawn(
 
   // An online member already owns this name: nothing to do. Guards a retry that
   // arrives after the agent registered.
-  if (store.getMembers().some((m) => m.name === name && m.status !== "offline")) return;
+  if (store.getMembers().some((m) => m.name === name && m.status !== "offline")) return null;
 
   const harness = typeof directive.params.harness === "string" && directive.params.harness
     ? directive.params.harness
@@ -345,7 +360,11 @@ function realizeSpawn(
     throw new Error(`harness "${harness}" template has unknown placeholders: ${unresolved.join(", ")}`);
   }
 
-  spawnWindow({ session, window: name, cwd, command }, exec);
+  // Re-read on every spawn, so an edit to the file reaches the next teammate with no
+  // daemon or tmux-server restart (docs/DESIGN.md "The Agent Environment Is a File").
+  const env = loadAgentEnv(deps.config, deps.teamDir ?? process.cwd());
+  spawnWindow({ session, window: name, cwd, command, env: env.vars }, exec);
+  return agentEnvWarning(env);
 }
 
 /**

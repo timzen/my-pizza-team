@@ -160,6 +160,9 @@ export function registerSharedRoutes(ctx: RouteContext): void {
       // save leaves the live config (which the spawner reads) untouched.
       const harnessSettings = resolveHarnessSettings(config, body);
       if ("error" in harnessSettings) return fail(c, 400, harnessSettings.error);
+      if (body.agentEnvFile != null && typeof body.agentEnvFile !== "string") {
+        return fail(c, 400, "agentEnvFile must be a path (a string)");
+      }
       if (body.exclusiveDirectories != null && typeof body.exclusiveDirectories !== "boolean") {
         return fail(c, 400, "exclusiveDirectories must be a boolean");
       }
@@ -212,6 +215,9 @@ export function registerSharedRoutes(ctx: RouteContext): void {
       }
       if (body.teammates !== undefined) config.teammates = body.teammates;
       if (body.readinessProbe !== undefined) config.readinessProbe = body.readinessProbe || undefined;
+      // The agent env file: live — the spawner re-reads it (and this config) on every
+      // spawn. "" / null clears it. Only the path is stored, never the file's values.
+      if (body.agentEnvFile !== undefined) config.agentEnvFile = (body.agentEnvFile as string | null)?.trim() || undefined;
       // One teammate per directory (default on). Live: getNextWorkItem and
       // claimWorkItem read the in-memory config on every poll. `null` = default.
       if (body.exclusiveDirectories === null) {

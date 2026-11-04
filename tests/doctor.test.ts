@@ -33,6 +33,7 @@ import {
   PERMISSION_SYSTEM_PACKAGE,
   report,
   TESTED_PI_VERSION,
+  agentEnvCheck,
 } from "../cli/doctor.ts";
 import { PRE_CUTOFF_UPGRADE_MESSAGE } from "../shared/types.ts";
 
@@ -473,4 +474,25 @@ test("plugins: none declared adds no check; all loaded is one ok line; each fail
   // A down daemon reports nothing about plugins (it can't know).
   assertEquals(evaluate(healthy({ daemonRunning: false, plugins: [{ identity: "/q", spec: "./q", state: "error", error: "x", sources: [] }] }))
     .some((c) => c.name.startsWith("Plugin")), false);
+});
+
+// ─── Agent env file ──────────────────────────────────────────────────
+
+test("agent env: unset is optional, a good file reports its key count, a bad one warns", () => {
+  // Not gathered (absent fact): no check at all.
+  assertEquals(evaluate(healthy()).some((c) => c.name === "Agent env"), false);
+
+  const unset = agentEnvCheck({ path: null, problem: null, keys: 0 });
+  assertEquals(unset.status, "ok");
+  assertStringIncludes(unset.detail, "not set");
+
+  const good = find(evaluate(healthy({ agentEnv: { path: "/home/u/.config/mpt/env", problem: null, keys: 3 } })), "Agent env");
+  assertEquals(good.status, "ok");
+  assertStringIncludes(good.detail, "3 variable(s)");
+
+  const bad = agentEnvCheck({ path: "/x", problem: "/x has 1 invalid line(s) — line 2: expected KEY=value", keys: 1 });
+  assertEquals(bad.status, "warn", "a bad file doesn't block spawning, so it isn't a failure");
+  assertStringIncludes(bad.detail, "line 2");
+  assertStringIncludes(bad.detail, "new windows open without it");
+  assertEquals(typeof bad.fix, "string");
 });

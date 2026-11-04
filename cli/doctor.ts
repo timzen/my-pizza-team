@@ -50,6 +50,7 @@ import {
 } from "../shared/runtime-config.ts";
 import { cliEntryScript } from "../shared/paths.ts";
 import { readTeamConfigFile } from "../shared/team-config.ts";
+import { loadAgentEnv } from "../shared/env-file.ts";
 import type { ServiceProgram } from "./service.ts";
 import type { PluginLoadStatus, SourcesResponse } from "../shared/protocol.ts";
 import { checkLines, checksExitCode, type CheckStatus, countChecks, EMOJI_GLYPHS } from "./checks.ts";
@@ -121,6 +122,12 @@ export interface DoctorFacts {
    * not known (daemon down, or an older daemon).
    */
   plugins?: PluginLoadStatus[] | null;
+  /**
+   * The team's agent env file (`agentEnvFile`, shared/env-file.ts), as this CLI
+   * reads it now: its path (null = unset), why it can't be used (null = fine), and
+   * how many keys it defines. Never values. Absent = not checked.
+   */
+  agentEnv?: { path: string | null; problem: string | null; keys: number };
 }
 
 /** The Node facts (shared/runtime-config.ts), gathered so the checks stay pure. */
@@ -342,6 +349,8 @@ export function evaluate(f: DoctorFacts): Check[] {
 
   if (f.daemonRunning && f.plugins) checks.push(...pluginChecks(f.plugins));
 
+  if (f.agentEnv) checks.push(agentEnvCheck(f.agentEnv));
+
   if (f.node) checks.push(...nodeChecks(f.node));
 
   return checks;
@@ -361,6 +370,24 @@ export function teamLayoutCheck(teamDir: string, findings: PreCutoffFinding[]): 
     detail: `from before ${MIN_UPGRADE_FROM_VERSION} — the daemon won't start on it (found ${names.join(", ")}${more})`,
     fix: PRE_CUTOFF_UPGRADE_MESSAGE,
   };
+}
+
+/**
+ * The agent env file check: unset is fine (optional); a set file must exist and
+ * parse, else windows open without it — a warning, since spawning goes on. The
+ * detail carries the key count, never a value.
+ */
+export function agentEnvCheck(env: NonNullable<DoctorFacts["agentEnv"]>): Check {
+  if (!env.path) return { name: "Agent env", status: "ok", detail: "agentEnvFile not set (optional)" };
+  if (env.problem) {
+    return {
+      name: "Agent env",
+      status: "warn",
+      detail: `${env.problem} — new windows open without it`,
+      fix: "fix the file (KEY=value per line, # comments, no `export`), or unset agentEnvFile in config.json",
+    };
+  }
+  return { name: "Agent env", status: "ok", detail: `${env.path} (${env.keys} variable(s), passed to every new window)` };
 }
 
 /**
@@ -638,7 +665,20 @@ export async function gather(opts: GatherOptions): Promise<DoctorFacts> {
     node: gatherNodeFacts(opts.service ?? null),
     experimentalHarnesses: experimentalHarnessFacts(opts.teamDir),
     plugins,
+    agentEnv: agentEnvFacts(opts.teamDir),
   };
+}
+
+/** The agent env file as `mpt doctor` reports it (path, problem, key count), or undefined when config.json can't be read. */
+function agentEnvFacts(teamDir: string): DoctorFacts["agentEnv"] {
+  let config: { agentEnvFile?: string } | undefined;
+  try {
+    config = readTeamConfigFile(teamDir) as { agentEnvFile?: string } | undefined;
+  } catch {
+    return undefined;
+  }
+  const env = loadAgentEnv(config ?? {}, teamDir);
+  return { path: env.path, problem: env.problem, keys: env.keys.length };
 }
 
 /** Whether each ACP harness could launch here — only if the team opted in to them. */

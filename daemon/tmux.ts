@@ -138,10 +138,30 @@ export function hasSession(session: string, exec: TmuxExec = realTmux): boolean 
   return exec(["has-session", "-t", session]).ok;
 }
 
-/** Ensure a session exists. Returns true when it was just created. */
-export function ensureSession(session: string, exec: TmuxExec = realTmux): boolean {
+/**
+ * `-e KEY=VALUE` pairs for `new-window` / `new-session`, in key order.
+ *
+ * Each pair is its own argv element, so a value with spaces, quotes or `$` reaches
+ * the window exactly as written — nothing here is a shell string (the header's
+ * point 1). This is how the agent env file (shared/env-file.ts) gets into a window:
+ * the tmux server's own environment may be weeks stale, and `-e` overrides it for
+ * this one window. Needs tmux ≥ 3.0 (`new-window -e`) / 3.2 (`new-session -e`).
+ */
+export function envArgs(env: Record<string, string> | undefined): string[] {
+  if (!env) return [];
+  return Object.keys(env).sort().flatMap((k) => ["-e", `${k}=${env[k]}`]);
+}
+
+/**
+ * Ensure a session exists. Returns true when it was just created.
+ *
+ * `env` is given to the session's first window (`new-session -e`), which
+ * `spawnWindow` reuses — so a freshly created session's first window gets the
+ * same variables a `new-window -e` would have given it.
+ */
+export function ensureSession(session: string, exec: TmuxExec = realTmux, env?: Record<string, string>): boolean {
   if (hasSession(session, exec)) return false;
-  const res = exec(["new-session", "-d", "-s", session]);
+  const res = exec(["new-session", "-d", "-s", session, ...envArgs(env)]);
   if (!res.ok) throw new Error(`could not create tmux session ${session}: ${res.stderr.trim()}`);
   return true;
 }
@@ -165,15 +185,20 @@ export function windowExists(session: string, window: string, exec: TmuxExec = r
  * window with the same name, and then two agents would answer to one label. A
  * freshly created session starts with one window, which is renamed rather than
  * left as a stray.
+ *
+ * `env` (the agent env file's variables, shared/env-file.ts) is passed with `-e`
+ * to whichever tmux command creates the window — `new-window`, or `new-session`
+ * for a fresh session's reused first window — never typed into its shell.
  */
 export function spawnWindow(
-  opts: { session: string; window: string; cwd: string; command: string },
+  opts: { session: string; window: string; cwd: string; command: string; env?: Record<string, string> },
   exec: TmuxExec = realTmux,
 ): { created: boolean } {
   assertSafeName("session", opts.session);
   assertSafeName("window", opts.window);
 
-  const justCreated = ensureSession(opts.session, exec);
+  const justCreated = ensureSession(opts.session, exec, opts.env);
+  const env = envArgs(opts.env);
 
   if (!justCreated && windowExists(opts.session, opts.window, exec)) return { created: false };
 
@@ -181,11 +206,11 @@ export function spawnWindow(
     // Reuse the session's initial window instead of leaving it empty beside ours.
     const renamed = exec(["rename-window", "-t", opts.session, opts.window]);
     if (!renamed.ok) {
-      const made = exec(["new-window", "-n", opts.window, "-t", opts.session]);
+      const made = exec(["new-window", "-n", opts.window, "-t", opts.session, ...env]);
       if (!made.ok) throw new Error(`could not create tmux window ${opts.window}: ${made.stderr.trim()}`);
     }
   } else {
-    const made = exec(["new-window", "-n", opts.window, "-t", opts.session]);
+    const made = exec(["new-window", "-n", opts.window, "-t", opts.session, ...env]);
     if (!made.ok) throw new Error(`could not create tmux window ${opts.window}: ${made.stderr.trim()}`);
   }
 

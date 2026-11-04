@@ -159,14 +159,17 @@ export async function startDaemonInProcess(
     }
     const realize = () => {
       try {
-        const { failed } = realizePending(store, {
+        const { failed, warnings } = realizePending(store, {
           config: store.getConfig(),
           daemonUrl: `http://localhost:${port}`,
           fallbackCwd: path.dirname(teamDir),
+          teamDir,
           mpt: mptInvocation(),
           tmux: tmuxCapability,
         });
         for (const f of failed) console.error(`⚠️  Directive ${f.id} failed: ${f.error}`);
+        // A bad agent env file doesn't fail the spawn; it is said here (and by doctor).
+        for (const w of warnings) console.error(`⚠️  ${w}`);
       } catch (e) {
         // Never let a spawn problem take the daemon down with it.
         console.error(`⚠️  Spawn pass failed: ${(e as Error).message}`);

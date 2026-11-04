@@ -13,6 +13,9 @@
  *      the silent class docs/DESIGN.md "Setup Is One Command" is about.
  */
 
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import { test } from "node:test";
 import { assertEquals, assertStringIncludes } from "./_assert.ts";
 import { TEST_CONFIG } from "./_config.ts";
@@ -130,6 +133,60 @@ test("a spawn becomes a tmux window running the harness command", () => {
   assertStringIncludes(typed, "--ppt-name=swift-ripley");
   assertStringIncludes(typed, "--ppt-daemon=http://localhost:7437");
   assertStringIncludes(typed, "--ppt-tmux-window=swift-ripley");
+});
+
+// ─── Agent env file ──────────────────────────────────────────────────
+
+function withEnvDir(fn: (dir: string) => void): void {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-spawn-env-"));
+  try { fn(dir); } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+}
+
+/** The new-window call's argv, from a spawn into an existing session. */
+function spawnArgv(over: Partial<Parameters<typeof realizePending>[1]>) {
+  const { store, updates } = fakeStore([spawn()]);
+  const { exec, calls } = fakeTmux((args) => (args[0] === "has-session" ? { ok: true } : {}));
+  const result = realizePending(store, deps({ exec, ...over }));
+  return { result, updates, newWindow: calls.find((c) => c[0] === "new-window")!, calls };
+}
+
+test("agentEnvFile: each spawn re-reads the file and passes it with new-window -e", () => {
+  withEnvDir((dir) => {
+    fs.writeFileSync(path.join(dir, "agent.env"), "A=1\n");
+    const cfg = config({ agentEnvFile: "agent.env" });
+    let r = spawnArgv({ config: cfg, teamDir: dir });
+    assertEquals(r.newWindow.slice(-2), ["-e", "A=1"]);
+    assertEquals(r.result.warnings, []);
+
+    // Edited between spawns: the next window gets the new contents, no restart.
+    fs.writeFileSync(path.join(dir, "agent.env"), "A=2\nB=x y\n");
+    r = spawnArgv({ config: cfg, teamDir: dir });
+    assertEquals(r.newWindow.slice(-4), ["-e", "A=2", "-e", "B=x y"]);
+  });
+});
+
+test("agentEnvFile: a missing or invalid file never blocks the spawn, and is warned about", () => {
+  withEnvDir((dir) => {
+    let r = spawnArgv({ config: config({ agentEnvFile: "missing.env" }), teamDir: dir });
+    assertEquals(r.result.realized, ["dir-1"], "the spawn still happens");
+    assertEquals(r.newWindow.includes("-e"), false, "without the file's variables");
+    assertEquals(r.result.warnings.length, 1);
+    assertStringIncludes(r.result.warnings[0]!, "agentEnvFile not applied");
+    assertStringIncludes(r.result.warnings[0]!, "does not exist");
+
+    fs.writeFileSync(path.join(dir, "bad.env"), "SECRET=hunter2\nnot valid\n");
+    r = spawnArgv({ config: config({ agentEnvFile: "bad.env" }), teamDir: dir });
+    assertEquals(r.result.realized, ["dir-1"]);
+    assertEquals(r.newWindow.includes("-e"), false, "all-or-nothing");
+    assertStringIncludes(r.result.warnings[0]!, "line 2");
+    assertEquals(r.result.warnings[0]!.includes("hunter2"), false, "never a value in a log line");
+  });
+});
+
+test("agentEnvFile unset: the spawn's tmux argv is unchanged and nothing is warned", () => {
+  const r = spawnArgv({});
+  assertEquals(r.newWindow, ["new-window", "-n", "swift-ripley", "-t", "mpt"]);
+  assertEquals(r.result.warnings, []);
 });
 
 test("a stray legacy reset-session is not typed into a window by the daemon", () => {

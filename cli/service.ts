@@ -7,6 +7,13 @@
  * - Linux: user-level systemd unit (~/.config/systemd/user/my-pizza-team.service)
  *
  * Enables auto-start on login. `mpt uninstall` removes the service and disables auto-start.
+ *
+ * When the team sets `agentEnvFile` (shared/env-file.ts), the service is given it
+ * too, so the daemon process itself has those variables: systemd gets an
+ * `EnvironmentFile=-<path>` line (re-read on every service start), launchd — which
+ * has no equivalent — gets the file's variables copied into the plist at install
+ * time. Generating the line here is what keeps it: a hand-added one was dropped by
+ * every `mpt install`.
  */
 
 import * as path from "node:path";
@@ -15,6 +22,7 @@ import * as fs from "node:fs";
 import { existsSync } from "node:fs";
 import { writeFileAtomic } from "../shared/atomic-write.ts";
 import { cliEntryScript } from "../shared/paths.ts";
+import type { AgentEnv } from "../shared/env-file.ts";
 
 const SERVICE_LABEL = "com.my-pizza-team.daemon";
 const SYSTEMD_UNIT_NAME = "my-pizza-team.service";
@@ -64,6 +72,11 @@ function serviceEnv(teamDir: string, port: number): Array<[string, string]> {
   return env;
 }
 
+/** Escape text for an XML element body (a plist <string>). */
+function xmlEscape(s: string): string {
+  return s.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+}
+
 // --- macOS launchd ---
 
 /** Generate a launchd plist XML for the daemon */
@@ -75,12 +88,20 @@ export function generateLaunchdPlist(opts: {
   node: string;
   /** The CLI entry script (defaults to this copy's). */
   entry?: string;
+  /**
+   * The agent env file's variables, copied in at install time (launchd can't read
+   * an env file, so an edit needs `mpt install` again). Like systemd's
+   * EnvironmentFile=, they override the service's own TEAM_DIR/PORT/PATH.
+   */
+  agentEnv?: Record<string, string>;
 }): string {
   const programArgs = `    <array>
 ${serviceProgramArguments(opts.node, opts.entry).map((a) => `      <string>${a}</string>`).join("\n")}
     </array>`;
-  const envEntries = serviceEnv(opts.teamDir, opts.port)
-    .map(([k, v]) => `    <key>${k}</key>\n    <string>${v}</string>`)
+  const merged = new Map(serviceEnv(opts.teamDir, opts.port));
+  for (const [k, v] of Object.entries(opts.agentEnv ?? {})) merged.set(k, v);
+  const envEntries = [...merged]
+    .map(([k, v]) => `    <key>${k}</key>\n    <string>${xmlEscape(v)}</string>`)
     .join("\n");
 
   return `<?xml version="1.0" encoding="UTF-8"?>
@@ -130,7 +151,7 @@ function getPlistPath(): string {
   return path.join(getLaunchAgentsDir(), `${SERVICE_LABEL}.plist`);
 }
 
-async function installLaunchd(teamDir: string, port: number, node: string): Promise<void> {
+async function installLaunchd(teamDir: string, port: number, node: string, agentEnv?: AgentEnv): Promise<void> {
   const home = process.env["HOME"]!;
   const logDir = path.join(home, ".local", "share", "my-pizza-team", "logs");
 
@@ -145,7 +166,7 @@ async function installLaunchd(teamDir: string, port: number, node: string): Prom
     fs.mkdirSync(launchAgentsDir, { recursive: true });
   }
 
-  const plistContent = generateLaunchdPlist({ teamDir, port, logDir, node });
+  const plistContent = generateLaunchdPlist({ teamDir, port, logDir, node, agentEnv: agentEnv?.vars });
   const plistPath = getPlistPath();
 
   // Write plist file
@@ -207,10 +228,14 @@ export function generateSystemdUnit(opts: {
   node: string;
   /** The CLI entry script (defaults to this copy's). */
   entry?: string;
+  /** The agent env file's absolute path, written as `EnvironmentFile=-<path>` (the `-`: a missing file isn't an error). */
+  envFile?: string | null;
 }): string {
   // systemd splits ExecStart on whitespace; quote any argument that contains it.
   const execStart = serviceProgramArguments(opts.node, opts.entry).map((a) => (/\s/.test(a) ? `"${a}"` : a)).join(" ");
   const environment = serviceEnv(opts.teamDir, opts.port).map(([k, v]) => `Environment="${k}=${v}"`).join("\n");
+  // The whole rest of the line is the path (no quoting); `%` starts a systemd specifier, so it is doubled.
+  const envFile = opts.envFile ? `\nEnvironmentFile=-${opts.envFile.replaceAll("%", "%%")}` : "";
 
   return `[Unit]
 Description=my-pizza-team daemon
@@ -219,7 +244,7 @@ After=network.target
 [Service]
 Type=simple
 ExecStart=${execStart}
-${environment}
+${environment}${envFile}
 Restart=on-failure
 RestartSec=5
 
@@ -238,7 +263,7 @@ function getUnitPath(): string {
   return path.join(getSystemdUserDir(), SYSTEMD_UNIT_NAME);
 }
 
-async function installSystemd(teamDir: string, port: number, node: string): Promise<void> {
+async function installSystemd(teamDir: string, port: number, node: string, agentEnv?: AgentEnv): Promise<void> {
   const unitDir = getSystemdUserDir();
 
   // Ensure unit directory exists
@@ -246,7 +271,7 @@ async function installSystemd(teamDir: string, port: number, node: string): Prom
     fs.mkdirSync(unitDir, { recursive: true });
   }
 
-  const unitContent = generateSystemdUnit({ teamDir, port, node });
+  const unitContent = generateSystemdUnit({ teamDir, port, node, envFile: agentEnv?.path });
   const unitPath = getUnitPath();
 
   // Write unit file
@@ -317,20 +342,32 @@ async function uninstallSystemd(): Promise<void> {
  * Install the mpt daemon as a system service (auto-start on login), run by `node`
  * (the configured Node — cli/node-choice.ts `ensureNodeConfigured`).
  * Detects platform and generates appropriate service configuration.
+ *
+ * `agentEnv` is the team's agent env file as just loaded (shared/env-file.ts
+ * `loadAgentEnv`); when it names a file, the service gets it too (see the header).
+ * Only its path, problem and key count are printed — never a value.
  */
-export async function install(teamDir: string, port: number, node: string): Promise<void> {
+export async function install(teamDir: string, port: number, node: string, agentEnv?: AgentEnv): Promise<void> {
   const platform = getPlatform();
   console.log(`Installing mpt daemon as ${platform === "darwin" ? "launchd" : "systemd"} service...`);
   console.log(`   Team dir: ${teamDir}`);
   console.log(`   Port: ${port}`);
   console.log(`   Node: ${node}`);
   console.log(`   Entry: ${cliEntryScript()}`);
+  if (agentEnv?.path) {
+    console.log(`   Agent env: ${agentEnv.path}${agentEnv.problem ? "" : ` (${agentEnv.keys.length} variable(s))`}`);
+    if (agentEnv.problem) console.warn(`⚠️  ${agentEnv.problem} — the service is installed without its variables (run \`mpt doctor\`)`);
+    if (platform === "darwin") {
+      console.log("   launchd can't re-read an env file: its variables are copied into the plist now —");
+      console.log("   run `mpt install` again after editing it (new teammate windows re-read it regardless).");
+    }
+  }
   console.log();
 
   if (platform === "darwin") {
-    await installLaunchd(teamDir, port, node);
+    await installLaunchd(teamDir, port, node, agentEnv);
   } else {
-    await installSystemd(teamDir, port, node);
+    await installSystemd(teamDir, port, node, agentEnv);
   }
 }
 

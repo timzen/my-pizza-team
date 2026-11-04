@@ -17,6 +17,7 @@ import { ensureNodeForCommand } from "./node-choice.ts";
 import { configuredNode, extractNodeFlag, setNodeFlagOverride } from "../shared/runtime-config.ts";
 import { isRunningFromSource, packageRoot, packageVersion } from "../shared/paths.ts";
 import { evaluate, gather, report } from "./doctor.ts";
+import { agentEnvWarning, loadAgentEnv } from "../shared/env-file.ts";
 import {
   focusClient,
   listWindows,
@@ -237,7 +238,11 @@ async function cmdInstall(args: string[]): Promise<void> {
   const port = getPort();
   // The service outlives this shell, so it needs a Node that will still be there.
   const node = await ensureNodeForCommand(args);
-  await install(teamDir, port, node.path);
+  // The service reads the agent env file too, so the daemon process itself has
+  // those variables (and re-running install keeps them, rather than dropping a
+  // hand-added EnvironmentFile= line).
+  const env = loadAgentEnv(readTeamConfig(teamDir), teamDir);
+  await install(teamDir, port, node.path, env);
 }
 
 async function cmdUninstall(): Promise<void> {
@@ -412,8 +417,15 @@ async function cmdLead(args: string[]): Promise<void> {
       // would both answer the chat.
       console.log(`Leader already running in ${session}:${LEADER_WINDOW} — attaching.`);
     } else {
-      spawnWindow({ session, window: LEADER_WINDOW, cwd: projectDir, command });
+      // The agent env file, read now, given to the leader's window the same way the
+      // daemon gives it to teammates' (`-e`, never typed into the shell). A bad file
+      // doesn't stop the leader: it starts without it, and this says why.
+      const env = loadAgentEnv(config, teamDir);
+      const envWarning = agentEnvWarning(env);
+      if (envWarning) console.log(`⚠️  ${envWarning} (run \`mpt doctor\`)`);
+      spawnWindow({ session, window: LEADER_WINDOW, cwd: projectDir, command, env: env.vars });
       console.log(`✅ Leader started in ${session}:${LEADER_WINDOW} (${projectDir})`);
+      if (env.path && !envWarning) console.log(`   Agent env: ${env.keys.length} variable(s) from ${env.path}`);
     }
   } catch (e) {
     console.error(`❌ Could not start the leader: ${(e as Error).message}`);

@@ -5,7 +5,7 @@ Settings live under the **config** (gear) icon, at `/config`:
 - **General** — the **Work items** toggles, the **Assistant** style (see
   [The assistant](04-assistant.md#assistant-style-chat-or-terminal)), port, tmux
   session, team size (min/max teammates), default workflow, the **readiness probe**,
-  **favorite directories**, autosave (flush/commit cadence, auto-commit)
+  the **agent env file**, **favorite directories**, autosave (flush/commit cadence, auto-commit)
 - **Teammates** — the nouns used to name teammates, **One teammate per directory**,
   and **Experimental Harnesses** (opt in to Kiro / Claude Code teammates and pick the
   default harness; applies on save, no restart — see
@@ -74,6 +74,29 @@ While not ready, **scheduled** jobs are held instead of run — and when it reco
 each held job runs once (not once per missed tick). Story tasks and standalone tasks
 still run. With no probe, the team is always ready. Automatic
 [retries](01-tasks-and-runs.md#retries) also wait for the probe to pass.
+
+## Agent environment file
+
+Some tools your agents use need environment variables (say, a switch that turns on
+an MCP server's write tools). Put them in one file and name it in **Config → General
+→ Agent Env File** (`agentEnvFile` in config.json):
+
+```
+# KEY=value per line; # starts a comment
+OUTLOOK_MCP_ENABLE_WRITES=true
+GREETING="hello world"
+```
+
+Every window mpt opens — each teammate's, and the leader's from `mpt lead` — gets
+these variables. The file is read again each time a teammate starts, so an edit
+reaches the next teammate with no restart (teammates already running keep what they
+started with). It's the same syntax as systemd's `EnvironmentFile=`: no `export`, and
+no shell expansion (`$HOME` stays `$HOME`). `~` works, and a relative path is relative
+to the `.my-pizza-team` folder.
+
+If the file is missing or has a bad line, teammates still start — just without it —
+and `mpt doctor` names the file and the line. `mpt install` also points the login
+service at the file, so the daemon itself has the variables.
 
 ## Favorite directories
 

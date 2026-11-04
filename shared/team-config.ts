@@ -76,7 +76,7 @@ export function loadTeamConfig(teamDir: string): TeamConfig {
  */
 const KEY_ORDER = [
   "port", "tmuxSession", "defaultWorkflow", "autosave", "maxTeammates", "minTeammates",
-  "agentTimeoutSeconds", "apiToken", "teammates", "readinessProbe", "harnesses",
+  "agentTimeoutSeconds", "apiToken", "teammates", "readinessProbe", "agentEnvFile", "harnesses",
   "defaultHarness", "experimental", "triage", "retry", "exclusiveDirectories", "features",
   "assistant", "sourcePersonas", "favoriteDirectories", "packages", "dev",
 ];
@@ -85,7 +85,7 @@ const KEY_ORDER = [
 const DERIVED_KEYS = new Set(["workflows"]);
 
 /** Optional values where a falsy one (e.g. `""`) means unset. */
-const OMIT_WHEN_FALSY = new Set(["apiToken", "readinessProbe", "harnesses", "defaultHarness", "features"]);
+const OMIT_WHEN_FALSY = new Set(["apiToken", "readinessProbe", "agentEnvFile", "harnesses", "defaultHarness", "features"]);
 
 /** Optional blocks where an empty object/array means the same as absent. */
 const OMIT_WHEN_EMPTY = new Set([

@@ -106,6 +106,18 @@ export interface TeamConfig {
    */
   readinessProbe?: string;
   /**
+   * A file of environment variables every agent window gets (shared/env-file.ts):
+   * systemd `EnvironmentFile=` syntax (KEY=value lines, `#` comments, optional
+   * quotes, no shell expansion). `~` is expanded and a relative path is resolved
+   * against the team directory. Re-read each time the daemon (or `mpt lead`)
+   * opens a window and passed with `tmux new-window -e`, so an edit applies to the
+   * next teammate with no restart; `mpt install` also points the service at it.
+   * A missing or invalid file never blocks a spawn — the window opens without it
+   * and the daemon log and `mpt doctor` say why. Unset = nothing passed.
+   * See docs/DESIGN.md "The Agent Environment Is a File".
+   */
+  agentEnvFile?: string;
+  /**
    * Auto-triage: a teammate reads each changed note and replies with an analysis
    * (TODO.md "Auto Triage"). On by default. The sweep runs every
    * `intervalMinutes` and skips notes edited within `quietMinutes`, so it never

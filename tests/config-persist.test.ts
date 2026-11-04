@@ -27,6 +27,7 @@ const FULL: Partial<TeamConfig> = {
   agentTimeoutSeconds: 120,
   teammates: { nouns: ["ripley"] },
   readinessProbe: "true",
+  agentEnvFile: "~/.config/mpt/env",
   defaultHarness: "custom",
   experimental: { harnesses: true },
   favoriteDirectories: ["/tmp/mpt-fav-a", "/tmp/mpt-fav-b"],
@@ -54,6 +55,7 @@ function setup() {
 /** The fields no route edits must come back exactly as they went in. */
 function assertPreserved(saved: Partial<TeamConfig>) {
   assertEquals(saved.apiToken, FULL.apiToken);
+  assertEquals(saved.agentEnvFile, FULL.agentEnvFile);
   assertEquals(saved.agentTimeoutSeconds, FULL.agentTimeoutSeconds);
   assertEquals(saved.defaultHarness, FULL.defaultHarness);
   assertEquals(saved.harnesses, FULL.harnesses);
@@ -112,6 +114,27 @@ test("changing the team size (PUT /api/teammate-pool) keeps every other field", 
     const saved = onDisk();
     assertEquals(saved.minTeammates, 2);
     assertPreserved(saved);
+  } finally { cleanup(); }
+});
+
+// ─── Agent env file (Config → General) ───────────────────────────────
+
+test("agentEnvFile saves from the Config page, applies live, clears with \"\", and refuses a non-string", async () => {
+  const { app, store, onDisk, cleanup } = setup();
+  try {
+    let r = await putConfig(app, { agentEnvFile: "  agent.env  " });
+    assertEquals(r.body.success, true);
+    assertEquals(onDisk().agentEnvFile, "agent.env");
+    assertEquals(store.getConfig().agentEnvFile, "agent.env", "the spawner reads the live config");
+
+    r = await putConfig(app, { agentEnvFile: 42 });
+    assertEquals(r.status, 400);
+    assertStringIncludes(r.body.error!, "agentEnvFile");
+    assertEquals(onDisk().agentEnvFile, "agent.env", "a refused save writes nothing");
+
+    r = await putConfig(app, { agentEnvFile: "" });
+    assertEquals(r.body.success, true);
+    assertEquals(onDisk().agentEnvFile, undefined, "unset is omitted from config.json");
   } finally { cleanup(); }
 });
 

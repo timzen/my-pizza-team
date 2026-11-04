@@ -1942,6 +1942,42 @@ session control.
   so a re-run attaches instead of starting another. Inside tmux it moves the
   calling client (`switch-client`) rather than nesting an attach; selecting the
   window alone left a client in another session where it was.
+- **Every window gets the agent env file** (`agentEnvFile`, see "The Agent
+  Environment Is a File"), passed with `-e` rather than typed into its shell.
+
+## The Agent Environment Is a File
+
+Variables every agent needs — a switch that turns on an MCP server's write tools,
+an account id — live in one file the team names (`agentEnvFile`), in systemd's
+`EnvironmentFile=` syntax: `KEY=value` lines, `#` comments, optional quotes, no
+shell expansion. Every window mpt opens gets them: the daemon re-reads the file
+each time it opens a teammate's window, `mpt lead` reads it for the leader's, and
+both pass the variables with `tmux new-window -e` (or `new-session -e` for a fresh
+session's first window). `mpt install` points the systemd unit at the same file
+(`EnvironmentFile=-<path>`), so the daemon process has them too; launchd can't read
+one, so its plist gets the values copied in at install time.
+
+*Why:* none of the obvious places reach a spawned teammate. A shell rc file isn't
+read by the service manager that starts the daemon, and a tmux server snapshots its
+environment when it starts — ours live for weeks — so `new-window` hands a teammate
+whatever the environment was then, not what it is now. Users worked around it from
+their login script (`tmux set-environment` on every login, re-adding
+`EnvironmentFile=` after each `mpt install` regenerated the unit). Passing the file
+explicitly per window makes the answer independent of when the tmux server or the
+daemon started, and an edit applies to the next teammate with no restart.
+
+- **One syntax, every consumer.** systemd's format, so the unit, mpt, and a shell
+  (`set -a; . file`) all read the same file. No `export`, no expansion: what's
+  written is what the agent sees.
+- **Never a value in a shell string or a log.** `-e KEY=VALUE` is an argv element;
+  the values never pass through `send-keys`. Messages name the file, line numbers
+  and keys, never values — they may be secrets.
+- **A bad file never blocks a spawn.** It's all-or-nothing: a missing file or any
+  invalid line means the window opens without it (a half-applied file is worse than
+  none), and the daemon log, `mpt lead` and `mpt doctor` say why.
+- **Unset means no change**: no `-e`, no `EnvironmentFile=`. A key removed from the
+  file can linger in a session created with it (`new-session -e` sets the session's
+  environment); every new window's `-e` overrides it for the keys still there.
 
 ## Harness Tiers, and Why Not MCP
 

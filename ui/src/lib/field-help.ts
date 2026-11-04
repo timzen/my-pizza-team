@@ -126,6 +126,10 @@ export const FIELD_HELP = {
     text: "A command run each heartbeat; while it exits non-zero, scheduled work is held.",
     learnMore: { topic: "configuration", anchor: "readiness-probe" },
   },
+  agentEnvFile: {
+    text: "A KEY=value file whose variables every new agent window gets, re-read at each spawn.",
+    learnMore: { topic: "configuration", anchor: "agent-environment-file" },
+  },
 
   // ─── Config → Triage ───
   triageEnabled: {

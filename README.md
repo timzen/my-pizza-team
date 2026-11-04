@@ -172,8 +172,13 @@ all need a Node that is still there after this shell closes, so `mpt setup`,
 It runs `<saved node> <abs path to the installed package's dist/main.js> start`
 (`cli/main.ts` when installed from a checkout), with `TEAM_DIR`, `PORT` and your
 shell's `PATH` captured, since launchd/systemd start services with a bare PATH.
-Re-run `mpt install` after changing the saved Node or moving the install — `mpt
-doctor` warns when the service's Node or entry differs. `mpt uninstall` removes it.
+When the team sets `agentEnvFile`, the systemd unit also gets
+`EnvironmentFile=-<that file>` (re-read on every service start), so the daemon
+process has those variables; on macOS the file's variables are copied into the plist
+at install time (launchd can't read an env file — re-run `mpt install` after editing
+it; note the plist then holds the values). Re-run `mpt install` after changing the
+saved Node or moving the install — `mpt doctor` warns when the service's Node or entry
+differs. `mpt uninstall` removes it.
 
 ### Upgrading
 
@@ -276,6 +281,14 @@ most of it is editable on the **Config** page. Minimal:
   // Optional: a shell command the daemon runs every 30s. Exit 0 = ready; otherwise
   // cron jobs are held (not failed) until it recovers, then fire once.
   "readinessProbe": "my-credentials-check",
+
+  // Optional: variables every agent window gets (teammates and the leader), passed
+  // with `tmux new-window -e` and re-read at each spawn — no restart after an edit.
+  // systemd EnvironmentFile syntax (KEY=value, # comments, optional quotes, no shell
+  // expansion); ~ expanded, relative = the team dir. A bad file never blocks a spawn
+  // (the window opens without it; `mpt doctor` says why). `mpt install` points the
+  // service at it too.
+  "agentEnvFile": "~/.config/mpt/env",
 
   // Optional: when a teammate's model call fails (e.g. a Bedrock 503 or expired
   // credentials), the work item is retried automatically — after each backoff, and

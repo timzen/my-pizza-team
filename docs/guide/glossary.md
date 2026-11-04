@@ -8,6 +8,12 @@ API, the CLI, log lines and the developer docs. Alphabetical.
 The technical term for a [teammate](#teammate) or the [leader](#leader): an AI coding
 agent connected to the daemon. The HTTP API uses it (e.g. `/api/agents`).
 
+## Agent env file
+
+A file of `KEY=value` lines (`agentEnvFile`) whose variables every agent window mpt
+opens gets, read again at each spawn. See
+[Agent environment file](08-configuration.md#agent-environment-file).
+
 ## Agent state
 
 A workflow step worked by teammates. Entering it gives the task a fresh
