@@ -111,6 +111,10 @@ something seems off.
   `mpt setup --harness kiro` (or `claude`), then turn on **Config → Teammates →
   Experimental Harnesses** and pick the harness in the **Spawn** dialog. See
   [Other harnesses](README.md#other-harnesses) in the README.
+- **Give agents environment variables** — put `KEY=value` lines in one file and name
+  it in **Config → General → Agent Env File** (`agentEnvFile`); every teammate and
+  leader window mpt opens gets them, with no restart after an edit. See
+  [Agent environment file](docs/guide/08-configuration.md#agent-environment-file).
 - **Stay current** — `mpt upgrade` updates `mpt` *and* its Pi extension together.
   Restart running agents afterwards; the Team tab flags any still on the old version
   and can restart them.

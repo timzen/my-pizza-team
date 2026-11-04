@@ -1966,9 +1966,15 @@ their login script (`tmux set-environment` on every login, re-adding
 explicitly per window makes the answer independent of when the tmux server or the
 daemon started, and an edit applies to the next teammate with no restart.
 
+- **Re-read per window, not cached.** The daemon reads the file again for every
+  spawn rather than once at start-up: caching it would rebuild the very snapshot
+  problem above one layer up (the daemon, too, runs for weeks). Reading a small file
+  every few minutes costs nothing; a stale variable costs a teammate with its write
+  tools missing and no error to say so.
 - **One syntax, every consumer.** systemd's format, so the unit, mpt, and a shell
   (`set -a; . file`) all read the same file. No `export`, no expansion: what's
-  written is what the agent sees.
+  written is what the agent sees. A file already kept for a systemd unit (or sourced
+  from `~/.zshenv`) is pointed at unchanged; mpt doesn't invent a format of its own.
 - **Never a value in a shell string or a log.** `-e KEY=VALUE` is an argv element;
   the values never pass through `send-keys`. Messages name the file, line numbers
   and keys, never values — they may be secrets.

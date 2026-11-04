@@ -125,7 +125,8 @@ Work Source plugin"; using one from the web UI is in
 `leader` command. Running it again attaches to the existing leader rather than
 starting a second one. Run from inside tmux, it doesn't nest an attach: it switches
 your client to `<session>:leader` (`tmux switch-client`), even from another session.
-`--no-attach` does neither and prints both commands.
+`--no-attach` does neither and prints both commands. A new leader window gets the
+team's [`agentEnvFile`](#configuration) variables, like every teammate window.
 
 `mpt status` respects the [feature toggles](#feature-toggles): a switched-off kind's
 count is left out and a `Turned off: …` line names what's off. The CLI has no
@@ -394,6 +395,12 @@ Inbox are always on, so every kind can be off at once.
 | `MPT_PI_EXTENSION` | — | Use this extension source instead of the embedded one |
 | `PI_CODING_AGENT_DIR` | `~/.pi/agent` | Pi's settings directory (setup/doctor read and write it) |
 | `UI_DIST` | — | Serve the web UI from this directory |
+
+These configure mpt itself. Variables your *agents* need (an MCP server's switch, an
+account id) go in the team's `agentEnvFile`, not your shell rc or the tmux server's
+environment: neither reaches a window the daemon opens weeks after they were set.
+mpt reads the file itself, at each spawn — see DESIGN.md "The Agent Environment Is
+a File".
 
 ### Team Directory Layout
 

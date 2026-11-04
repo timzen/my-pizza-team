@@ -97,6 +97,8 @@ to the `.my-pizza-team` folder.
 If the file is missing or has a bad line, teammates still start — just without it —
 and `mpt doctor` names the file and the line. `mpt install` also points the login
 service at the file, so the daemon itself has the variables.
+A teammate not seeing a variable? See
+[Troubleshooting](10-tips.md#troubleshooting).
 
 ## Favorite directories
 

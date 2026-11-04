@@ -10,6 +10,8 @@
  *     `new-session -e`);
  *   - the daemon gives a spawned teammate's window the file's variables, and an edit
  *     to the file reaches the next teammate with no daemon or tmux restart;
+ *   - the file wins over a stale value the tmux server already holds (what the
+ *     user's login script used to fix with `tmux set-environment -g`);
  *   - a bad file never blocks a spawn or the leader: the window opens without it, and
  *     `mpt lead` / `mpt doctor` say why.
  *
@@ -107,6 +109,20 @@ test("the daemon passes the env file to each spawn, re-reading it so edits need 
   const out = await outputLine(sb, two, "SPAWNED-42 ");
   assertStringIncludes(out, "v=[second]");
   assertStringIncludes(out, "w=[it works]");
+});
+
+test("the file's value beats a stale one in the tmux server's global environment", { skip: !hasTmux() }, async () => {
+  await using sb = await sandbox("env-spawn-stale");
+  // A long-lived server that was handed an old value (say, by a login script's
+  // `tmux set-environment -g`) before the file changed.
+  await sb.tmux("new-session", "-d", "-s", "stale");
+  await sb.tmux("set-environment", "-g", "MPT_E2E_VAR", "stale-value");
+  sb.writeTeamConfig({ minTeammates: 0, harnesses: HARNESSES, agentEnvFile: "agent.env" });
+  fs.writeFileSync(path.join(sb.teamDir, "agent.env"), "MPT_E2E_VAR=fresh\n");
+  await sb.startDaemon();
+
+  const name = await spawnTeammate(sb);
+  assertStringIncludes(await outputLine(sb, name, "SPAWNED-42 "), "v=[fresh]");
 });
 
 test("a missing env file never blocks a spawn", { skip: !hasTmux() }, async () => {

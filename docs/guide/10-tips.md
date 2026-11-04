@@ -80,6 +80,29 @@ page returns to wherever you opened it from (the Inbox, a teammate, the Usage
 page…); only when there's nowhere in-app to go back to (say, a link opened in a new
 tab) does it take you to that section's list.
 
+## Troubleshooting
+
+Start with `mpt doctor` in a terminal: a read-only checklist with the fix for each
+problem. Two that come up:
+
+**A teammate doesn't see an environment variable** (say, an MCP server stays
+read-only). Put the variable in the [agent env file](08-configuration.md#agent-environment-file),
+not your shell's rc file or `tmux set-environment`: the daemon doesn't read your rc
+file, and a tmux server keeps the environment it started with, often weeks ago. Then:
+
+- `mpt doctor`'s **Agent env** line shows the file and how many variables it has, or
+  why it can't be used (missing, or an invalid line — it names the line). A bad file
+  is skipped whole, so fix the line and the next teammate gets everything.
+- A teammate that was already running keeps what it started with (a **Reset** clears
+  its context, not its environment). [Dismiss](03-teammates.md#managing-a-teammate) it and let a new one
+  spawn.
+- The leader's window gets the file when `mpt lead` opens it; an existing leader
+  keeps its old environment until you close its window and run `mpt lead` again.
+
+**`mpt lead` inside tmux.** From any tmux session it switches your client to the
+leader's window rather than starting a nested tmux. If that switch fails, it prints
+the `tmux switch-client` command to run yourself.
+
 ## Keyboard and screen readers
 
 Everything works without a mouse, and you can always see where you are: the control
