@@ -9,6 +9,11 @@ A [Pi](https://pi.mariozechner.at/) extension for multi-agent task orchestration
 - **Team Lead Pi** — connects to the daemon and asks it to spawn, dismiss, and focus teammates (it never runs tmux itself — the daemon does)
 - **Teammate Pis** — poll the daemon for tasks, execute autonomously, report back
 - **Leader Pi** — also chats with you live (web UI *or* its own terminal — same conversation)
+
+In this extension's code and flags the chat agent is the **leader** (`--ppt-lead`,
+the member name `leader`, the tmux window `leader`); everything a user reads — the
+web UI, `mpt --help`, the notifications this extension shows — calls it the
+**assistant**.
 - **You (the Mentor)** — review work via the daemon's web UI, or hop into any teammate's window to pair
 
 ## Install
@@ -31,7 +36,13 @@ npm i -g my-pizza-team && mpt start
 ## Quick Start
 
 ```bash
-# Leader mode (auto-detects if .my-pizza-team/ exists in cwd):
+# Usually you don't run the leader yourself: the web UI's "Start the assistant"
+# (POST /api/assistant/start) or `mpt assistant` (alias `mpt lead`) opens it in
+# the tmux window `leader` with the harness's `leader` template, by default
+#   pi -a --ppt-lead --ppt-daemon={url} --ppt-tmux-session={session} --ppt-tmux-window={window}
+# (-a trusts the project folder without asking, since nobody may be attached).
+
+# Leader mode by hand (auto-detects if .my-pizza-team/ exists in cwd):
 pi
 
 # Or explicit leader mode with custom daemon URL:

@@ -14,18 +14,19 @@ A file of `KEY=value` lines (`agentEnvFile`) whose variables every agent window 
 opens gets, read again at each spawn. See
 [Agent environment file](08-configuration.md#agent-environment-file).
 
-## Assistant
-
-The one agent that isn't a teammate: the [agent you chat with](04-assistant.md),
-started by **Start the assistant** in the web UI or `mpt assistant` (alias `mpt lead`).
-Internally it's the [leader](#leader).
-
 ## Agent state
 
 A workflow step worked by teammates. Entering it gives the task a fresh
 [run](#run); finishing the run moves the task on. The other kind is a
 [manual state](#manual-state). See
 [Workflows](02-stories-and-workflows.md#workflows).
+
+## Assistant
+
+The one agent that isn't a teammate: the [agent you chat with](04-assistant.md),
+started by **Start the assistant** in the web UI or `mpt assistant`. Internally it's
+called the [leader](#leader) (its tmux window, member name and config key), and
+`mpt lead` is an alias for `mpt assistant`.
 
 ## Board task
 

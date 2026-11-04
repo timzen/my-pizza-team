@@ -16,13 +16,13 @@ Agents run on [Pi](https://pi.mariozechner.at/) today; see
                 │                              │
                 ▼                              ▼
          ┌─────────────┐              ┌───────────────────┐
-         │  Pi leader  │              │  Pi teammates     │
+         │Pi assistant │              │  Pi teammates     │
          │ (you chat   │              │ (autonomous, one  │
          │  with it)   │              │  tmux window each)│
          └─────────────┘              └───────────────────┘
 ```
 
-- **You** create stories, tasks, and scheduled jobs in the web UI (or ask the leader to)
+- **You** create stories, tasks, and scheduled jobs in the web UI (or ask the assistant to)
 - **Teammates** poll for work, claim it, do it, and report COMPLETE or FAILED
 - **The daemon** admits work (one task in flight per story), advances completed
   work, keeps the team at its declared size, and tracks everything
@@ -380,11 +380,11 @@ Inbox are always on, so every kind can be off at once.
   sources: **Config → Sources**, which also edits and previews a plugin's settings). A kind that's
   off loses its Work sub-tab and its chip/rows on the mixed Pending and
   Archived lists (the Work nav item goes when all three are off) and quick-create entry, its pages show a "turned off" notice, and its triage proposals can only be rejected.
-- **For the assistant** (the Pi leader) a kind that's off takes its tools out of
+- **For the assistant** (internally the Pi leader) a kind that's off takes its tools out of
   the model's tool list — Stories: `create_story`, `edit_story`, `add_task`,
   `list_workflows`; Tasks: `create_task`; Schedules:
   `create_schedule`, `set_schedule_pending`; with all three off, `get_task` / `edit_task` / `activate_task` /
-  `list_personas` too — and the system prompt says what's off. The leader re-reads the toggles
+  `list_personas` too — and the system prompt says what's off. The assistant re-reads the toggles
   before every run and on its 10-second status poll, so a change applies without
   restarting Pi. A triage teammate's `propose_work` refuses proposals of a kind
   that's off. Anything that still reaches the daemon gets the same "… are disabled
@@ -472,7 +472,7 @@ you can move any card anywhere. See
 | Type | Who works it | How it completes |
 |------|--------------|------------------|
 | `"agent"` | Teammates (claim → work → COMPLETE) | The daemon advances it automatically |
-| `"manual"` | You (or the leader) | You move the card onward |
+| `"manual"` | You (or the assistant) | You move the card onward |
 
 When a task lands in an agent state the daemon enqueues a `READY` WorkItem for it;
 a teammate claims it and, on COMPLETE, the task advances. On FAILED it stays put
@@ -577,7 +577,7 @@ creation. With no workflows on disk, a built-in `default` (`in_progress` →
 
 The assistant is a live chat with one agent (internally, the *leader*). The chat
 works whenever it's up — **Start the assistant** in the web UI, or `mpt assistant`. The web
-UI and the leader's tmux window are **two views of one conversation**: the daemon
+UI and the assistant's tmux window (`leader`) are **two views of one conversation**: the daemon
 mirrors that Pi session in both directions. See
 [docs/DESIGN.md](docs/DESIGN.md#one-agent-to-talk-to).
 
@@ -599,16 +599,16 @@ phone, the chat is a tab of the [phone view](#phone-view).
   never split); markdown is rendered; any bubble can be expanded or copied.
 - **Reply to a bubble** — the quote travels with your message.
 - **Peek at its thinking** — click the `…`. Ephemeral: never saved.
-- **Terminal parity.** Type in the leader's tmux window and it appears in the web
+- **Terminal parity.** Type in the assistant's tmux window and it appears in the web
   chat (with a terminal glyph), and vice versa.
 - **Personas.** Any persona can be the assistant (`assistant.persona`; unset is
   `builtin:assistant`). Swapping starts a new chat as that persona; nothing is deleted.
 - **Sessions: nothing is lost.** New chat, a persona swap, or resuming another
   session snapshots the current transcript to `assistant/sessions/<id>.md`.
-  **History** lists every session; **Resume** switches the leader back to that Pi
+  **History** lists every session; **Resume** switches the assistant back to that Pi
   session, context included.
 
-The leader also has tools for the team's data — creating stories, tasks, and
+The assistant also has tools for the team's data — creating stories, tasks, and
 schedules, and reading and writing the Thoughts board.
 
 ## Phone View
@@ -679,7 +679,7 @@ so later edits to the persona never rewrite what a run was given.
 
 ### Pi (native)
 
-The Pi extension (`harnesses/pi/` in this repo) provides the leader and teammate
+The Pi extension (`harnesses/pi/` in this repo) provides the assistant (leader) and teammate
 integration. It ships **inside the `my-pizza-team` npm package** and `mpt setup` installs it to
 `~/.my-pizza-team/pi-extension/`, so the daemon and the extension always match
 versions — `mpt upgrade` moves both together.
@@ -773,7 +773,7 @@ The current protocol version is `PROTOCOL_VERSION` in `shared/agent-protocol.ts`
 
 | Group | Key Endpoints | Purpose |
 |-------|-----------|---------|
-| Health | `GET /health` | Uptime, agents, queue depth, leader presence, readiness, spawn capability (unauthenticated) |
+| Health | `GET /health` | Uptime, agents, queue depth, assistant (leader) presence and startability, readiness, spawn capability (unauthenticated) |
 | Status / control | `GET /api/status`, `POST /api/control/pause\|resume` | Summary; pause/resume work distribution |
 | Config | `GET/PUT /api/config`, `GET/PUT /api/teammate-pool` | Config and workflows; the declared team size |
 | Readiness | `GET/POST /api/readiness` | Team readiness (the daemon probes; a harness may report) |
@@ -789,7 +789,7 @@ The current protocol version is `PROTOCOL_VERSION` in `shared/agent-protocol.ts`
 | Teammate transcript | `/api/agents/:id/transcript[/stream\|/watch]` | Watch-only live view (streams only while watched) |
 | Teammate pairing | `POST /api/agents/:id/pair\|messages\|release`, `GET .../pairing[/state]` | Talk to a paused teammate from the browser |
 | Usage | `POST /api/agents/:id/usage`, `GET /api/usage/daily\|day` | Token and cost ledger; dashboard rollups |
-| Assistant | `/api/assistant/*` | The chat: messages, SSE stream, receipts, thoughts peek, sessions, persona |
+| Assistant | `/api/assistant/*` | The chat: messages, SSE stream, receipts, thoughts peek, sessions, persona; `POST /api/assistant/start` starts the assistant (idempotent, start only) |
 | Personas | `/api/personas[/:id[/usage\|/duplicate]]` | The persona library (team, built-in, package) |
 | Thoughts | `/api/thoughts/*`, `/api/thought-groups/*` | Markdown sticky-note board |
 | Workflows | `GET /api/workflows[/:name]`, `PUT .../states/:state` | Workflows; select a state's persona |

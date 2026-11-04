@@ -1174,9 +1174,9 @@ flight.
 
 **The team starts when its leader does.** The pool waits for a leader even when
 the daemon can open tmux windows itself. The daemon often runs as a login service;
-without this, every login would start agents before anyone ran `mpt lead` — agents
+without this, every login would start agents before anyone started the assistant — agents
 nobody can chat with, reset, or expected. Starting the leader is the "start the
-team" step — `mpt lead`, or the daemon itself when the web UI asks
+team" step — `mpt assistant` (alias `mpt lead`), or the daemon itself when the web UI asks
 (`POST /api/assistant/start`): both are a human asking now.
 A one-off spawn from the Spawn dialog is a human asking now, so it isn't held.
 
@@ -1809,8 +1809,8 @@ global install only lands where the service looks if the same Node's npm did it.
 
 Before `mpt setup`, a working team took six unchecked steps (binary, Pi, extension,
 permission system, tmux + trust + a leader, service), and a missing one showed up
-later as a symptom. Now: `mpt setup`, then `mpt lead`; `mpt doctor` re-checks any
-time.
+later as a symptom. Now: `mpt setup`, `mpt start --daemon`, then **Start the assistant** in the web
+UI (or `mpt assistant`); `mpt doctor` re-checks any time.
 
 - **`mpt setup` prints every change before making it**, is idempotent, and records a
   manifest so `--uninstall` undoes exactly what it did — without it, uninstall would
@@ -1939,7 +1939,7 @@ session control.
   each harness's commands is exactly the coupling this removes, and the leader
   doing it was a second tmux owner. The daemon asks the teammate for a
   `new-session` (see "Leader Directives"), and the teammate rolls its own session.
-- **`mpt lead`** starts the leader in the project directory with the harness's
+- **`mpt assistant`** (alias `mpt lead`) starts the leader in the project directory with the harness's
   `leader` template, and is idempotent — two leaders would both answer the chat —
   so a re-run attaches instead of starting another. Inside tmux it moves the
   calling client (`switch-client`) rather than nesting an attach; selecting the
@@ -2400,7 +2400,7 @@ section (the dock's Help panel; on the phone, its page under `/m/help`).
   asked only while the list is empty.
 - **The Team tab explains the leader.** With nobody online it says what teammates are
   and that the leader — the assistant — starts them, offers **Start the assistant**
-  while no leader is connected (the daemon opens its window; `mpt lead` is a secondary
+  while no leader is connected (the daemon opens its window; `mpt assistant` is a secondary
   "Or from a terminal" disclosure, and when the daemon can't start it the reason and
   fix show instead of the button) and **Spawn a teammate**. Spawn is offered only when a spawn
   would actually happen: the daemon can start one itself (its spawn capability, on
@@ -2478,7 +2478,7 @@ capture a note), each ticked off by **doing it**, wherever and however it was do
   the UI's own focus, announcer and motion rules. The phone has none — four labelled
   tabs need no map (see "A Phone Is a Peek").
 - **The terminal points at it.** The first commands a new user runs — `mpt setup`,
-  `mpt start --daemon`, `mpt lead` — end with one line, "Open http://localhost:<port>/
+  `mpt start --daemon`, `mpt assistant` — end with one line, "Open http://localhost:<port>/
   — the Welcome checklist walks you through your first task", when the daemon says
   the card is showing (`visible`, so the terminal and the UI agree). An onboarded team
   keeps the usual output, and an unreachable daemon adds nothing: a pointer, never a

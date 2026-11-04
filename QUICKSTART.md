@@ -67,24 +67,37 @@ you turn them on under **Config → General → Work items** (or with `"features
 `.my-pizza-team/config.json`; see [Feature toggles](README.md#feature-toggles)). A
 team directory that already existed keeps everything on.
 
-## 4. Start the daemon and the assistant
+## 4. Start the daemon, then the assistant
 
 ```bash
 mpt start --daemon
-mpt assistant
 ```
 
 The daemon runs in the background and serves the web UI at
-**http://localhost:7437/**. `mpt assistant` (alias `mpt lead`) opens the assistant —
-the agent you chat with, here or in the web UI — in a tmux window (named `leader`)
-and attaches you to it; detach with `Ctrl-b d`, and `mpt assistant` again reattaches.
-Already inside tmux, it switches your client to that window instead. Prefer the
-browser? Skip `mpt assistant` and click **Start the assistant** in the web UI.
+**http://localhost:7437/**. Open it: a new team's home page has a **Welcome
+checklist**, and its first step is **Start the assistant** — the agent you chat
+with. Click it; the daemon opens the assistant in a tmux window in your project
+folder, and the step ticks off once it connects (a few seconds). If the daemon
+can't start it (for example it can't reach tmux), the button is replaced by the
+reason and the command that fixes it.
 
-Then open the web UI. A new team's home page has a **Welcome checklist** that walks
-you through the rest — a first teammate, a one-click sample task, watching it run,
-reviewing it in the Inbox — and ticks each step off as you do it. Until you're
-through it, `mpt start --daemon` and `mpt assistant` end by pointing you there.
+The checklist then walks you through the rest — a first teammate, a one-click
+sample task, watching it run, reviewing it in the Inbox — and ticks each step off
+as you do it. Until you're through it, `mpt start --daemon` ends by pointing you there.
+
+<details>
+<summary>Or start the assistant from a terminal</summary>
+
+```bash
+mpt assistant           # alias: mpt lead
+```
+
+It opens the same assistant (in a tmux window named `leader`) and attaches you to
+it; detach with `Ctrl-b d`, and `mpt assistant` again reattaches. Already inside
+tmux, it switches your client to that window instead. It never starts a second
+assistant: if the web UI already started one, it just attaches.
+
+</details>
 
 ## 5. Check everything
 
@@ -114,7 +127,7 @@ something seems off.
   [Other harnesses](README.md#other-harnesses) in the README.
 - **Give agents environment variables** — put `KEY=value` lines in one file and name
   it in **Config → General → Agent Env File** (`agentEnvFile`); every teammate and
-  leader window mpt opens gets them, with no restart after an edit. See
+  assistant window mpt opens gets them, with no restart after an edit. See
   [Agent environment file](docs/guide/08-configuration.md#agent-environment-file).
 - **Stay current** — `mpt upgrade` updates `mpt` *and* its Pi extension together.
   Restart running agents afterwards; the Team tab flags any still on the old version

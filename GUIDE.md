@@ -7,7 +7,7 @@ same pages are the in-app **Help** page.
 - [Tasks and runs](docs/guide/01-tasks-and-runs.md) — tasks, runs, pending, the Queue and Inbox, retries
 - [Stories and workflows](docs/guide/02-stories-and-workflows.md) — stories, the Board, workflows, review
 - [Teammates](docs/guide/03-teammates.md) — the team, watching and pairing, team size, usage
-- [The assistant](docs/guide/04-assistant.md) — the chat, its personas, the big editor
+- [The assistant](docs/guide/04-assistant.md) — starting it, the chat, its personas, the big editor
 - [Thoughts and triage](docs/guide/05-thoughts-and-triage.md) — sticky notes and auto triage
 - [Personas](docs/guide/06-personas.md) — the persona library and where each is picked
 - [Sources](docs/guide/07-sources.md) — using work from a tracker or another system
