@@ -1,0 +1,7 @@
+{
+  "id": "cli:workspace:list",
+  "result": {
+    "type": "workspace_list",
+    "workspaces": []
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "status": "running",
+  "running": true,
+  "version": "0.9.5",
+  "protocol": 22,
+  "capabilities": {
+    "live_handoff": true,
+    "detached_server_daemon": true,
+    "endpoint_protocol_generation": 1,
+    "surface_interest": true,
+    "health_check": true,
+    "ssh_agent_registration": true
+  },
+  "compatible": true,
+  "endpoint_compatible": true,
+  "socket": "/tmp/herdr-sandbox/c/herdr/sessions/mpt-sandbox/herdr.sock",
+  "session": "mpt-sandbox",
+  "restart_needed": false,
+  "server_binary_stale": false
+}

@@ -502,7 +502,7 @@ source), `withTeam(cfg, fn)` (the same, always cleaned up), and the `post`/`put`
 and `jsonInit` JSON request helpers. Suites that reopen a team directory or need a
 different layout (schema and pre-0.36.0 layout checks, plugin package roots) still build their own. `tests/e2e/` holds the slow suites
 on the `_sandbox.ts` harness: CLI lifecycle, tmux lifecycle, git sync, readiness
-probe, entry points (every way of starting the daemon gets the same daemon), and `agent` (`mpt agent` end to end against `tests/fixtures/fake-acp-agent.ts`: the gate, completion, fresh sessions, permissions, usage, `mpt agent fail`, a crash). Guard tests worth knowing: `version.test.ts` (extension version in step),
+probe, the herdr contract (`herdr-contract.test.ts` on its own isolated herdr server, `_herdr.ts`; checks each response against `tests/fixtures/herdr/` — [herdr.md](herdr.md)), entry points (every way of starting the daemon gets the same daemon), and `agent` (`mpt agent` end to end against `tests/fixtures/fake-acp-agent.ts`: the gate, completion, fresh sessions, permissions, usage, `mpt agent fail`, a crash). Guard tests worth knowing: `version.test.ts` (extension version in step),
 `protocol-version.test.ts`, `schema-migrate.test.ts` (the SQLite migrations: a 0.36.0 database reaches the fresh schema, older shapes are refused untouched, the latest version is untouched), `layout-check.test.ts` (each pre-0.36.0 format is found, a current team and nested backlog/archived leftovers aren't; createApp and the daemon refuse), `http.test.ts` (malformed JSON → 400 on every route, a throw → JSON 500), `runtime-purity.test.ts`, `build-embeds.test.ts`,
 `doctor-coherence.test.ts`, `user-visible-naming-ui.test.ts` (no UI prose says "leader": it parses ui/src with the TypeScript compiler and checks string literals, template chunks and JSX text, sparing whitespace-free ids and the internal names users may see — DESIGN.md "One Agent to Talk To"). Assertions come from `tests/_assert.ts` (the `@std/assert`
 names the suites were written with, on `node:assert/strict`; `assertEquals` treats
@@ -595,6 +595,12 @@ the environment (`$TMUX`, `$TMUX_TMPDIR`, the uid), so the daemon resolves it on
 at startup (`tmux.ts` `tmuxSocketPath`: `#{socket_path}`, tmux's own "no server
 running on …" error, else the default path) and reports it on `/health`
 `tmuxSocket`; `mpt doctor` warns when its own differs.
+
+**herdr (planned).** [herdr.md](herdr.md) records a spike of [herdr](https://herdr.dev) as an
+alternative to tmux: how a session/window maps onto its workspaces and tabs, finding a
+window by label, starting and attaching to its server, version gating, and what
+doesn't map. Nothing in the daemon uses it yet; `tests/e2e/herdr-contract.test.ts`
+guards the herdr behaviour that design relies on.
 
 An experimental harness (`params.harness` or `defaultHarness` = `kiro`/`claude`, with
 `experimental.harnesses` on) spawns the same way, but its template runs `{mpt} agent

@@ -1,0 +1,34 @@
+{
+  "client": {
+    "version": "0.9.5",
+    "channel": "stable",
+    "protocol": 22,
+    "endpoint_protocol_generation": 1,
+    "endpoint_capabilities": [
+      "surface_interest",
+      "presentation_effects_fence",
+      "health_check"
+    ],
+    "remote_host_bridge": true,
+    "remote_bridge_idle_timeout": true,
+    "binary": "/usr/local/bin/herdr",
+    "session": "mpt-sandbox"
+  },
+  "server": {
+    "status": "not_running",
+    "running": false,
+    "version": null,
+    "protocol": null,
+    "capabilities": null,
+    "compatible": null,
+    "endpoint_compatible": null,
+    "socket": "/tmp/herdr-sandbox/c/herdr/sessions/mpt-sandbox/herdr.sock",
+    "session": "mpt-sandbox",
+    "restart_needed": false,
+    "server_binary_stale": false
+  },
+  "update": {
+    "restart_needed": false,
+    "server_binary_stale": false
+  }
+}

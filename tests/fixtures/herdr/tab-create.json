@@ -1,0 +1,31 @@
+{
+  "id": "cli:tab:create",
+  "result": {
+    "root_pane": {
+      "agent_status": "unknown",
+      "cwd": "/tmp/herdr-sandbox/has space",
+      "focused": false,
+      "foreground_cwd": "/tmp/herdr-sandbox/has space",
+      "pane_id": "w1:p2",
+      "revision": 0,
+      "scroll": {
+        "max_offset_from_bottom": 0,
+        "offset_from_bottom": 0,
+        "viewport_rows": 40
+      },
+      "tab_id": "w1:t2",
+      "terminal_id": "term_65f7347a53f282",
+      "workspace_id": "w1"
+    },
+    "tab": {
+      "agent_status": "unknown",
+      "focused": false,
+      "label": "worker-one",
+      "number": 2,
+      "pane_count": 1,
+      "tab_id": "w1:t2",
+      "workspace_id": "w1"
+    },
+    "type": "tab_created"
+  }
+}

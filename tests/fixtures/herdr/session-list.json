@@ -1,0 +1,18 @@
+{
+  "sessions": [
+    {
+      "default": true,
+      "name": "default",
+      "running": false,
+      "session_dir": "/tmp/herdr-sandbox/c/herdr",
+      "socket_path": "/tmp/herdr-sandbox/c/herdr/herdr.sock"
+    },
+    {
+      "default": false,
+      "name": "mpt-sandbox",
+      "running": true,
+      "session_dir": "/tmp/herdr-sandbox/c/herdr/sessions/mpt-sandbox",
+      "socket_path": "/tmp/herdr-sandbox/c/herdr/sessions/mpt-sandbox/herdr.sock"
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+{
+  "error": {
+    "code": "pane_not_found",
+    "message": "pane w1:p999 not found"
+  },
+  "id": "cli:request"
+}

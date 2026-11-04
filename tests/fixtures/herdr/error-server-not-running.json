@@ -1,0 +1,7 @@
+{
+  "id": "cli:workspace:list",
+  "error": {
+    "code": "server_not_running",
+    "message": "no herdr server is running at /tmp/herdr-sandbox/c/herdr/sessions/mpt-sandbox/herdr.sock; run `herdr session attach mpt-sandbox` to start or attach it"
+  }
+}

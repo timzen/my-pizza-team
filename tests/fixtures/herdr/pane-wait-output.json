@@ -1,0 +1,19 @@
+{
+  "id": "cli:pane:wait-output",
+  "result": {
+    "matched_line": "sh-5.2$ echo READY-MARKER",
+    "pane_id": "w1:p2",
+    "read": {
+      "format": "text",
+      "pane_id": "w1:p2",
+      "revision": 0,
+      "source": "recent_unwrapped",
+      "tab_id": "w1:t2",
+      "text": "sh-5.2$ printf '%s|%s|%s|%s|%s|%s|%s|%s|%s\\n' \"$MPT_AGENT\" \"$QUOTED\" \"$PWD\" \"$HERDR_ENV\" \"$HERDR_PANE_ID\" \"$HERDR_TAB_ID\" \"$FROM_SERVER\" \"${FROM_CLI:-unset}\" \"$WHO\" > env.txt\nsh-5.2$ sleep 300\n^C\nsh-5.2$ ^C\nsh-5.2$ echo READY-MARKER\nREADY-MARKER\nsh-5.2$",
+      "truncated": false,
+      "workspace_id": "w1"
+    },
+    "revision": 0,
+    "type": "output_matched"
+  }
+}

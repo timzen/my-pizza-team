@@ -1,0 +1,7 @@
+{
+  "error": {
+    "code": "tab_not_found",
+    "message": "tab w1:t999 not found"
+  },
+  "id": "cli:tab:close"
+}
