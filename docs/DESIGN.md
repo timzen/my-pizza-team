@@ -1924,7 +1924,8 @@ session control.
   (its tombstone needs no tmux); only the window close fails. The Pi leader runs no
   tmux at all: its `/ppt-spawn`, `/ppt-dismiss`, `/ppt-hop` and `/ppt-status` are
   daemon calls, and a structure test in the extension fails if a tmux command
-  creeps back. The `--ppt-tmux-session`/`--ppt-tmux-window` flags stay, as opaque
+  creeps back. The window-location flags (`--ppt-terminal`, `--ppt-terminal-session`,
+  `--ppt-terminal-window`; the older `--ppt-tmux-*` still accepted) stay, as opaque
   metadata the agent reports and only the daemon reads.
 - **One tmux server: the user's default.** The daemon never passes `-L`/`-S`, so
   `tmux attach -t mpt` finds the team. But "default" depends on the environment
@@ -1963,6 +1964,19 @@ session control.
   route, `mpt assistant` and doctor. It addresses windows by their labels
   (`session`, `window`), never by a backend's IDs, because herdr's are
   server-assigned and change; tmux addresses windows by name anyway.
+- **The terminal is a team choice, and a window stays where it was opened.**
+  `terminal` in config (tmux by default; herdr accepted but refused as "not available
+  yet" until its backend lands — refused, never silently opened in tmux instead)
+  picks where *new* windows open. Each agent reports which backend and window it is
+  in (`terminal`, `terminalSession`, `terminalWindow` metadata, filled from the
+  template's `{terminal*}` placeholders), and dismiss and `/ppt-hop` go to *that*
+  backend, not the configured one: switching the setting mid-day must not strand
+  the windows already open, nor send a Ctrl-C to a same-named window in the other
+  terminal. Older agents reported only `tmuxSession`/`tmuxWindow`, which is read as
+  tmux, since tmux was all there was. The UI and `mpt doctor` warn while agents
+  started under the other backend are still online. The container name keeps its
+  key, `tmuxSession`, for both backends rather than gaining an alias: renaming it
+  would touch every config.json, `/health` reader and the menu bar app, for a word.
 
 ## The Agent Environment Is a File
 

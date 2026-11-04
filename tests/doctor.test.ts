@@ -284,6 +284,18 @@ test("a daemon on a different tmux server than this shell warns, with the fix", 
   assertEquals(evaluate(healthy()).some((x) => x.name === "tmux server"), false);
 });
 
+test("agents still running under another terminal after a switch warn, naming them", () => {
+  const switched = evaluate(healthy({ daemonTerminal: "herdr", agentsOnOtherTerminal: [{ name: "neo", terminal: "tmux" }] }));
+  const c = find(switched, "Terminal");
+  assertEquals(c.status, "warn");
+  assertStringIncludes(c.detail, "new windows open in herdr");
+  assertStringIncludes(c.detail, "neo (tmux)");
+  assertStringIncludes(c.fix!, "dismiss");
+  // None left, or an older daemon that doesn't report it: no check.
+  assertEquals(evaluate(healthy({ daemonTerminal: "herdr", agentsOnOtherTerminal: [] })).some((x) => x.name === "Terminal"), false);
+  assertEquals(evaluate(healthy()).some((x) => x.name === "Terminal"), false);
+});
+
 test("no spawning check when the daemon isn't running to report it", () => {
   const checks = evaluate(healthy({ daemonRunning: false, leaderConnected: null, spawning: null }));
   assertEquals(checks.some((c) => c.name === "Spawning"), false);

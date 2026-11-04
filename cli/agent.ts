@@ -2,11 +2,15 @@
  * cli/agent.ts — `mpt agent`: run an experimental non-Pi teammate, and let it give up.
  *
  *   mpt agent --harness <kiro|claude> [--daemon URL] [--name NAME]
- *             [--tmux-session S --tmux-window W] [--acp-command '["cmd","arg"]']
+ *             [--terminal T --terminal-session S --terminal-window W [--terminal-handle H]]
+ *             [--acp-command '["cmd","arg"]']
  *   mpt agent fail "<reason>"
  *
- * The first is what the daemon's spawn template runs in a teammate's tmux window
- * (agent/supervisor.ts). The second is what that teammate's *agent* runs, through its
+ * The first is what the daemon's spawn template runs in a teammate's terminal window
+ * (agent/supervisor.ts). The `--terminal*` values are reported back to the daemon
+ * as registration metadata, uninterpreted (shared/agent-protocol.ts
+ * `terminalMetadata`); `--tmux-session`/`--tmux-window` are their older names and
+ * still accepted, for a team's own `harnesses` templates. The second is what that teammate's *agent* runs, through its
  * own shell tool, to give up on the item in hand: the supervisor's environment carries
  * MPT_DAEMON_URL / MPT_AGENT_ID through to it. Experimental — behind
  * `experimental.harnesses` (TODO.md "Next: other harnesses").
@@ -20,7 +24,7 @@ import { AgentSupervisor } from "../agent/supervisor.ts";
 import { DaemonClient } from "../runtime/client.ts";
 import { mptInvocation } from "../daemon/self.ts";
 import { shellQuote } from "../daemon/terminal/template.ts";
-import { DEFAULT_DAEMON_URL } from "../shared/types.ts";
+import { DEFAULT_DAEMON_URL, terminalMetadata } from "../shared/types.ts";
 import { packageVersion } from "../shared/paths.ts";
 
 /** `--flag value` or `--flag=value`. */
@@ -55,10 +59,14 @@ export async function cmdAgent(args: string[]): Promise<void> {
   const authToken = process.env["MPT_API_TOKEN"] || undefined;
   const client = new DaemonClient(daemonUrl, name, { authToken, harness: harness.name, harnessVersion: packageVersion() });
 
-  const metadata: Record<string, unknown> = {};
-  const session = flag(args, "tmux-session"), window = flag(args, "tmux-window");
-  if (session) metadata.tmuxSession = session;
-  if (window) metadata.tmuxWindow = window;
+  const metadata: Record<string, unknown> = terminalMetadata({
+    terminal: flag(args, "terminal"),
+    session: flag(args, "terminal-session"),
+    window: flag(args, "terminal-window"),
+    handle: flag(args, "terminal-handle"),
+    legacySession: flag(args, "tmux-session"),
+    legacyWindow: flag(args, "tmux-window"),
+  });
 
   const supervisor = new AgentSupervisor({
     client,

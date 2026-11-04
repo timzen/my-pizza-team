@@ -18,7 +18,12 @@ export interface TeammateConfig {
 /** GET /api/config as the Config page edits it (the draft's shape). */
 export interface ConfigData {
   port: number;
+  /** The terminal container's name (tmux session, herdr workspace) — kept under its old key. */
   tmuxSession: string;
+  /** Which terminal backend new windows open in. Unset = tmux; `null` clears it on save. */
+  terminal?: "tmux" | "herdr" | null;
+  /** Read-only: online agents started under a terminal other than `terminal` (a switch applies to new windows only). */
+  agentsOnOtherTerminal?: Array<{ name: string; terminal: string }>;
   defaultWorkflow: string;
   workflows: Record<string, { states: string[] }>;
   autosave: { flushIntervalMinutes: number; commitIntervalHours: number; autoCommit: boolean };
@@ -66,6 +71,7 @@ export function configBody(draft: ConfigData, saved: ConfigData | null): ConfigD
   const body = { ...draft };
   delete body.featureUsage;
   delete body.featureSources;
+  delete body.agentsOnOtherTerminal;
   if (!featuresChanged(draft.features, saved?.features)) delete body.features;
   return body;
 }
@@ -96,4 +102,28 @@ export function harnessOptions(harnesses: ConfigData["harnesses"]): Array<{ valu
     .filter((h) => !BUILT_IN_HARNESSES.some((b) => b.value === h) && harnesses?.[h]?.teammate)
     .map((h) => ({ value: h, label: `${h} (custom)` }));
   return [...BUILT_IN_HARNESSES, ...custom];
+}
+
+/** The terminal backends the Terminal picker offers (shared/types.ts `TERMINAL_KINDS`); tmux first, the default. */
+export const TERMINAL_OPTIONS: Array<{ value: "tmux" | "herdr"; label: string }> = [
+  { value: "tmux", label: "tmux (default)" },
+  { value: "herdr", label: "herdr (not available yet)" },
+];
+
+/**
+ * The Terminal field's warning, or null: a `terminal` switch applies to new windows
+ * only, so say so — when the draft changes it (agents already running stay where
+ * they are), and while agents started under another terminal are still online
+ * (`agentsOnOtherTerminal`, relative to the saved setting).
+ */
+export function terminalSwitchWarning(draft: ConfigData, saved: ConfigData | null): string | null {
+  const draftTerminal = draft.terminal || "tmux";
+  const savedTerminal = saved ? saved.terminal || "tmux" : draftTerminal;
+  if (draftTerminal !== savedTerminal) {
+    return `Applies to new windows only: agents already running stay in ${savedTerminal}.`;
+  }
+  const others = saved?.agentsOnOtherTerminal ?? [];
+  if (others.length === 0) return null;
+  const list = others.map((a) => `${a.name} (${a.terminal})`).join(", ");
+  return `${others.length === 1 ? "1 agent is" : `${others.length} agents are`} still running under another terminal: ${list}. New windows open in ${draftTerminal}.`;
 }

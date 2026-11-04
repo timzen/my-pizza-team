@@ -11,10 +11,11 @@ import type { RouteContext } from "./types.ts";
 import { readBody, fail } from "./http.ts";
 import type { TeamConfig, WorkflowConfig } from "../../shared/types.ts";
 import {
-  ASSISTANT_CHAT_MODES, DEFAULT_HARNESS, DEFAULT_NOUNS, TEAM_DIR, isAssistantChatMode, isExperimentalHarness, resolveAssistantChatMode,
+  ASSISTANT_CHAT_MODES, DEFAULT_HARNESS, DEFAULT_NOUNS, TEAM_DIR, TERMINAL_KINDS, isAssistantChatMode, isExperimentalHarness,
+  isTerminalKind, resolveAssistantChatMode, resolveTerminal,
 } from "../../shared/types.ts";
 import { enabledFeatures, featureSources, featureUsage, resolveFeaturesUpdate } from "../features.ts";
-import { resolveTemplates } from "../spawner.ts";
+import { agentsOnOtherTerminal, resolveTemplates } from "../spawner.ts";
 import { externalSourceViews } from "./sources.ts";
 import { validateWorkflow } from "../workflow-engine.ts";
 import { execFile } from "node:child_process";
@@ -76,6 +77,11 @@ export function registerSharedRoutes(ctx: RouteContext): void {
       // The tmux server the daemon's windows open on, so `mpt doctor` can check
       // it is the one the user attaches to (`tmux attach -t <tmuxSession>`).
       tmuxSocket: store.getTmuxSocket(),
+      // The terminal new windows open in (`TeamConfig.terminal`, default applied),
+      // and the online agents still running under another one — a switch applies to
+      // new windows only, so `mpt doctor` warns while any remain.
+      terminal: resolveTerminal(config),
+      agentsOnOtherTerminal: agentsOnOtherTerminal(store.getMembers(), config),
     });
   });
 
@@ -143,9 +149,12 @@ export function registerSharedRoutes(ctx: RouteContext): void {
   // "archive or delete 3 stories first" before a save is refused.
   // `featureSources` names each toggle's source (label, external or not), so
   // the page lists plugin sources too and offers to disconnect an external one.
+  // `agentsOnOtherTerminal` lists online agents started under a terminal other than
+  // `terminal`, so Config → General can warn that a switch applies to new windows only.
   app.get("/api/config", (c) => c.json({
     ...config, workflows: store.getWorkflows(), defaultNouns: DEFAULT_NOUNS, features: enabledFeatures(store, config),
     featureUsage: featureUsage(store), featureSources: featureSources(store),
+    agentsOnOtherTerminal: agentsOnOtherTerminal(store.getMembers(), config),
   }));
 
   app.put("/api/config", async (c) => {
@@ -165,6 +174,12 @@ export function registerSharedRoutes(ctx: RouteContext): void {
       if ("error" in harnessSettings) return fail(c, 400, harnessSettings.error);
       if (body.agentEnvFile != null && typeof body.agentEnvFile !== "string") {
         return fail(c, 400, "agentEnvFile must be a path (a string)");
+      }
+      // The terminal backend: one of TERMINAL_KINDS; null/"" clears it (back to tmux).
+      // herdr is accepted — the spawn and assistant-start capability checks are what
+      // say it isn't available yet, so the choice is saved and explained, not refused.
+      if (body.terminal != null && body.terminal !== "" && !isTerminalKind(body.terminal)) {
+        return fail(c, 400, `terminal must be one of: ${TERMINAL_KINDS.join(", ")}`);
       }
       if (body.exclusiveDirectories != null && typeof body.exclusiveDirectories !== "boolean") {
         return fail(c, 400, "exclusiveDirectories must be a boolean");
@@ -190,6 +205,10 @@ export function registerSharedRoutes(ctx: RouteContext): void {
 
       config.port = body.port || config.port;
       config.tmuxSession = body.tmuxSession || config.tmuxSession;
+      // Live, for new windows only: the spawner and the leader start read it per
+      // window, while dismiss/focus use each agent's recorded `terminal`.
+      if (body.terminal === null || body.terminal === "") delete config.terminal;
+      else if (body.terminal !== undefined) config.terminal = body.terminal;
       config.maxTeammates = body.maxTeammates || config.maxTeammates;
       // 0 is meaningful ("spawn nothing"), so this can't use `||`.
       // `null` clears it back to the default (half of maxTeammates).

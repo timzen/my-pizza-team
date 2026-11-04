@@ -119,8 +119,13 @@ export const FIELD_HELP = {
     text: "The workflow a new story starts with unless you pick another.",
     learnMore: { topic: "stories-and-workflows", anchor: "workflows" },
   },
+  terminal: {
+    text: "Where new agent windows open: tmux (the default) or herdr. Running agents stay where they started.",
+    learnMore: { topic: "configuration", anchor: "terminal" },
+  },
   tmuxSession: {
-    text: "The tmux session the teammates' windows open in.",
+    text: "The name of the team's tmux session (or herdr workspace) the agents' windows open in.",
+    learnMore: { topic: "configuration", anchor: "terminal" },
   },
   readinessProbe: {
     text: "A command run each heartbeat; while it exits non-zero, scheduled work is held.",

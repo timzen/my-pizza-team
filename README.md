@@ -269,7 +269,10 @@ most of it is editable on the **Config** page. Minimal:
   "defaultWorkflow": "default",          // Workflows themselves live in workflows/
 
   // ─── Team ──────────────────────────────────────────────────────
-  "tmuxSession": "my-pizza-team",        // Where teammate windows are created
+  "tmuxSession": "my-pizza-team",        // The team's session (tmux) / workspace (herdr) name
+  "terminal": "tmux",                    // tmux (default) or herdr (accepted, not available yet).
+                                         // A switch applies to new windows only; running agents
+                                         // are still dismissed/focused where they started.
   "maxTeammates": 4,
   "minTeammates": 2,                     // Declared team size (omit = half of maxTeammates; 0 = none)
   "agentTimeoutSeconds": 90,             // Silence before an agent is reaped
@@ -278,13 +281,15 @@ most of it is editable on the **Config** page. Minimal:
   },
 
   // ─── Harnesses ─────────────────────────────────────────────────
-  // Start commands the daemon types into a fresh tmux window. Omit for the
-  // built-in Pi templates. Placeholders: {name} {url} {cwd} {session} {window}.
+  // Start commands the daemon types into a fresh terminal window. Omit for the
+  // built-in Pi templates. Placeholders: {name} {url} {cwd} {mpt}, and the window's
+  // location {terminal} {terminalSession} {terminalWindow} {terminalHandle}
+  // ({session}/{window} are older names for {terminalSession}/{terminalWindow}).
   "defaultHarness": "pi",
   "harnesses": {
     "pi": {
-      "teammate": "pi -a --ppt-worker --ppt-daemon={url} --ppt-name={name} --ppt-tmux-session={session} --ppt-tmux-window={window}",
-      "leader": "pi -a --ppt-lead --ppt-daemon={url} --ppt-tmux-session={session} --ppt-tmux-window={window}"
+      "teammate": "pi -a --ppt-worker --ppt-daemon={url} --ppt-name={name} --ppt-terminal={terminal} --ppt-terminal-session={terminalSession} --ppt-terminal-window={terminalWindow}",
+      "leader": "pi -a --ppt-lead --ppt-daemon={url} --ppt-terminal={terminal} --ppt-terminal-session={terminalSession} --ppt-terminal-window={terminalWindow}"
     }
   },
 

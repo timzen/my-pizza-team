@@ -28,8 +28,18 @@ export interface TemplateVars {
   name: string;
   url: string;
   cwd: string;
+  /** `{terminal}`: the backend the window opens in (shared/types.ts `TERMINAL_KINDS`). */
+  terminal: string;
+  /** `{terminalSession}`, and its older name `{session}`: the container label. */
   session: string;
+  /** `{terminalWindow}`, and its older name `{window}`: the window label. */
   window: string;
+  /**
+   * `{terminalHandle}`: the backend's own ID for the window, when it knows one
+   * before the command runs. Empty when absent (tmux never has one: its windows
+   * are addressed by label).
+   */
+  handle?: string;
 }
 
 /**
@@ -46,6 +56,11 @@ export function renderTemplate(template: string, vars: TemplateVars): string {
     .replaceAll("{name}", vars.name)
     .replaceAll("{url}", vars.url)
     .replaceAll("{cwd}", shellQuote(vars.cwd))
+    .replaceAll("{terminal}", vars.terminal)
+    .replaceAll("{terminalSession}", vars.session)
+    .replaceAll("{terminalWindow}", vars.window)
+    .replaceAll("{terminalHandle}", vars.handle ?? "")
+    // The pre-herdr names, kept so existing `harnesses` config keeps working.
     .replaceAll("{session}", vars.session)
     .replaceAll("{window}", vars.window);
 }

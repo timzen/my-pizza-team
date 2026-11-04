@@ -7,7 +7,7 @@
 
 import { test } from "node:test";
 import { assertEquals } from "./_assert.ts";
-import { BUILT_IN_HARNESSES, configBody, harnessOptions, normalizeNoun, type ConfigData } from "../ui/src/lib/config-draft.ts";
+import { BUILT_IN_HARNESSES, configBody, harnessOptions, normalizeNoun, terminalSwitchWarning, type ConfigData } from "../ui/src/lib/config-draft.ts";
 
 const base: ConfigData = {
   port: 9999,
@@ -53,5 +53,27 @@ test("harnessOptions: built-ins, then custom harnesses with a teammate command",
       broken: { teammate: "" },
     }).map((o) => o.label),
     ["Pi", "Kiro (experimental)", "Claude Code (experimental)", "mine (custom)"],
+  );
+});
+
+test("configBody: drops the read-only agentsOnOtherTerminal, keeps terminal", () => {
+  const draft: ConfigData = { ...base, terminal: "herdr", agentsOnOtherTerminal: [{ name: "neo", terminal: "tmux" }] };
+  const body = configBody(draft, draft);
+  assertEquals("agentsOnOtherTerminal" in body, false);
+  assertEquals(body.terminal, "herdr");
+});
+
+test("terminalSwitchWarning: on a change, and while agents run under another terminal", () => {
+  assertEquals(terminalSwitchWarning(base, base), null);
+  // Unset and "tmux" are the same setting.
+  assertEquals(terminalSwitchWarning({ ...base, terminal: null }, base), null);
+  assertEquals(
+    terminalSwitchWarning({ ...base, terminal: "herdr" }, base),
+    "Applies to new windows only: agents already running stay in tmux.",
+  );
+  const saved: ConfigData = { ...base, terminal: "herdr", agentsOnOtherTerminal: [{ name: "neo", terminal: "tmux" }] };
+  assertEquals(
+    terminalSwitchWarning(saved, saved),
+    "1 agent is still running under another terminal: neo (tmux). New windows open in herdr.",
   );
 });

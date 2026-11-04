@@ -39,7 +39,7 @@ npm i -g my-pizza-team && mpt start
 # Usually you don't run the leader yourself: the web UI's "Start the assistant"
 # (POST /api/assistant/start) or `mpt assistant` (alias `mpt lead`) opens it in
 # the tmux window `leader` with the harness's `leader` template, by default
-#   pi -a --ppt-lead --ppt-daemon={url} --ppt-tmux-session={session} --ppt-tmux-window={window}
+#   pi -a --ppt-lead --ppt-daemon={url} --ppt-terminal={terminal} --ppt-terminal-session={terminalSession} --ppt-terminal-window={terminalWindow}
 # (-a trusts the project folder without asking, since nobody may be attached).
 
 # Leader mode by hand (auto-detects if .my-pizza-team/ exists in cwd):
@@ -72,8 +72,11 @@ The extension detects which role to activate:
 | `--ppt-assistant` | boolean | false | **Retired** — the leader answers the chat; kept so old spawn commands don't crash |
 | `--ppt-daemon` | string | `http://localhost:7437` | Daemon URL |
 | `--ppt-name` | string | (auto-generated) | Agent name |
-| `--ppt-tmux-session` | string | (set by the daemon) | tmux session the agent runs in (reported as opaque metadata; only the daemon reads it) |
-| `--ppt-tmux-window` | string | (set by the daemon) | tmux window the agent runs in (reported as opaque metadata; only the daemon reads it) |
+| `--ppt-terminal` | string | (set by the daemon) | Terminal backend the agent's window is in (`tmux`, `herdr`; reported as opaque metadata; only the daemon reads it) |
+| `--ppt-terminal-session` | string | (set by the daemon) | Session/container the window is in (opaque metadata) |
+| `--ppt-terminal-window` | string | (set by the daemon) | Window the agent runs in (opaque metadata) |
+| `--ppt-terminal-handle` | string | (none) | The terminal's own ID for the window, when the daemon has one (opaque metadata; a hint only) |
+| `--ppt-tmux-session` / `--ppt-tmux-window` | string | (none) | Older names of `--ppt-terminal-session` / `--ppt-terminal-window`, still accepted (the neutral ones win) |
 | `--ppt-readiness-probe` | string | (none) | **Leader only.** Host readiness probe command (highest-priority override); exit 0 = ready, non-zero = not ready (stdout's first line is the reason). Also settable via the `PPT_READINESS_PROBE` env var or — the recommended way — via the daemon's **Config page** (`readinessProbe` in config.json, with optional per-host override at `hosts[hostId].readinessProbe`). A not-ready host makes the daemon **hold** scheduled work destined for it instead of failing it (e.g. while `mwinit` credentials are expired), firing it once on recovery. No probe = always ready. |
 
 ### Work selection: directory affinity
@@ -222,8 +225,8 @@ tool, and nothing to spawn. See
 
 The **daemon** spawns every teammate: it opens a tmux window and types the
 harness's `teammate` start command from the team config (`harnesses`, with built-in
-defaults), passing `--ppt-tmux-session`/`--ppt-tmux-window` so the agent can report
-where it lives. The extension holds no templates and runs no tmux — `/ppt-spawn`
+defaults), passing `--ppt-terminal`/`--ppt-terminal-session`/`--ppt-terminal-window` so the
+agent can report where it lives (`src/terminal.ts`). The extension holds no templates and runs no tmux — `/ppt-spawn`
 just creates the daemon's `spawn` directive. See the daemon's
 [docs/DESIGN.md "The Daemon Is the Supervisor"](../../docs/DESIGN.md).
 

@@ -19,8 +19,8 @@
 
 import * as path from "node:path";
 import { agentEnvWarning, loadAgentEnv } from "../shared/env-file.ts";
-import { DEFAULT_HARNESS, LEADER_WINDOW, type TeamConfig } from "../shared/types.ts";
-import { resolveTemplates, type SpawnCapability } from "./spawner.ts";
+import { DEFAULT_HARNESS, LEADER_WINDOW, resolveTerminal, type TeamConfig } from "../shared/types.ts";
+import { resolveTemplates, terminalChoiceCapability, type SpawnCapability } from "./spawner.ts";
 import { getTerminalBackend } from "./terminal/index.ts";
 import { renderTemplate, type TemplateVars, unresolvedPlaceholders } from "./terminal/template.ts";
 import type { TmuxExec } from "./terminal/tmux.ts";
@@ -52,7 +52,8 @@ export type LeaderStartResult =
  * Which check a start failed, so `mpt lead` can word its own messages while the
  * UI shows `reason` and `fix` as they are.
  */
-export type LeaderStartErrorCode = "tmux-unavailable" | "no-template" | "unresolved-placeholders" | "tmux-failed";
+export type LeaderStartErrorCode =
+  | "terminal-unavailable" | "tmux-unavailable" | "no-template" | "unresolved-placeholders" | "tmux-failed";
 
 /** What starting the leader needs, named so tests can inject a fake tmux. */
 export interface LeaderStartDeps {
@@ -89,8 +90,9 @@ export function leaderCwd(teamDir: string): string {
 }
 
 /**
- * Can the assistant be started, as far as can be told without starting it? tmux
- * must be reachable, the default harness must have a `leader` template, and the
+ * Can the assistant be started, as far as can be told without starting it? The
+ * configured terminal must be one mpt can drive (`terminalChoiceCapability`), tmux
+ * must be reachable (when that terminal is tmux), the default harness must have a `leader` template, and the
  * template must have no unknown placeholders. Cheap and side-effect free, so the
  * daemon reports it on every `/health` and `/api/teammate-pool` read, which is how
  * the UI decides between a Start button and the reason it can't offer one.
@@ -98,7 +100,8 @@ export function leaderCwd(teamDir: string): string {
 export function assistantStartability(config: TeamConfig, tmux: SpawnCapability = { canSpawn: true }): AssistantStartability {
   const checked = checkTemplate(config, tmux, {
     // Placeholder values: only *which* placeholders are left unfilled matters here.
-    name: LEADER_WINDOW, url: "http://localhost", cwd: "/", session: leaderSession(config), window: LEADER_WINDOW, mpt: ["mpt"],
+    name: LEADER_WINDOW, url: "http://localhost", cwd: "/", terminal: resolveTerminal(config),
+    session: leaderSession(config), window: LEADER_WINDOW, mpt: ["mpt"],
   });
   return "command" in checked ? { ok: true } : { ok: false, reason: checked.reason, fix: checked.fix };
 }
@@ -119,7 +122,7 @@ export function startLeader(deps: LeaderStartDeps): LeaderStartResult {
   const cwd = leaderCwd(deps.teamDir);
   if (deps.leaderOnline) return { status: "already-running", session, window: LEADER_WINDOW, cwd };
   const checked = checkTemplate(deps.config, deps.tmux ?? { canSpawn: true }, {
-    name: LEADER_WINDOW, url: deps.daemonUrl, cwd, session, window: LEADER_WINDOW, mpt: deps.mpt,
+    name: LEADER_WINDOW, url: deps.daemonUrl, cwd, terminal: terminal.kind, session, window: LEADER_WINDOW, mpt: deps.mpt,
   });
   if (!("command" in checked)) return { status: "error", ...checked };
 
@@ -154,8 +157,8 @@ export function startLeader(deps: LeaderStartDeps): LeaderStartResult {
 }
 
 /**
- * The checks both `assistantStartability` and `startLeader` make, in order: tmux
- * reachable, a leader template for the default harness, no unknown placeholders.
+ * The checks both `assistantStartability` and `startLeader` make, in order: the
+ * configured terminal usable (herdr: not available yet), tmux reachable, a leader template for the default harness, no unknown placeholders.
  * Returns the rendered command, or the first failure's reason and fix.
  *
  * Templates are the built-ins overridden harness by harness (`resolveTemplates`),
@@ -167,6 +170,8 @@ function checkTemplate(
   tmux: SpawnCapability,
   vars: TemplateVars,
 ): { command: string } | { code: LeaderStartErrorCode; reason: string; fix: string } {
+  const terminal = terminalChoiceCapability(config);
+  if (!terminal.canSpawn) return { code: "terminal-unavailable", reason: terminal.reason, fix: terminal.fix };
   if (!tmux.canSpawn) return { code: "tmux-unavailable", reason: tmux.reason, fix: tmux.fix };
   const harness = config.defaultHarness || DEFAULT_HARNESS;
   const template = resolveTemplates(config)[harness]?.leader;

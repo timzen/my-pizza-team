@@ -1,7 +1,10 @@
 # herdr as a terminal backend — spike findings
 
 Status: **spike** (story "herdr as an alternative terminal backend", task 1). No
-production code uses herdr yet. This page records what herdr 0.9.5 was verified to do
+production code drives herdr yet: a team can already select it (`"terminal": "herdr"`,
+task 3), but that only gets a never-available stand-in backend
+(`daemon/terminal/unavailable.ts`), so spawns and the assistant start are refused with
+"not available yet" until the herdr backend lands (task 4). This page records what herdr 0.9.5 was verified to do
 and the decisions the later tasks build on. The proof is
 [`tests/e2e/herdr-contract.test.ts`](../tests/e2e/herdr-contract.test.ts), run against an
 isolated server ([`tests/e2e/_herdr.ts`](../tests/e2e/_herdr.ts)), with every JSON
@@ -50,7 +53,8 @@ fields mpt reads are still there with the same types.
   `~/.config/herdr/sessions/<name>/`), but the user would have to know to run
   `herdr session attach <name>`, and every team would cost a server.
 - **Team container:** one **workspace** labelled with the team's session name (today's
-  `tmuxSession`, e.g. `mpt`). Found by label in `workspace list`; created on demand.
+  `tmuxSession`, e.g. `mpt` — the key keeps its name for both backends; see
+  docs/DESIGN.md "The Daemon Is the Supervisor"). Found by label in `workspace list`; created on demand.
 - **Agent window:** one **tab** labelled with the window name (`leader`, the teammate's
   name), whose **root pane** runs the command. Tabs, not panes: a tab is what the user
   switches between, has a label, and maps 1:1 to a tmux window.
@@ -61,11 +65,13 @@ fields mpt reads are still there with the same types.
 
 herdr IDs (`w1`, `w1:t2`, `w1:p2`) are server-assigned and can change: `pane move`
 re-qualifies a pane's ID, and a user can close and re-create a tab. Labels are what the
-user sees and what mpt already reports (`{session}`/`{window}`). So mpt **resolves
+user sees and what mpt already reports (`{terminalSession}`/`{terminalWindow}`, formerly
+`{session}`/`{window}`, as `terminalSession`/`terminalWindow` metadata). So mpt **resolves
 `(workspace label, tab label)` to IDs on each operation** (`workspace list`, then
 `tab list --workspace`), exactly as tmux addresses `session:window` by name. IDs are never
 stored as the source of truth; an agent's metadata may carry `HERDR_PANE_ID` as a
-display/debug hint only.
+display/debug hint only — the `terminalHandle` metadata (template placeholder
+`{terminalHandle}`, empty when the backend doesn't know an ID before the command runs).
 
 Two consequences:
 

@@ -18,7 +18,7 @@ import {
 } from "./lifecycle.ts";
 import { resolveToken, validateBindSafety } from "./auth.ts";
 import { probeTerminalCapability, realizePending } from "./spawner.ts";
-import { getTerminalBackend } from "./terminal/index.ts";
+import { createTerminalBackend } from "./terminal/index.ts";
 import { startReadinessLoop } from "./readiness.ts";
 import { mptInvocation } from "./self.ts";
 import { findPreCutoffLayout, formatPreCutoffMessage } from "./layout-check.ts";
@@ -116,7 +116,11 @@ export async function startDaemonInProcess(
   // on PATH). The socket is the tmux server the daemon's windows open on, which
   // `mpt doctor` compares with the user's.
   // `store` is null only in health-only mode, which has no team to spawn into.
-  const terminal = store ? getTerminalBackend(store.getConfig()) : null;
+  // tmux specifically, whatever `terminal` config says: the setting changes live
+  // (Store.getSpawnCapability re-checks it on every use), tmux is the only backend
+  // that needs a launch-time probe, and windows started under tmux still need
+  // closing after a switch.
+  const terminal = store ? createTerminalBackend("tmux") : null;
   const tmuxCapability = terminal ? probeTerminalCapability(terminal) : null;
   if (store && terminal && tmuxCapability) {
     store.setTmuxCapability(tmuxCapability);

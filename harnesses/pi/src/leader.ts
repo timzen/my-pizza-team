@@ -29,18 +29,9 @@ import { registerLeaderTools } from "./tools.js";
 import { applyFeatureTools, featurePromptNote } from "./features.js";
 import { summarizeRun, hasUsage } from "./runtime/usage.js";
 import { LEADER_WINDOW } from "./shared/types.js";
+import { readTerminalMetadata } from "./terminal.js";
 
 const WIDGET_UPDATE_INTERVAL_MS = 10000;
-
-/** This leader's tmux location, when it was told (see `mpt lead`). */
-function readLeaderTmuxMetadata(pi: ExtensionAPI): Record<string, unknown> {
-  const metadata: Record<string, unknown> = {};
-  const window = ((pi.getFlag("ppt-tmux-window") as string) || "").trim();
-  const session = ((pi.getFlag("ppt-tmux-session") as string) || "").trim();
-  if (window) metadata.tmuxWindow = window;
-  if (session) metadata.tmuxSession = session;
-  return metadata;
-}
 
 // ═══════════════════════════════════════════════════════════════════════
 // SETUP
@@ -70,7 +61,7 @@ export async function setupLeader(
     await client.register({
       name: "leader",
       directory: cwd,
-      metadata: readLeaderTmuxMetadata(pi),
+      metadata: readTerminalMetadata(pi),
     });
     registered = true;
   }

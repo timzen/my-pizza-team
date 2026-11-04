@@ -265,12 +265,36 @@ test("a template fills every placeholder, quoting the cwd", () => {
     name: "swift-ripley",
     url: "http://localhost:7437",
     cwd: "/Users/t/My Project",
+    terminal: "tmux",
     session: "mpt",
     window: "swift-ripley",
   });
   assertEquals(rendered.includes("--ppt-name=swift-ripley"), true);
   assertEquals(rendered.includes("--ppt-daemon=http://localhost:7437"), true);
+  assertEquals(rendered.includes("--ppt-terminal=tmux --ppt-terminal-session=mpt --ppt-terminal-window=swift-ripley"), true, rendered);
   assertEquals(unresolvedPlaceholders(rendered), [], rendered);
+});
+
+test("the terminal placeholders fill, and the older {session}/{window} still do", () => {
+  const rendered = renderTemplate(
+    "x --t={terminal} --s={terminalSession} --w={terminalWindow} --h={terminalHandle} --os={session} --ow={window}",
+    { name: "n", url: "u", cwd: "/w", terminal: "herdr", session: "team", window: "neo", handle: "w1:p2" },
+  );
+  assertEquals(rendered, "x --t=herdr --s=team --w=neo --h=w1:p2 --os=team --ow=neo");
+  // No handle (tmux has none before the command runs): the placeholder is emptied, not left unresolved.
+  const noHandle = renderTemplate("x --h={terminalHandle}", { name: "n", url: "u", cwd: "/w", terminal: "tmux", session: "s", window: "w" });
+  assertEquals(noHandle, "x --h=");
+  assertEquals(unresolvedPlaceholders(noHandle), []);
+});
+
+test("every built-in template reports its terminal with the neutral placeholders", () => {
+  for (const [harness, t] of Object.entries(DEFAULT_HARNESS_TEMPLATES)) {
+    for (const template of [t.teammate, t.leader].filter((x): x is string => !!x)) {
+      for (const p of ["{terminal}", "{terminalSession}", "{terminalWindow}"]) {
+        assertEquals(template.includes(p), true, `${harness}: ${template} lacks ${p}`);
+      }
+    }
+  }
 });
 
 test("a typo in a config template is reported rather than run", () => {
@@ -279,6 +303,7 @@ test("a typo in a config template is reported rather than run", () => {
     name: "x",
     url: "u",
     cwd: "/w",
+    terminal: "tmux",
     session: "s",
     window: "w",
   });
@@ -290,6 +315,7 @@ test("a cwd placeholder is quoted so a spaced path survives the shell", () => {
     name: "x",
     url: "u",
     cwd: "/Users/t/My Project",
+    terminal: "tmux",
     session: "s",
     window: "w",
   });

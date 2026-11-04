@@ -123,6 +123,58 @@ export interface StatusResponse<W = unknown> {
   features?: Partial<Features>;
 }
 
+// ─── Terminal location metadata ──────────────────────────────────────
+
+/**
+ * The registration-metadata keys an agent reports its window under. The values
+ * come from the harness template's placeholders (`{terminal}`, `{terminalSession}`,
+ * `{terminalWindow}`, `{terminalHandle}` — the daemon fills them when it opens the
+ * window) and are reported back verbatim: a harness never interprets them. The
+ * daemon reads the neutral keys first and falls back to the pre-herdr
+ * `tmuxSession`/`tmuxWindow` (daemon/spawner.ts `memberTerminal`), so an agent
+ * started by an older mpt is still dismissed and focused in the right place. Not a
+ * protocol change: metadata is free-form, and an older daemon ignores keys it
+ * doesn't read.
+ */
+export const TERMINAL_METADATA_KEYS = {
+  /** Which backend the window is in (tmux or herdr; shared/types.ts TERMINAL_KINDS). */
+  terminal: "terminal",
+  /** The container label (tmux session, herdr workspace). */
+  session: "terminalSession",
+  /** The window label (tmux window, herdr tab). */
+  window: "terminalWindow",
+  /** The backend's own ID for the window (e.g. a herdr pane ID), a display/debug hint only. */
+  handle: "terminalHandle",
+  /** Pre-herdr: read by the daemon as a fallback, never written by a current harness. */
+  legacySession: "tmuxSession",
+  legacyWindow: "tmuxWindow",
+} as const;
+
+/**
+ * The metadata a harness registers with for its window, from the values its
+ * command line was given (neutral flags first, then the older `--*tmux-*` ones).
+ * Empty values are left out, so a harness started by hand reports nothing.
+ */
+export function terminalMetadata(values: {
+  terminal?: string;
+  session?: string;
+  window?: string;
+  handle?: string;
+  legacySession?: string;
+  legacyWindow?: string;
+}): Record<string, string> {
+  const out: Record<string, string> = {};
+  const session = values.session?.trim() || values.legacySession?.trim();
+  const window = values.window?.trim() || values.legacyWindow?.trim();
+  const terminal = values.terminal?.trim();
+  const handle = values.handle?.trim();
+  if (terminal) out[TERMINAL_METADATA_KEYS.terminal] = terminal;
+  if (session) out[TERMINAL_METADATA_KEYS.session] = session;
+  if (window) out[TERMINAL_METADATA_KEYS.window] = window;
+  if (handle) out[TERMINAL_METADATA_KEYS.handle] = handle;
+  return out;
+}
+
 // ─── Agents API (WorkItem-centric; see docs/DESIGN.md "The WorkItem") ─
 
 /** POST /api/agents/register */

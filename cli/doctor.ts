@@ -36,7 +36,7 @@ import {
   type ExtensionRegistration,
 } from "./pi-config.ts";
 import { managedExtensionDir, readExtensionVersion, resolveExtensionSourceDir } from "./extension.ts";
-import { getTerminalBackend } from "../daemon/terminal/index.ts";
+import { createTerminalBackend } from "../daemon/terminal/index.ts";
 import { findPreCutoffLayout, type PreCutoffFinding } from "../daemon/layout-check.ts";
 import { MIN_UPGRADE_FROM_VERSION, PRE_CUTOFF_UPGRADE_MESSAGE } from "../shared/types.ts";
 import {
@@ -109,6 +109,13 @@ export interface DoctorFacts {
    */
   daemonTmuxSocket?: string | null;
   cliTmuxSocket?: string | null;
+  /**
+   * The terminal the running daemon opens new windows in (`/health` `terminal`), and
+   * the online agents it still has under another one (`agentsOnOtherTerminal`) — a
+   * `terminal` switch applies to new windows only. Absent/null = not known.
+   */
+  daemonTerminal?: string | null;
+  agentsOnOtherTerminal?: Array<{ name: string; terminal: string }> | null;
   serviceInstalled: boolean;
   /** Which Node runs mpt, and how that compares to the service and this process. Absent = not checked. */
   node?: NodeFacts;
@@ -331,6 +338,19 @@ export function evaluate(f: DoctorFacts): Check[] {
       status: "warn",
       detail: `the daemon uses ${f.daemonTmuxSocket}, this shell uses ${f.cliTmuxSocket} — its windows open on a server you don't attach to`,
       fix: `restart the daemon from this shell (mpt stop && mpt start; for the login service, mpt install) so they match, or attach with: tmux -S ${f.daemonTmuxSocket} attach`,
+    });
+  }
+
+  // A terminal switch applies to new windows only: say so while agents started under
+  // the old one are still online (they keep working there, and dismiss/focus still
+  // reach them), so a half-switched team isn't a mystery.
+  if (f.daemonRunning && f.daemonTerminal && f.agentsOnOtherTerminal && f.agentsOnOtherTerminal.length > 0) {
+    const others = f.agentsOnOtherTerminal.map((a) => `${a.name} (${a.terminal})`).join(", ");
+    checks.push({
+      name: "Terminal",
+      status: "warn",
+      detail: `new windows open in ${f.daemonTerminal}, but ${f.agentsOnOtherTerminal.length} online agent(s) still run under another terminal: ${others}`,
+      fix: "they keep working where they are; to move one, dismiss it (the team respawns teammates) — for the assistant, quit it and start it again",
     });
   }
 
@@ -613,12 +633,21 @@ export async function gather(opts: GatherOptions): Promise<DoctorFacts> {
   let leaderConnected: boolean | null = null;
   let spawning: DoctorFacts["spawning"] = null;
   let daemonTmuxSocket: string | null = null;
+  let daemonTerminal: string | null = null;
+  let agentsOnOtherTerminal: DoctorFacts["agentsOnOtherTerminal"] = null;
   try {
     const health = await fetch(`${opts.daemonUrl}/health`, { signal: AbortSignal.timeout(1500) });
     if (health.ok) {
-      const body = await health.json() as { spawning?: { canSpawn: boolean; reason?: string; fix?: string }; tmuxSocket?: string | null };
+      const body = await health.json() as {
+        spawning?: { canSpawn: boolean; reason?: string; fix?: string };
+        tmuxSocket?: string | null;
+        terminal?: string;
+        agentsOnOtherTerminal?: Array<{ name: string; terminal: string }>;
+      };
       spawning = body.spawning ?? null;
       daemonTmuxSocket = body.tmuxSocket ?? null;
+      daemonTerminal = body.terminal ?? null;
+      agentsOnOtherTerminal = body.agentsOnOtherTerminal ?? null;
     }
   } catch { /* covered by the daemon check below */ }
   try {
@@ -641,7 +670,9 @@ export async function gather(opts: GatherOptions): Promise<DoctorFacts> {
     } catch { /* an older or unreachable daemon: the check is skipped */ }
   }
 
-  const terminal = getTerminalBackend();
+  // tmux specifically: its presence and socket are what the checks below compare
+  // (the daemon's tmux server), whatever the team's `terminal` says.
+  const terminal = createTerminalBackend("tmux");
   return {
     piVersion: await probeVersion("pi"),
     tmuxPresent: terminal.available(),
@@ -663,6 +694,8 @@ export async function gather(opts: GatherOptions): Promise<DoctorFacts> {
     spawning,
     daemonTmuxSocket,
     cliTmuxSocket: daemonTmuxSocket ? terminal.identity() : null,
+    daemonTerminal,
+    agentsOnOtherTerminal,
     serviceInstalled: opts.serviceInstalled,
     node: gatherNodeFacts(opts.service ?? null),
     experimentalHarnesses: experimentalHarnessFacts(opts.teamDir),

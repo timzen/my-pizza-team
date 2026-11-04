@@ -66,7 +66,8 @@ test("UI dismiss of an `mpt agent` teammate closes its window once it deregister
     await app.request("/api/agents/a1?dismiss=true", { method: "DELETE" });
     const [d] = dismissDirectives(store);
     assertEquals(d?.params.name, "swift-ripley");
-    assertEquals(d?.params.tmuxSession, "team");
+    assertEquals(d?.params.terminalSession, "team");
+    assertEquals(d?.params.terminal, "tmux"); // pre-herdr metadata: started under tmux
 
     // Still running: nothing happens to its window.
     passes(store, tmux.exec, 2);

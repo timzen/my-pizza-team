@@ -3,8 +3,8 @@
 Settings live under the **config** (gear) icon, at `/config`:
 
 - **General** — the **Work items** toggles, the **Assistant** style (see
-  [The assistant](04-assistant.md#assistant-style-chat-or-terminal)), port, tmux
-  session, team size (min/max teammates), default workflow, the **readiness probe**,
+  [The assistant](04-assistant.md#assistant-style-chat-or-terminal)), port, the
+  **terminal** and its session name, team size (min/max teammates), default workflow, the **readiness probe**,
   the **agent env file**, **favorite directories**, autosave (flush/commit cadence, auto-commit)
 - **Teammates** — the nouns used to name teammates, **One teammate per directory**,
   and **Experimental Harnesses** (opt in to Kiro / Claude Code teammates and pick the
@@ -99,6 +99,24 @@ and `mpt doctor` names the file and the line. `mpt install` also points the logi
 service at the file, so the daemon itself has the variables.
 A teammate not seeing a variable? See
 [Troubleshooting](10-tips.md#troubleshooting).
+
+## Terminal
+
+Teammates and the assistant each run in a window the daemon opens in a terminal
+multiplexer. **Config → General → Terminal** (`terminal` in config.json) picks which
+one: **tmux** (the default) or **herdr**. herdr isn't available yet in this version:
+picking it saves, but new teammates and the assistant won't start until you pick
+tmux again (the Team tab and `mpt doctor` say why).
+
+A change applies to **new** windows only. Agents already running stay where they
+were started, and dismissing one or hopping to it (`/ppt-hop`) still works there.
+While any are still online, the Terminal field warns, and so does `mpt doctor`. To
+move one, dismiss it (the team starts a replacement), or quit the assistant and
+start it again.
+
+**Session** (`tmuxSession` in config.json, kept under its old name) is the name of
+the team's container in whichever terminal you use: the tmux session
+(`tmux attach -t <name>`), or the herdr workspace.
 
 ## Favorite directories
 

@@ -45,11 +45,11 @@ test("imports registerLeaderTools", () => {
 
 // ─── Daemon registration ─────────────────────────────────────────
 
-test("registers with daemon on startup, reporting its tmux location as opaque metadata", () => {
+test("registers with daemon on startup, reporting its terminal location as opaque metadata", () => {
   // The metadata is how the daemon addresses the leader's window. The leader only
-  // relays it; it never reads it back (it doesn't touch tmux).
+  // relays it; it never reads it back (it doesn't touch the terminal).
   assert.ok(src.includes('name: "leader"'));
-  assert.ok(src.includes("readLeaderTmuxMetadata(pi)"));
+  assert.ok(src.includes("readTerminalMetadata(pi)"));
 });
 
 test("deregisters on session_shutdown", () => {
@@ -93,9 +93,19 @@ test("nothing spawns an assistant any more (the leader is the chat agent)", () =
 // The daemon spawns with these templates; they stay in the generated shared copy.
 const shared = fs.readFileSync(new URL("../src/shared/types.ts", import.meta.url), "utf8");
 
-test("pi template uses -a --ppt-worker --ppt-daemon --ppt-name and passes the tmux location", () => {
+test("pi template uses -a --ppt-worker --ppt-daemon --ppt-name and passes the terminal location", () => {
   assert.ok(shared.includes("pi -a --ppt-worker --ppt-daemon={url} --ppt-name={name}"));
-  assert.ok(shared.includes("--ppt-tmux-session={session} --ppt-tmux-window={window}"));
+  assert.ok(shared.includes("--ppt-terminal={terminal} --ppt-terminal-session={terminalSession} --ppt-terminal-window={terminalWindow}"));
+});
+
+// The flags the template passes, and the metadata they become (src/terminal.ts):
+// neutral flags, the older --ppt-tmux-* still accepted, relayed verbatim.
+const terminalSrc = fs.readFileSync(path.join(import.meta.dirname, "../src/terminal.ts"), "utf-8");
+test("registers the neutral --ppt-terminal* flags and keeps the older --ppt-tmux-* ones", () => {
+  for (const flag of ["ppt-terminal", "ppt-terminal-session", "ppt-terminal-window", "ppt-terminal-handle", "ppt-tmux-session", "ppt-tmux-window"]) {
+    assert.ok(terminalSrc.includes(`"${flag}"`), flag);
+  }
+  assert.ok(terminalSrc.includes("terminalMetadata({"), "builds metadata with the shared helper");
 });
 
 // ─── Slash commands ──────────────────────────────────────────────

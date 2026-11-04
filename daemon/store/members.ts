@@ -32,7 +32,7 @@ import {
   type WorkItemState,
 } from "../../shared/types.ts";
 import { normalizeDirectory } from "../../shared/directory.ts";
-import { capabilityError, harnessCapability, type SpawnCapability } from "../spawner.ts";
+import { capabilityError, harnessCapability, terminalChoiceCapability, type SpawnCapability } from "../spawner.ts";
 import { assistantStartability, type AssistantStartability } from "../leader-start.ts";
 import type { StoreDomainContext } from "./domain.ts";
 
@@ -446,10 +446,14 @@ export class MemberStore {
 
   /**
    * Can this daemon realize a spawn of `harness` (default: the team's default
-   * harness)? tmux reachability first, then the live config's harness checks —
-   * re-evaluated on every call, since the Config page changes the harness live.
+   * harness)? The configured terminal first (`terminalChoiceCapability`: known and
+   * implemented), then tmux reachability (only when that terminal is tmux), then the
+   * live config's harness checks — re-evaluated on every call, since the Config page
+   * changes the terminal and the harness live.
    */
   getSpawnCapability(harness?: string): SpawnCapability {
+    const terminal = terminalChoiceCapability(this.config);
+    if (!terminal.canSpawn) return terminal;
     if (!this.tmuxCapability.canSpawn) return this.tmuxCapability;
     return harnessCapability(harness ? { ...this.config, defaultHarness: harness } : this.config);
   }

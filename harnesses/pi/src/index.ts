@@ -20,6 +20,7 @@ import * as path from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { TEAM_DIR, LEGACY_TEAM_DIR, DEFAULT_DAEMON_URL, PRE_CUTOFF_UPGRADE_MESSAGE } from "./shared/types.js";
 import { DaemonClient } from "./runtime/client.js";
+import { readTerminalMetadata, registerTerminalFlags } from "./terminal.js";
 import { summarizeRun, hasUsage } from "./runtime/usage.js";
 import { readSessionStats, sameStats, type SessionStats } from "./runtime/session-stats.js";
 
@@ -81,12 +82,11 @@ export default function (pi: ExtensionAPI) {
     default: "",
   });
 
-  // Set by the daemon when it spawns an agent (and by `mpt lead` for the leader),
-  // so the agent can report its own tmux window/session back as opaque metadata:
-  // the daemon uses it to address the window (dismiss, /ppt-hop). The harness only
-  // relays these values — it never interprets them or runs tmux.
-  pi.registerFlag("ppt-tmux-window", { description: "tmux window name (set by the daemon on spawn)", type: "string", default: "" });
-  pi.registerFlag("ppt-tmux-session", { description: "tmux session name (set by the daemon on spawn)", type: "string", default: "" });
+  // Set by the daemon when it opens an agent's window (the leader's too), so the
+  // agent can report its own terminal location back as opaque metadata: the daemon
+  // uses it to address the window (dismiss, /ppt-hop). The harness only relays these
+  // values — it never interprets them or runs a terminal (terminal.ts).
+  registerTerminalFlags(pi);
 
   // ─── Session Start ─────────────────────────────────────────────────
 
@@ -180,20 +180,6 @@ export default function (pi: ExtensionAPI) {
 // TEAMMATE SETUP
 // ═══════════════════════════════════════════════════════════════════════
 
-/**
- * Read the tmux window/session the daemon passed at spawn time and package it
- * as opaque registration metadata. The daemon stores it verbatim and uses it to
- * address this agent's window (closing it on dismiss, focusing it for /ppt-hop).
- */
-function readTmuxMetadata(pi: ExtensionAPI): Record<string, unknown> {
-  const metadata: Record<string, unknown> = {};
-  const tmuxWindow = (pi.getFlag("ppt-tmux-window") as string) || "";
-  const tmuxSession = (pi.getFlag("ppt-tmux-session") as string) || "";
-  if (tmuxWindow) metadata.tmuxWindow = tmuxWindow;
-  if (tmuxSession) metadata.tmuxSession = tmuxSession;
-  return metadata;
-}
-
 async function setupTeammate(
   pi: ExtensionAPI,
   ctx: any,
@@ -221,7 +207,7 @@ async function setupTeammate(
     await client.register({
       name: memberId,
       directory: cwd,
-      metadata: readTmuxMetadata(pi),
+      metadata: readTerminalMetadata(pi),
     });
   } catch {
     if (ctx.hasUI) {
@@ -513,7 +499,7 @@ async function setupTeammate(
   // Re-register when the daemon reports it doesn't know us (restart/upgrade),
   // so an `mpt upgrade` or daemon restart doesn't shut down a running teammate.
   loop.reregister = async () => {
-    await client.register({ name: memberId, directory: cwd, metadata: readTmuxMetadata(pi) }).catch(() => {});
+    await client.register({ name: memberId, directory: cwd, metadata: readTerminalMetadata(pi) }).catch(() => {});
     // A restarted daemon forgot our stats (they're in-memory); tell it again.
     if (lastStats) client.reportSessionStats(lastStats).catch(() => {});
     if (ctx.hasUI) ctx.ui.notify("🍕 Reconnected to daemon (it had restarted).", "info");

@@ -29,7 +29,10 @@
  *   - the leader's slash commands' daemon calls: a named spawn (/ppt-spawn <name>)
  *     and focusing a teammate's window (/ppt-hop, POST /api/agents/:id/focus);
  *   - /health names the tmux server the daemon talks to — the sandbox's own,
- *     resolved from TMUX_TMPDIR like the user's default server.
+ *     resolved from TMUX_TMPDIR like the user's default server;
+ *   - switching the team's `terminal` applies to new windows only: a teammate
+ *     started under tmux is still focused and dismissed there, and herdr (not
+ *     available yet) refuses new spawns with the reason.
  *
  * Agent commands are stand-ins (`echo … ; sleep`), since there is no LLM here. These
  * test mpt's mechanics — windows, directives, statuses — not agent behaviour.
@@ -426,6 +429,55 @@ test("a dismiss closes the teammate's window once it has exited", { skip: !hasTm
   // C-c on one pass, kill-window on a later one (≥1.5s on): well inside 10s.
   const closed = await sb.waitFor(async () => !(await windows(sb)).includes(name), 10_000);
   assertEquals(closed, true, `window ${name} still open: ${await windows(sb)}`);
+});
+
+test("switching the team's terminal applies to new windows only: a tmux teammate is still dismissed in tmux", { skip: !hasTmux() }, async () => {
+  // Story "herdr as an alternative terminal backend", task 3: dismiss/focus use the
+  // backend an agent was started under (its `terminal` metadata), not the current
+  // config, and selecting herdr (not available yet) refuses new spawns with the reason.
+  await using sb = await sandbox("terminal-switch");
+  sb.writeTeamConfig({
+    minTeammates: 0,
+    harnesses: { pi: { ...HARNESSES.pi, teammate: "echo SPAWNED-$((40+2)) name={name} term={terminal} at={terminalSession}:{terminalWindow}; sleep 30" } },
+  });
+  await sb.startDaemon();
+
+  const created = await api<{ directive: { params: { name: string } } }>(
+    sb, "/api/leader/directives", { action: "spawn", params: { cwd: sb.projectDir } },
+  );
+  const name = created.directive.params.name;
+  // The neutral placeholders reach the real window's command.
+  const filled = `SPAWNED-42 name=${name} term=tmux at=${sb.session}:${name}`;
+  assertEquals(await sb.waitFor(async () => (await pane(sb, name)).includes(filled), 8000), true, `no window for ${name}:\n${await pane(sb, name)}`);
+  await api(sb, "/api/agents/register", {
+    id: "t1", name, protocolVersion: PROTOCOL_VERSION,
+    metadata: { terminal: "tmux", terminalSession: sb.session, terminalWindow: name },
+  });
+
+  // Switch to herdr through the Config page's route.
+  const current = await api<Record<string, unknown>>(sb, "/api/config", undefined, "GET");
+  const saved = await fetch(`http://127.0.0.1:${sb.port}/api/config`, {
+    method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...current, terminal: "herdr" }),
+  });
+  assertEquals(saved.status, 200);
+  const health = await api<{ terminal: string; spawning: { canSpawn: boolean; reason?: string }; agentsOnOtherTerminal: unknown }>(sb, "/health", undefined, "GET");
+  assertEquals(health.terminal, "herdr");
+  assertEquals(health.agentsOnOtherTerminal, [{ name, terminal: "tmux" }]);
+  assertStringIncludes(health.spawning.reason ?? "", "herdr terminal backend is not available yet");
+
+  // A new spawn is refused with the reason — never opened in tmux instead.
+  await api(sb, "/api/leader/directives", { action: "spawn", params: { name: "new-one", cwd: sb.projectDir } });
+  const spawns = await api<{ failed: Array<{ error: string }> }>(sb, "/api/spawn-requests", undefined, "GET");
+  assertStringIncludes(spawns.failed.map((f) => f.error).join("\n"), "not available yet");
+  assertEquals((await windows(sb)).includes("new-one"), false);
+
+  // Focus and dismiss of the tmux-started teammate still reach its tmux window.
+  assertEquals((await fetch(`http://127.0.0.1:${sb.port}/api/agents/t1/focus`, { method: "POST" })).status, 200);
+  await api(sb, "/api/agents/t1?dismiss=true", undefined, "DELETE");
+  await api(sb, "/api/agents/heartbeat", { id: "t1", status: "idle" });
+  await api(sb, "/api/agents/t1", undefined, "DELETE");
+  const closed = await sb.waitFor(async () => !(await windows(sb)).includes(name), 10_000);
+  assertEquals(closed, true, `window ${name} still open after the switch: ${await windows(sb)}`);
 });
 
 test("a daemon that can't reach tmux fails a spawn at once, with the reason and fix — no leader fallback", { skip: !hasTmux() }, async () => {

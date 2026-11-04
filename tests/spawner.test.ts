@@ -132,7 +132,7 @@ test("a spawn becomes a tmux window running the harness command", () => {
   const typed = calls.find((c) => c[0] === "send-keys")![3]!;
   assertStringIncludes(typed, "--ppt-name=swift-ripley");
   assertStringIncludes(typed, "--ppt-daemon=http://localhost:7437");
-  assertStringIncludes(typed, "--ppt-tmux-window=swift-ripley");
+  assertStringIncludes(typed, "--ppt-terminal=tmux --ppt-terminal-session=mpt --ppt-terminal-window=swift-ripley");
 });
 
 // ─── Agent env file ──────────────────────────────────────────────────
@@ -386,7 +386,7 @@ test("dismissParams falls back to the member's name and the configured session, 
   const cfg = config({ tmuxSession: "team" });
   assertEquals(
     dismissParams({ id: "a1", name: "swift-ripley", metadata: {} }, cfg, 0),
-    { memberId: "a1", name: "swift-ripley", tmuxSession: "team", deadline: DISMISS_WAIT_MS },
+    { memberId: "a1", name: "swift-ripley", terminal: "tmux", terminalSession: "team", deadline: DISMISS_WAIT_MS },
   );
   assertEquals(
     dismissParams({ id: "a1", name: "x", metadata: { tmuxSession: "s", tmuxWindow: "w" } }, cfg, 0)?.name,

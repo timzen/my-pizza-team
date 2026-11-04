@@ -81,7 +81,7 @@ test("startLeader opens the leader window in the project dir, running the render
     assertEquals(calls.find((c) => c[0] === "rename-window"), ["rename-window", "-t", "team", LEADER_WINDOW]);
     const typed = calls.find((c) => c[0] === "send-keys")![3]!;
     assertStringIncludes(typed, `cd '${projectDir}' && pi -a --ppt-lead --ppt-daemon=http://localhost:9999`);
-    assertStringIncludes(typed, "--ppt-tmux-session=team --ppt-tmux-window=leader");
+    assertStringIncludes(typed, "--ppt-terminal=tmux --ppt-terminal-session=team --ppt-terminal-window=leader");
   });
 });
 

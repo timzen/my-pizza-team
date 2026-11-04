@@ -1,6 +1,7 @@
 /**
  * GeneralTab — Config → General (`/config`): the Work items feature toggles,
- * the Assistant card (chat mode + persona), Server, Scheduling (the readiness
+ * the Assistant card (chat mode + persona), Server (port, the terminal and its
+ * new-windows-only warning, session name, team size, default workflow), Scheduling (the readiness
  * probe and the agent env file), favorite directories, and Autosave.
  * Everything except the favorites and the assistant's persona edits the page's
  * config.json draft (ConfigPage), saved with its Save Configuration button. Its non-obvious fields carry their
@@ -8,7 +9,7 @@
  */
 
 import { useApi } from "@/hooks/useApi";
-import type { ConfigData } from "@/lib/config-draft";
+import { TERMINAL_OPTIONS, terminalSwitchWarning, type ConfigData } from "@/lib/config-draft";
 import { WorkItemFeatures } from "@/components/config/WorkItemFeatures";
 import { AssistantChatModeSetting } from "@/components/config/AssistantSettings";
 import { FavoriteDirectories } from "@/components/config/FavoriteDirectories";
@@ -32,6 +33,7 @@ export function GeneralTab({ config, setConfig, saved, featureError }: {
   // the Workflows tab is offered here without reloading the page.
   const { data: workflowList } = useApi<Array<{ name: string }>>("/api/workflows");
   const workflowNames = workflowList?.map((w) => w.name) ?? Object.keys(config.workflows);
+  const terminalWarning = terminalSwitchWarning(config, saved);
 
   return (
     <div className="space-y-4">
@@ -45,7 +47,29 @@ export function GeneralTab({ config, setConfig, saved, featureError }: {
           <div className="grid grid-cols-[120px_1fr] gap-3 items-center">
             <Label htmlFor="config-port">Port</Label>
             <Input id="config-port" type="number" value={config.port} onChange={(e) => update("port", parseInt(e.target.value) || 9999)} className="max-w-[120px]" />
-            <Label htmlFor="config-tmux-session">Tmux Session</Label>
+            <Label id="config-terminal">Terminal</Label>
+            <div className="space-y-1">
+              {/* Unset = tmux; choosing tmux again sends `null`, so config.json stays minimal. */}
+              <Select value={config.terminal || "tmux"} onValueChange={(v) => update("terminal", v === "tmux" ? null : v)}>
+                <SelectTrigger
+                  className="max-w-[240px]"
+                  aria-labelledby="config-terminal"
+                  aria-describedby={terminalWarning ? "config-terminal-hint config-terminal-warning" : "config-terminal-hint"}
+                ><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {TERMINAL_OPTIONS.map((o) => (
+                    <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <FieldHint id="config-terminal-hint" field="terminal" />
+              {terminalWarning && (
+                <p id="config-terminal-warning" role="status" className="text-xs text-amber-700 dark:text-amber-400">
+                  {terminalWarning}
+                </p>
+              )}
+            </div>
+            <Label htmlFor="config-tmux-session">Session</Label>
             <div className="space-y-1">
               <Input id="config-tmux-session" value={config.tmuxSession} onChange={(e) => update("tmuxSession", e.target.value)} className="max-w-[200px]" aria-describedby="config-tmux-session-hint" />
               <FieldHint id="config-tmux-session-hint" field="tmuxSession" />

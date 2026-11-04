@@ -9,11 +9,14 @@
  * leader (`mpt assistant`), and `mpt doctor` reports which server it talks to. This
  * interface is exactly that set and no more, so a second backend (herdr, docs/herdr.md)
  * is one more implementation rather than a branch in every caller. tmux
- * (daemon/terminal/tmux.ts) is today's only implementation; `getTerminalBackend`
- * (daemon/terminal/index.ts) picks it.
+ * (daemon/terminal/tmux.ts) is today's only working implementation;
+ * `getTerminalBackend` (daemon/terminal/index.ts) picks the one the team's
+ * `terminal` config names, and herdr is, for now, a stand-in that is never
+ * available (daemon/terminal/unavailable.ts).
  *
  * Windows are addressed by **label** — `(session, window)`, the names the user sees
- * and agents report as `tmuxSession`/`tmuxWindow` metadata — never by a backend's
+ * and agents report as `terminalSession`/`terminalWindow` metadata (before herdr,
+ * `tmuxSession`/`tmuxWindow`; shared/types.ts `TERMINAL_METADATA_KEYS`) — never by a backend's
  * own IDs. herdr's pane/tab IDs are server-assigned and can change, so a backend
  * resolves the labels on each operation (docs/herdr.md "Finding a window again: by
  * label, every time"). A `WindowRef` is therefore an opaque handle a caller gets from
@@ -21,8 +24,10 @@
  * a hint, but the labels are the source of truth.
  */
 
-/** Which terminal implementation a backend is. Only tmux, for now. */
-export type TerminalBackendKind = "tmux";
+import type { TerminalKind } from "../../shared/types.ts";
+
+/** Which terminal implementation a backend is (`TeamConfig.terminal`). */
+export type TerminalBackendKind = TerminalKind;
 
 /**
  * A handle on one window. Opaque to callers: get one from the backend, store its
@@ -59,8 +64,11 @@ export interface OpenedWindow {
   ref: WindowRef;
 }
 
-/** Why a backend can't be used from this process: absent, or not allowed to run. */
-export type TerminalUnavailableReason = "none" | "not-installed" | "not-permitted";
+/**
+ * Why a backend can't be used from this process: absent, not allowed to run, or
+ * not implemented by this version of mpt (herdr, until its backend lands).
+ */
+export type TerminalUnavailableReason = "none" | "not-installed" | "not-permitted" | "not-implemented";
 
 /** A control key that must be sent as a key, not typed as text. */
 export type ControlKey = "C-c";

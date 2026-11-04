@@ -123,8 +123,8 @@ to carry its own copy of the tmux code as a fallback, and to reset teammates by
 typing `/new` into their windows — two terminal owners, and keystrokes standing in
 for intent. Now one place touches the multiplexer, which is also what lets the
 terminal backend become pluggable. Session control is realized in-process by the
-agent it's for (a `new-session` the teammate polls). The `--ppt-tmux-*` flags the
-daemon passes at spawn are reported back as opaque `metadata`; the extension never
+agent it's for (a `new-session` the teammate polls). The `--ppt-terminal*` flags (and the
+older `--ppt-tmux-*`) the daemon passes at spawn are reported back as opaque `metadata`; the extension never
 interprets them. `tests/structure.test.mjs` keeps tmux commands out of `src/`.
 
 ### 8. Permission toggling by mode

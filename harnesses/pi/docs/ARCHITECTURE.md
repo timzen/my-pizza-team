@@ -157,7 +157,7 @@ human. See the daemon's docs/DESIGN.md "The WorkItem".
 │  Leader                                                  │
 │                                                          │
 │  1. POST /api/agents/register (name=leader), reporting   │
-│     its --ppt-tmux-* flags as opaque metadata            │
+│     its --ppt-terminal* flags as opaque metadata         │
 │  2. Heartbeat every 30s; re-register when the daemon     │
 │     forgot us (registerWithDaemon is retryable)          │
 │  3. User tools → POST /api/stories, /api/stories/:id/tasks │
@@ -444,9 +444,13 @@ leader used to realize a `reset-session` by sending `/new` to an older teammate'
 window, and the daemon now refuses those older (protocol < 6) agents at
 registration instead.
 
-The `--ppt-tmux-session`/`--ppt-tmux-window` flags the daemon passes at spawn are
-reported as opaque `metadata` on registration; only the daemon reads them (to
-close the window on dismiss, or focus it for `/ppt-hop`).
+The `--ppt-terminal`, `--ppt-terminal-session`, `--ppt-terminal-window` (and optional
+`--ppt-terminal-handle`) flags the daemon passes at spawn are reported as opaque
+`metadata` on registration (`src/terminal.ts` → `terminalMetadata`: `terminal`,
+`terminalSession`, `terminalWindow`, `terminalHandle`); only the daemon reads them (to
+close the window on dismiss, or focus it for `/ppt-hop`, in the backend it was started
+under). The older `--ppt-tmux-session`/`--ppt-tmux-window` are still registered and
+fill in when the neutral ones are absent.
 
 ## Permission System Integration
 
@@ -466,7 +470,7 @@ File: `<cwd>/.pi/extensions/pi-permission-system/config.json`
 ## tmux (the daemon's, not the extension's)
 
 - The daemon creates each teammate window with its harness template (Pi's:
-  `pi -a --ppt-worker --ppt-daemon=<url> --ppt-name=<name> --ppt-tmux-session=… --ppt-tmux-window=…`)
+  `pi -a --ppt-worker --ppt-daemon=<url> --ppt-name=<name> --ppt-terminal=tmux --ppt-terminal-session=… --ppt-terminal-window=…`)
 - Identity is daemon-owned: the window, `--ppt-name`, registered name, and MPT UI label all use the directive's `params.name`. Every spawn is a teammate — there is no assistant to spawn (the leader is the chat agent).
 - `-a` (`--approve`) trusts the teammate's project cwd non-interactively, so a spawn into a folder outside a trusted parent (`~/.pi/agent/trust.json`) doesn't block on pi's "Trust project folder?" prompt
 - The extension runs no tmux at all (`tests/structure.test.mjs`)

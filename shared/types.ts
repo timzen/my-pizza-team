@@ -22,7 +22,24 @@ export interface ApiResponse<T = unknown> {
 
 export interface TeamConfig {
   port: number;
+  /**
+   * The name of the team's terminal container, whichever terminal backend runs
+   * it: the tmux session (`tmux attach -t <tmuxSession>`), or the herdr workspace
+   * label (docs/herdr.md). Kept under its historical name rather than renamed, so
+   * every existing config.json, `/health` reader and menu bar app keeps working;
+   * "tmux" in the key is history, not a constraint (docs/DESIGN.md "The Daemon Is
+   * the Supervisor").
+   */
   tmuxSession: string;
+  /**
+   * Which terminal backend the daemon opens agent windows in (`TERMINAL_KINDS`).
+   * Unset = `"tmux"` (`resolveTerminal`). Applies to *new* windows only: an agent
+   * already running stays in the terminal it was started under, and dismiss/focus
+   * address it there (its `terminal` metadata), so switching never strands a
+   * window. `"herdr"` is accepted but not available yet — spawns and the assistant
+   * start are refused with that reason until the herdr backend lands.
+   */
+  terminal?: TerminalKind;
   /** Built-in default workflows (used when no workflows/ directory exists). */
   workflows?: Record<string, WorkflowConfig>;
   defaultWorkflow: string;
@@ -51,8 +68,13 @@ export interface TeamConfig {
    * an extension release, which is what makes Tier 0 support possible at all (DESIGN.md "Harness Tiers, and Why Not MCP").
    *
    * Placeholders: `{name}` (daemon-assigned agent name), `{url}` (daemon URL),
-   * `{cwd}` (working directory, shell-quoted on substitution), `{session}` and
-   * `{window}` (its tmux location).
+   * `{cwd}` (working directory, shell-quoted on substitution), `{terminal}` (the
+   * terminal backend the window opens in, `TERMINAL_KINDS`), `{terminalSession}` and
+   * `{terminalWindow}` (its location there — the container and window labels), and
+   * `{terminalHandle}` (the backend's own ID for the window when it knows one before
+   * the command runs, else empty). `{session}` and `{window}` are the older names of
+   * `{terminalSession}`/`{terminalWindow}` and still work. See `TERMINAL_METADATA_KEYS`
+   * for how an agent reports them back.
    *
    * Unset means the built-in defaults (`DEFAULT_HARNESS_TEMPLATES`).
    */
@@ -879,6 +901,42 @@ export interface Assignment {
 /** The tmux session teammates run in, unless config names another. */
 export const DEFAULT_TMUX_SESSION = "my-pizza-team";
 
+// ─── Terminal backends ───────────────────────────────────────────────
+
+/**
+ * The terminal backends a team can choose (`TeamConfig.terminal`). tmux is the
+ * default and the only one implemented so far; herdr (docs/herdr.md) is accepted in
+ * config and refused with a "not available yet" capability error until its backend
+ * lands (daemon/terminal/index.ts).
+ */
+export const TERMINAL_KINDS = ["tmux", "herdr"] as const;
+
+/** One of `TERMINAL_KINDS`. */
+export type TerminalKind = typeof TERMINAL_KINDS[number];
+
+/** The terminal a team gets when config doesn't say. */
+export const DEFAULT_TERMINAL: TerminalKind = "tmux";
+
+/** Is `value` a terminal backend mpt knows? */
+export function isTerminalKind(value: unknown): value is TerminalKind {
+  return typeof value === "string" && (TERMINAL_KINDS as readonly string[]).includes(value);
+}
+
+/**
+ * The terminal backend new windows open in: `config.terminal`, else the default.
+ * An unknown value (a hand-edited config.json) resolves to the default here; the
+ * spawner's capability check (daemon/spawner.ts `terminalChoiceCapability`) is what
+ * reports it, so a typo refuses spawns with a reason instead of crashing a reader.
+ */
+export function resolveTerminal(config: Partial<Pick<TeamConfig, "terminal">> | undefined): TerminalKind {
+  const terminal = config?.terminal;
+  return isTerminalKind(terminal) ? terminal : DEFAULT_TERMINAL;
+}
+
+// TERMINAL_METADATA_KEYS / terminalMetadata (how an agent reports its window) live
+// in shared/agent-protocol.ts, since a harness needs them too; re-exported here.
+export { TERMINAL_METADATA_KEYS, terminalMetadata } from "./agent-protocol.ts";
+
 export const DEFAULT_CONFIG: TeamConfig = {
   port: 7437,
   tmuxSession: DEFAULT_TMUX_SESSION,
@@ -965,22 +1023,26 @@ export interface HarnessTemplates {
  * watching. A config overriding `harnesses.pi.leader` needs `-a` too to be
  * startable from the UI.
  *
- * Both pass their tmux location so the agent reports it at registration, which is
- * how the daemon addresses the right window later (dismiss, focus).
+ * Both pass their terminal location (`{terminal}`, `{terminalSession}`,
+ * `{terminalWindow}`) so the agent reports it at registration
+ * (`TERMINAL_METADATA_KEYS`), which is how the daemon addresses the right window
+ * later (dismiss, focus) — in the backend it was started under, even after the
+ * team's `terminal` setting changes. `{terminalHandle}` is not passed: tmux has none
+ * to give before the command runs, and labels are what windows are found by.
  */
 export const DEFAULT_HARNESS_TEMPLATES: Record<string, HarnessTemplates> = {
   pi: {
     teammate:
-      "pi -a --ppt-worker --ppt-daemon={url} --ppt-name={name} --ppt-tmux-session={session} --ppt-tmux-window={window}",
-    leader: "pi -a --ppt-lead --ppt-daemon={url} --ppt-tmux-session={session} --ppt-tmux-window={window}",
+      "pi -a --ppt-worker --ppt-daemon={url} --ppt-name={name} --ppt-terminal={terminal} --ppt-terminal-session={terminalSession} --ppt-terminal-window={terminalWindow}",
+    leader: "pi -a --ppt-lead --ppt-daemon={url} --ppt-terminal={terminal} --ppt-terminal-session={terminalSession} --ppt-terminal-window={terminalWindow}",
   },
   // Experimental (behind `experimental.harnesses`): ACP agents supervised by
   // `mpt agent` (agent/supervisor.ts). Teammates only — they can't lead yet.
   kiro: {
-    teammate: "{mpt} agent --harness kiro --daemon={url} --name={name} --tmux-session={session} --tmux-window={window}",
+    teammate: "{mpt} agent --harness kiro --daemon={url} --name={name} --terminal={terminal} --terminal-session={terminalSession} --terminal-window={terminalWindow}",
   },
   claude: {
-    teammate: "{mpt} agent --harness claude --daemon={url} --name={name} --tmux-session={session} --tmux-window={window}",
+    teammate: "{mpt} agent --harness claude --daemon={url} --name={name} --terminal={terminal} --terminal-session={terminalSession} --terminal-window={terminalWindow}",
   },
 };
 
