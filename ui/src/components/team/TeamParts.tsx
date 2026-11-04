@@ -25,6 +25,7 @@ import { Badge } from "@/components/ui/badge";
 import { IconButton } from "@/components/ui/icon-button";
 import { Tooltip } from "@/components/ui/tooltip";
 import { Trash2, RotateCcw, FolderOpen, Clock, X, Crown, User, Users, UserPlus, AlertTriangle, Bot, Loader, CloudOff, Gauge } from "lucide-react";
+import type { Side } from "@/lib/dock-layout";
 import { dirName, formatContext, formatCost, modelTitle, roleOf, statusLabel, teammateSummary, viewPath, type FailedSpawn, type SpawnRequest, type Teammate } from "@/lib/team";
 
 /**
@@ -42,8 +43,8 @@ export function TeamButtons({
   poolBlocked: boolean;
   onSize: () => void;
   onSpawn: () => void;
-  /** Where the hints open ("right" on the collapsed rail, so they clear its edge). */
-  tooltipSide?: "top" | "right";
+  /** Where the hints open (on the collapsed rail: toward the center, so they clear its edge — lib/dock-layout.ts `dockTooltipSide`). */
+  tooltipSide?: Side;
 }) {
   return (
     <>
@@ -112,8 +113,11 @@ export function SessionStats({ teammate, className }: { teammate: Teammate; clas
   );
 }
 
-/** A circle with the status icon (collapsed rail). Teammates link to their view. */
-export function TeammateAvatar({ teammate, selected }: { teammate: Teammate; selected?: boolean }) {
+/**
+ * A circle with the status icon (collapsed rail). Teammates link to their view.
+ * `tooltipSide` points the hint toward the center (default "right", a left dock's).
+ */
+export function TeammateAvatar({ teammate, selected, tooltipSide = "right" }: { teammate: Teammate; selected?: boolean; tooltipSide?: Side }) {
   const to = viewPath(teammate);
   const summary = teammateSummary(teammate);
   const circle = (
@@ -125,12 +129,12 @@ export function TeammateAvatar({ teammate, selected }: { teammate: Teammate; sel
   // focusable so the keyboard can read the same hint.
   return to
     ? (
-      <Tooltip content={`${summary} — watch`} describe={false} side="right">
+      <Tooltip content={`${summary} — watch`} describe={false} side={tooltipSide}>
         <Link to={to} className="relative" aria-label={`Watch ${summary}`}>{circle}</Link>
       </Tooltip>
     )
     : (
-      <Tooltip content={summary} describe={false} focusable side="right">
+      <Tooltip content={summary} describe={false} focusable side={tooltipSide}>
         <div className="relative" role="img" aria-label={summary}>{circle}</div>
       </Tooltip>
     );

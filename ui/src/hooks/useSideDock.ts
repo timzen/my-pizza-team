@@ -1,6 +1,8 @@
 /**
- * useSideDock — shared state for the left SideDock: open/collapsed, which
- * tab (Assistant, Team or Help) is showing, and what the Help tab shows.
+ * useSideDock — shared state for the SideDock: where it sits (Left or Right),
+ * its mode (collapsed rail or expanded column), which tab (Assistant, Team or
+ * Help) is showing, and what the Help tab shows. The layout rules behind
+ * position and mode are lib/dock-layout.ts.
  *
  * The dock lives in the app shell, but other places need to drive it — notably
  * the `/assistant` route, kept as a redirect that opens the Assistant tab so old
@@ -14,9 +16,10 @@
  */
 
 import { createContext, useContext } from "react";
+import type { DockMode, DockPosition } from "@/lib/dock-layout";
 
-/** localStorage key for the collapsed/expanded choice (name predates the Team tab). */
-export const SIDE_DOCK_OPEN_KEY = "mpt.assistantDock.open";
+export type { DockMode, DockPosition };
+
 /** localStorage key for the last tab. */
 export const SIDE_DOCK_TAB_KEY = "mpt.sideDock.tab";
 
@@ -29,7 +32,15 @@ export interface HelpTarget {
 }
 
 export interface SideDockValue {
+  /** Which window edge the dock sits on (desktop only; saved per browser). */
+  position: DockPosition;
+  setPosition: (position: DockPosition) => void;
+  /** Rail, column, or full page (saved per browser). */
+  mode: DockMode;
+  setMode: (mode: DockMode) => void;
+  /** Is the dock's panel showing (`mode !== "collapsed"`)? */
   open: boolean;
+  /** Collapse, or open (keeping an already-open mode; lib/dock-layout.ts `modeForOpen`). */
   setOpen: (open: boolean) => void;
   toggle: () => void;
   tab: SideDockTab;
@@ -62,6 +73,7 @@ export interface SideDockValue {
 
 export const SideDockContext = createContext<SideDockValue | null>(null);
 
+/** The dock's shared state; throws outside SideDockProvider. */
 export function useSideDock(): SideDockValue {
   const ctx = useContext(SideDockContext);
   if (!ctx) throw new Error("useSideDock must be used inside SideDockProvider");

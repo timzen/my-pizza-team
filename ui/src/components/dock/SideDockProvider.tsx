@@ -1,7 +1,9 @@
 /**
- * SideDockProvider — holds the left dock's open/collapsed state and active tab
- * for the whole app (both remembered in localStorage), what its Help tab
- * shows, plus the route helper that opens the Assistant tab.
+ * SideDockProvider — holds the dock's position (Left or Right), mode (rail or
+ * column) and active tab for the whole app (all remembered in localStorage —
+ * position and mode under lib/dock-layout.ts's keys, migrated from the old
+ * open/closed flag), what its Help tab shows, plus the route helper that opens
+ * the Assistant tab.
  *
  * App-level state rather than a `useState` in the dock because the
  * `/assistant` route has to open the chat as it redirects, and every page's ?
@@ -12,8 +14,8 @@
  * page's guide section (lib/help.ts `helpForPath`) — or, after a link inside
  * the panel, the section that link named, until you go to another page. The
  * `?` key (when you aren't typing — lib/help.ts `isHelpShortcut`) toggles it.
- * Opening it remembers where you were — the tab, whether the dock was open,
- * and the focused element — and closing it (`?`, Esc in the panel, its close
+ * Opening it remembers where you were — the tab, the dock's mode, and the
+ * focused element — and closing it (`?`, Esc in the panel, its close
  * button) puts all three back, so a peek at the help costs nothing.
  *
  * `focusChat` is the other way in from a page: an empty screen's "Ask the
@@ -24,8 +26,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 import {
-  SIDE_DOCK_OPEN_KEY, SIDE_DOCK_TAB_KEY, SideDockContext, useSideDock, type HelpTarget, type SideDockTab,
+  SIDE_DOCK_TAB_KEY, SideDockContext, useSideDock, type HelpTarget, type SideDockTab,
 } from "@/hooks/useSideDock";
+import {
+  DOCK_MODE_KEY, DOCK_POSITION_KEY, LEGACY_DOCK_OPEN_KEY, isDockOpen, modeForOpen, parseDockMode, parseDockPosition,
+  type DockMode, type DockPosition,
+} from "@/lib/dock-layout";
 import { useWorkDefTypeForPath } from "@/hooks/useWorkDefType";
 import { HELP_HOME_TOPIC, helpForPath, isHelpShortcut } from "@/lib/help";
 import { MAIN_CONTENT_ID } from "@/lib/route-focus";
@@ -41,23 +47,35 @@ function storedTab(): SideDockTab {
   return t === "team" || t === "help" ? t : "assistant";
 }
 
+/** A stored value, or null when storage is unavailable (private mode). */
+function recall(key: string): string | null {
+  try { return localStorage.getItem(key); } catch { return null; }
+}
+
 /** Where to go back to when the Help closes. */
 interface HelpReturn {
-  open: boolean;
+  mode: DockMode;
   tab: SideDockTab;
   focus: HTMLElement | null;
 }
 
 export function SideDockProvider({ children }: { children: React.ReactNode }) {
-  // Default open on the Assistant tab: the chat is the point of the left
-  // column, and a first-run user shouldn't have to hunt for it.
-  const [open, setOpenState] = useState(() => localStorage.getItem(SIDE_DOCK_OPEN_KEY) !== "0");
+  // Default expanded on the Left, on the Assistant tab: the chat is the point
+  // of the dock, and a first-run user shouldn't have to hunt for it.
+  const [position, setPositionState] = useState<DockPosition>(() => parseDockPosition(recall(DOCK_POSITION_KEY)));
+  const [mode, setModeState] = useState<DockMode>(() => parseDockMode(recall(DOCK_MODE_KEY), recall(LEGACY_DOCK_OPEN_KEY)));
   const [tab, setTabState] = useState<SideDockTab>(storedTab);
+  const open = isDockOpen(mode);
 
-  const setOpen = useCallback((next: boolean) => {
-    setOpenState(next);
-    remember(SIDE_DOCK_OPEN_KEY, next ? "1" : "0");
+  const setPosition = useCallback((next: DockPosition) => {
+    setPositionState(next);
+    remember(DOCK_POSITION_KEY, next);
   }, []);
+  const setMode = useCallback((next: DockMode) => {
+    setModeState(next);
+    remember(DOCK_MODE_KEY, next);
+  }, []);
+  const setOpen = useCallback((next: boolean) => setMode(modeForOpen(mode, next)), [mode, setMode]);
   const setTab = useCallback((next: SideDockTab) => {
     setTabState(next);
     remember(SIDE_DOCK_TAB_KEY, next);
@@ -86,26 +104,26 @@ export function SideDockProvider({ children }: { children: React.ReactNode }) {
   const openHelp = useCallback((target?: HelpTarget) => {
     if (!(open && tab === "help")) {
       const active = document.activeElement;
-      returnTo.current = { open, tab, focus: active instanceof HTMLElement && active !== document.body ? active : null };
+      returnTo.current = { mode, tab, focus: active instanceof HTMLElement && active !== document.body ? active : null };
     }
     setPicked(target ? { path: pathname, target } : null);
     setTab("help");
     setOpen(true);
     wantFocus.current = true;
     setHelpFocusRequest((n) => n + 1);
-  }, [open, tab, pathname, setOpen, setTab]);
+  }, [open, mode, tab, pathname, setOpen, setTab]);
 
   const closeHelp = useCallback(() => {
     const back = returnTo.current;
     returnTo.current = null;
     setTab(back && back.tab !== "help" ? back.tab : "assistant");
-    if (back) setOpen(back.open);
+    if (back) setMode(back.mode);
     // After the dock re-renders: the element that had focus, else the page.
     requestAnimationFrame(() => {
       const el = back?.focus?.isConnected ? back.focus : document.getElementById(MAIN_CONTENT_ID);
       el?.focus();
     });
-  }, [setOpen, setTab]);
+  }, [setMode, setTab]);
 
   const toggleHelp = useCallback(() => (helpOpen ? closeHelp() : openHelp()), [helpOpen, closeHelp, openHelp]);
 
@@ -135,8 +153,8 @@ export function SideDockProvider({ children }: { children: React.ReactNode }) {
   }, [toggleHelp]);
 
   const value = useMemo(
-    () => ({ open, setOpen, toggle, tab, setTab, help, pageHelp, helpOpen, openHelp, closeHelp, toggleHelp, takeHelpFocus, helpFocusRequest, focusChat }),
-    [open, setOpen, toggle, tab, setTab, help, pageHelp, helpOpen, openHelp, closeHelp, toggleHelp, takeHelpFocus, helpFocusRequest, focusChat],
+    () => ({ position, setPosition, mode, setMode, open, setOpen, toggle, tab, setTab, help, pageHelp, helpOpen, openHelp, closeHelp, toggleHelp, takeHelpFocus, helpFocusRequest, focusChat }),
+    [position, setPosition, mode, setMode, open, setOpen, toggle, tab, setTab, help, pageHelp, helpOpen, openHelp, closeHelp, toggleHelp, takeHelpFocus, helpFocusRequest, focusChat],
   );
 
   return <SideDockContext value={value}>{children}</SideDockContext>;

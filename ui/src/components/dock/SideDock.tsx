@@ -1,6 +1,9 @@
 /**
- * SideDock — the left column: the **Assistant**, the **Team**, and **Help**, as
- * tabs, reachable from every page.
+ * SideDock — the dock column: the **Assistant**, the **Team**, and **Help**, as
+ * tabs, reachable from every page. It sits on the Left (the default) or the
+ * Right, chosen with the header's **Dock position** menu and remembered per
+ * browser (lib/dock-layout.ts holds the rules: stored values, width limits,
+ * which edge the handle and tooltips face).
  *
  * The shell is two columns now: this dock, and the center (nav + page). The
  * dock holds both things you keep an eye on *while* looking at something else —
@@ -13,7 +16,7 @@
  *
  * Layout, top to bottom:
  *
- *   [+] │ ⏱ Queue  1 at risk · 2 waiting            [⇤]   ← 56px, aligned with the nav
+ *   [+] │ ⏱ Queue  1 at risk · 2 waiting       [▥] [⇤]   ← 56px, aligned with the nav
  *   [💬 Assistant ●] [👥 Team 2] [? Help]  (tab's actions)  ← tab row
  *   … the active tab …
  *
@@ -28,13 +31,16 @@
  *
  * Three presentations, one dock:
  *  - `lg+` expanded — a resizable column (drag the inner edge, 300–560px, width
- *    remembered in localStorage).
+ *    remembered in localStorage). On the Right it's drawn after the center
+ *    with CSS `order` but stays first in the DOM, so the tab order and the
+ *    landmarks read the same in either position.
  *  - `lg+` collapsed — a slim icon rail: the chat (unread badge), help, quick-create
  *    (only the kinds switched on in Config),
  *    the team buttons, teammate avatars (linking to their live view), and the
  *    queue count (linking to the Queue tab; amber when anything is at risk).
+ *    Its tooltips open toward the center, whichever side the rail is on.
  *  - below `lg` — a floating corner button that pops the dock open in place,
- *    tabs included.
+ *    tabs included. Position doesn't apply there (no Dock position menu).
  *
  * The presentation is chosen with a real media query, not `hidden lg:flex`:
  * rendering both and hiding one would mount the chat twice (duplicate `msg-*`
@@ -81,16 +87,20 @@ import { START_WORK } from "@/lib/start-work";
 import { filterByFeatures } from "@/lib/features";
 import { useFeatures } from "@/hooks/useFeatures";
 import { useQueue } from "@/hooks/useQueue";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { SpawnDialog } from "@/components/SpawnDialog";
 import { useAssistantStream } from "@/hooks/useAssistantStream";
 import { useTeamData } from "@/hooks/useTeamData";
 import { useAnnounceOffline, useAnnounceQueue, useAnnounceReplies } from "@/hooks/useLiveAnnouncements";
-import { useSideDock, type SideDockTab } from "@/hooks/useSideDock";
+import { useSideDock, type DockPosition, type SideDockTab } from "@/hooks/useSideDock";
+import {
+  DOCK_POSITIONS, DOCK_WIDTH_KEY, dockInnerEdge, dockTooltipSide, dockWidthFromPointer, parseDockPosition, parseDockWidth,
+} from "@/lib/dock-layout";
 import { LG_QUERY, useMediaQuery } from "@/hooks/useMediaQuery";
 import { countUnread } from "@/lib/unread";
 import { KEEP_FOCUS_ATTR } from "@/lib/route-focus";
 import {
-  MessageSquare, PanelLeftClose, PanelLeftOpen, X, Clock, Users, HelpCircle,
+  MessageSquare, PanelLeft, PanelLeftClose, PanelLeftOpen, PanelRight, PanelRightClose, PanelRightOpen, X, Clock, Users, HelpCircle,
 } from "lucide-react";
 
 /**
@@ -100,13 +110,12 @@ import {
  */
 const KEEP_FOCUS = { [KEEP_FOCUS_ATTR]: "" };
 
-const WIDTH_KEY = "mpt.assistantDock.width";
-const MIN_WIDTH = 300;
-const MAX_WIDTH = 560;
-const DEFAULT_WIDTH = 380;
-
+/** The dock (all three presentations); reads its state from SideDockProvider. */
 export function SideDock() {
-  const { open, setOpen, tab, setTab, openHelp, closeHelp } = useSideDock();
+  const { position, open, setOpen, tab, setTab, openHelp, closeHelp } = useSideDock();
+  const onRight = position === "right";
+  // The rail's hints open toward the center so they clear the dock's edge.
+  const tip = dockTooltipSide(position);
   // null = follow the live session; an id = read an earlier one.
   const [viewingId, setViewingId] = useState<string | null>(null);
   const stream = useAssistantStream(viewingId ?? undefined);
@@ -116,7 +125,7 @@ export function SideDock() {
   useAnnounceReplies(stream.messages, stream.loaded);
   useAnnounceQueue(queue.items, queue.loaded);
   useAnnounceOffline(team.teammates, team.loaded);
-  const [width, startResize] = useDockWidth();
+  const [width, startResize] = useDockWidth(position);
   const isDesktop = useMediaQuery(LG_QUERY);
   const [sizeOpen, setSizeOpen] = useState(false);
   const [spawnOpen, setSpawnOpen] = useState(false);
@@ -153,8 +162,9 @@ export function SideDock() {
       <NewWorkMenu />
       <div className="h-6 w-px shrink-0 bg-border" />
       <QueueSummary queue={queue} />
+      {isDesktop && <DockPositionMenu />}
       <IconButton className="h-8 w-8 shrink-0" onClick={() => setDockOpen(false)} label={isDesktop ? "Collapse the dock" : "Close the dock"}>
-        {isDesktop ? <PanelLeftClose className="h-4 w-4" /> : <X className="h-4 w-4" />}
+        {!isDesktop ? <X className="h-4 w-4" /> : onRight ? <PanelRightClose className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
       </IconButton>
     </div>
   );
@@ -229,15 +239,18 @@ export function SideDock() {
   // Collapsed: a slim icon rail with both tabs' essentials.
   if (!open) {
     return (
-      <nav aria-label="Side dock" {...KEEP_FOCUS} data-tour="dock" className="flex w-14 shrink-0 flex-col items-center border-r border-border bg-muted/30">
+      <nav
+        aria-label="Side dock" {...KEEP_FOCUS} data-tour="dock"
+        className={`flex w-14 shrink-0 flex-col items-center border-border bg-muted/30 ${onRight ? "order-last border-l" : "border-r"}`}
+      >
         {dialogs}
         <div className="flex h-14 w-full shrink-0 items-center justify-center border-b border-border">
-          <IconButton className="h-8 w-8" onClick={() => setDockOpen(true)} label="Expand the dock" side="right">
-            <PanelLeftOpen className="h-4 w-4" />
+          <IconButton className="h-8 w-8" onClick={() => setDockOpen(true)} label="Expand the dock" side={tip}>
+            {onRight ? <PanelRightOpen className="h-4 w-4" /> : <PanelLeftOpen className="h-4 w-4" />}
           </IconButton>
         </div>
         <div className="flex w-full flex-1 flex-col items-center gap-2 overflow-y-auto py-3">
-          <Tooltip content={`Chat with the assistant${unreadSuffix(unread)}`} describe={false} side="right">
+          <Tooltip content={`Chat with the assistant${unreadSuffix(unread)}`} describe={false} side={tip}>
             <button
               type="button"
               onClick={() => openTab("assistant")}
@@ -248,18 +261,18 @@ export function SideDock() {
               <UnreadBadge count={unread} />
             </button>
           </Tooltip>
-          <IconButton className="h-8 w-8 shrink-0 text-muted-foreground" onClick={() => openHelp()} label="Help for this page" hint={`Help for this page (${HELP_SHORTCUT})`} side="right">
+          <IconButton className="h-8 w-8 shrink-0 text-muted-foreground" onClick={() => openHelp()} label="Help for this page" hint={`Help for this page (${HELP_SHORTCUT})`} side={tip}>
             <HelpCircle className="h-4 w-4" />
           </IconButton>
           {startWork.map((item) => (
-            <IconButton key={item.to} variant="outline" className="h-8 w-8 shrink-0" label={item.label} side="right" render={<Link to={item.to} />}>
+            <IconButton key={item.to} variant="outline" className="h-8 w-8 shrink-0" label={item.label} side={tip} render={<Link to={item.to} />}>
               <item.icon className="h-4 w-4" />
             </IconButton>
           ))}
           <div className="my-1 h-px w-6 shrink-0 bg-border" />
-          <TeamButtons sizeTitle={sizeTitle} poolBlocked={team.poolBlocked} onSize={() => setSizeOpen(true)} onSpawn={() => setSpawnOpen(true)} tooltipSide="right" />
+          <TeamButtons sizeTitle={sizeTitle} poolBlocked={team.poolBlocked} onSize={() => setSizeOpen(true)} onSpawn={() => setSpawnOpen(true)} tooltipSide={tip} />
           {team.pendingSpawns.length > 0 && (
-            <Tooltip content={`${team.pendingSpawns.length} pending spawn request${team.pendingSpawns.length === 1 ? "" : "s"}`} describe={false} focusable side="right">
+            <Tooltip content={`${team.pendingSpawns.length} pending spawn request${team.pendingSpawns.length === 1 ? "" : "s"}`} describe={false} focusable side={tip}>
               <div
                 className="relative flex h-6 w-6 shrink-0 items-center justify-center text-muted-foreground"
                 role="img"
@@ -271,13 +284,13 @@ export function SideDock() {
             </Tooltip>
           )}
           {[...team.online, ...team.offline].map((t) => (
-            <TeammateAvatar key={t.id} teammate={t} selected={t.id === viewingTeammate} />
+            <TeammateAvatar key={t.id} teammate={t} selected={t.id === viewingTeammate} tooltipSide={tip} />
           ))}
           {queue.counts.total > 0 && (
             <IconLink
               to="/queue"
               className="relative mt-1 flex h-6 w-6 shrink-0 items-center justify-center text-muted-foreground hover:text-foreground"
-              side="right"
+              side={tip}
               label={`Queue: ${[
                 queue.counts.atRisk && `${queue.counts.atRisk} at risk`,
                 queue.counts.waiting && `${queue.counts.waiting} waiting`,
@@ -295,7 +308,11 @@ export function SideDock() {
 
   // Expanded: the resizable dock column.
   return (
-    <nav aria-label="Side dock" {...KEEP_FOCUS} data-tour="dock" className="relative flex shrink-0 flex-col border-r border-border bg-muted/30" style={{ width }}>
+    <nav
+      aria-label="Side dock" {...KEEP_FOCUS} data-tour="dock"
+      className={`relative flex shrink-0 flex-col border-border bg-muted/30 ${onRight ? "order-last border-l" : "border-r"}`}
+      style={{ width }}
+    >
       {dialogs}
       {header}
       {tabRow}
@@ -303,11 +320,11 @@ export function SideDock() {
       {/* Drag the inner edge to resize — a chat at 300px is cramped for code.
           Pointer-only (the dock's width is a convenience, not a function), so
           it's hidden from assistive tech; the hint is the cursor's tooltip. */}
-      <Tooltip content="Drag to resize" describe={false} side="right">
+      <Tooltip content="Drag to resize" describe={false} side={dockInnerEdge(position)}>
         <div
           onPointerDown={startResize}
           aria-hidden
-          className="absolute inset-y-0 -right-1 z-10 w-2 cursor-col-resize hover:bg-primary/20"
+          className={`absolute inset-y-0 z-10 w-2 cursor-col-resize hover:bg-primary/20 ${onRight ? "-left-1" : "-right-1"}`}
         />
       </Tooltip>
     </nav>
@@ -406,29 +423,63 @@ function useSeenMarker(): { seenAt: number; markSeen: () => void } {
   return { seenAt, markSeen };
 }
 
-/** Dock width + a pointer-drag resize handler. Width persists across reloads. */
-function useDockWidth(): [number, (e: React.PointerEvent) => void] {
+/**
+ * The header's **Dock position** menu: Left or Right (lib/dock-layout.ts
+ * `DOCK_POSITIONS`), the current one checked. A Base UI menu of radio items,
+ * so it's keyboard-operable (Enter/Space/↓ opens it, arrows move, Enter picks
+ * and closes it, Esc closes) and announced as a checked choice. Desktop only.
+ */
+function DockPositionMenu() {
+  const { position, setPosition } = useSideDock();
+  const Icon = position === "right" ? PanelRight : PanelLeft;
+  return (
+    <DropdownMenu>
+      <Tooltip content="Dock position" describe={false}>
+        <DropdownMenuTrigger
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-foreground hover:bg-accent"
+          aria-label="Dock position"
+        >
+          <Icon className="h-4 w-4" />
+        </DropdownMenuTrigger>
+      </Tooltip>
+      <DropdownMenuContent className="w-36" align="end">
+        <DropdownMenuRadioGroup value={position} onValueChange={(v: string) => setPosition(parseDockPosition(v))}>
+          {DOCK_POSITIONS.map((p) => (
+            // closeOnClick: picking a side is the whole errand; focus goes back to the trigger.
+            <DropdownMenuRadioItem key={p.position} value={p.position} closeOnClick>
+              {p.position === "right" ? <PanelRight className="h-4 w-4" /> : <PanelLeft className="h-4 w-4" />}
+              {p.label}
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+/**
+ * Dock width + a pointer-drag resize handler for a dock at `position` (the
+ * handle is on its inner edge). Width persists across reloads and is shared by
+ * both sides.
+ */
+function useDockWidth(position: DockPosition): [number, (e: React.PointerEvent) => void] {
   const [width, setWidth] = useState(() => {
-    const stored = Number(localStorage.getItem(WIDTH_KEY));
-    return stored >= MIN_WIDTH && stored <= MAX_WIDTH ? stored : DEFAULT_WIDTH;
+    try { return parseDockWidth(localStorage.getItem(DOCK_WIDTH_KEY)); } catch { return parseDockWidth(null); }
   });
 
   const startResize = useCallback((e: React.PointerEvent) => {
     e.preventDefault();
-    const onMove = (ev: PointerEvent) => {
-      // The dock is flush to the viewport's left edge, so clientX *is* the width.
-      const next = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, ev.clientX));
-      setWidth(next);
-    };
+    // The dock is flush to its window edge, so the pointer's x gives the width directly.
+    const widthAt = (ev: PointerEvent) => dockWidthFromPointer(position, ev.clientX, window.innerWidth);
+    const onMove = (ev: PointerEvent) => setWidth(widthAt(ev));
     const onUp = (ev: PointerEvent) => {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
-      const next = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, ev.clientX));
-      try { localStorage.setItem(WIDTH_KEY, String(next)); } catch { /* private mode */ }
+      try { localStorage.setItem(DOCK_WIDTH_KEY, String(widthAt(ev))); } catch { /* private mode */ }
     };
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
-  }, []);
+  }, [position]);
 
   return [width, startResize];
 }

@@ -549,9 +549,10 @@ UI and the leader's tmux window are **two views of one conversation**: the daemo
 mirrors that Pi session in both directions. See
 [docs/DESIGN.md](docs/DESIGN.md#one-agent-to-talk-to).
 
-It lives in the **left dock** on every page, as the **Assistant** tab beside
-**Team**. The dock collapses to an icon rail (with an unread badge) or resizes by
-dragging its edge; in a narrow desktop window it becomes a floating button. On a
+It lives in the **side dock** on every page, as the **Assistant** tab beside
+**Team**. The dock sits on the left or the right (its **Dock position** menu,
+remembered per browser), collapses to an icon rail (with an unread badge), or
+resizes by dragging its inner edge; in a narrow desktop window it becomes a floating button. On a
 phone, the chat is a tab of the [phone view](#phone-view).
 
 - **Send whenever you like.** The composer never locks; a message sent while the

@@ -20,7 +20,8 @@
  *   steps' areas and keeps those on screen (`visibleTourSteps`), so a step whose
  *   area a feature toggle or a narrow window hides is skipped, and the outline
  *   follows its area as the page moves (a poll adding the Welcome card, a
- *   resize). Starting goes Home first: the Queue and Inbox are a stop.
+ *   resize). The dock's popup opens toward the center, whichever side the dock
+ *   is on (`stepSide`). Starting goes Home first: the Queue and Inbox are a stop.
  * - **Non-modal.** Each step is a Base UI Popover with `modal={false}`, anchored
  *   to the area: nothing traps focus and the page stays usable — a click
  *   elsewhere, or tabbing out, leaves the tour open. The spotlight is an outline
@@ -45,11 +46,14 @@
  *   shown steps or the area's box actually changed.
  */
 
-import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useCallback, useContext, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Popover } from "@base-ui/react/popover";
 import { Button } from "@/components/ui/button";
 import { TourContext, type TourValue } from "@/hooks/useTour";
+import { SideDockContext, type DockPosition } from "@/hooks/useSideDock";
+import { LG_QUERY, useMediaQuery } from "@/hooks/useMediaQuery";
+import { dockInnerEdge, type Side } from "@/lib/dock-layout";
 import { useAnnounce } from "@/hooks/useAnnounce";
 import { focusTarget } from "@/hooks/useRouteFocus";
 import { scrollBehavior } from "@/lib/motion";
@@ -70,7 +74,18 @@ const SETTLE_MS = 250;
 const SPOTLIGHT_PAD = 4;
 
 /** Which side of its area each step's popup prefers (Base UI flips it when there's no room). */
-const STEP_SIDE: Partial<Record<TourStepId, "bottom" | "right" | "top" | "left">> = { dock: "right" };
+const STEP_SIDE: Partial<Record<TourStepId, Side>> = { dock: "right" };
+
+/**
+ * A step's popup side. The dock's opens toward the center — off its inner edge
+ * (lib/dock-layout.ts), so a dock on the Right gets it on its left — except
+ * below `lg`, where the dock is the bottom-left floating button whatever its
+ * position.
+ */
+function stepSide(id: TourStepId, position: DockPosition | undefined, isDesktop: boolean): Side {
+  if (id === "dock" && position && isDesktop) return dockInnerEdge(position);
+  return STEP_SIDE[id] ?? "bottom";
+}
 
 /** What Tab can land on, inside an area. */
 const TABBABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
@@ -157,6 +172,9 @@ function TourOverlay({ onEnd }: { onEnd: () => void }) {
   const titleId = useId();
   const textId = useId();
   const nextRef = useRef<HTMLButtonElement>(null);
+  // Null outside a dock provider (the tour is only mounted inside one, but don't depend on it).
+  const dockPosition = useContext(SideDockContext)?.position;
+  const isDesktop = useMediaQuery(LG_QUERY);
 
   // Each frame: which steps have an area on screen, and where the current one is.
   // State changes only when something did, so an idle tour doesn't re-render.
@@ -273,7 +291,7 @@ function TourOverlay({ onEnd }: { onEnd: () => void }) {
           <Popover.Portal>
             <Popover.Positioner
               anchor={target}
-              side={STEP_SIDE[step.id] ?? "bottom"}
+              side={stepSide(step.id, dockPosition, isDesktop)}
               align="start"
               sideOffset={12}
               collisionPadding={8}

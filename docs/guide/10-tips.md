@@ -21,6 +21,11 @@
 The nav bar has two destinations, plus pause / **usage** / help / config / theme
 icons.
 
+**Move the dock.** The side dock sits on the left by default. The **Dock position**
+button in its header (next to collapse) moves it to the right — handy on a wide
+screen or if you read the page first. Your choice, the dock's width, and whether it's
+collapsed are remembered in this browser.
+
 **Help where you are.** Every page has a **?** beside its title. It opens the part of
 this guide about that page in the dock's **Help** tab, next to the page, so you can
 read and click along; **Esc** (or the ✕ on the tab) closes it and puts you back where

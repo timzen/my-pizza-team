@@ -2168,7 +2168,12 @@ view: the **Queue** tab on the home page, before the Inbox, because that's where
 sits in a piece of work's life (in flight → finished).
 
 The dock collapses to an icon rail (remembered in `localStorage`) carrying both
-tabs' essentials. Below the `lg` breakpoint it becomes a floating corner panel —
+tabs' essentials. It sits on the **Left** by default or the **Right** (the header's
+**Dock position** menu, remembered per browser — where a panel sits is screen and
+taste, not team config). On the Right it is drawn after the center with CSS `order`
+but stays first in the DOM, so the tab order and landmarks don't change with it;
+its border, resize handle and rail tooltips move to the edge facing the center
+(`lib/dock-layout.ts`). Below the `lg` breakpoint it becomes a floating corner panel —
 for a narrow desktop window. A phone gets a different shell altogether (next).
 
 The **Team tab is teammates only.** The leader is the agent behind the Assistant
