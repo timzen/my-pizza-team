@@ -5,8 +5,8 @@
 tmux window, that connect to the daemon and ask it for work. We call them
 "teammates" throughout the UI because that's how you work with them; "agent" is just
 the underlying technical term (and the one the HTTP API uses, e.g. `/api/agents`).
-The [leader](glossary.md#leader) is the one agent that isn't a teammate: it's the
-[assistant](04-assistant.md) you chat with (start it with `mpt lead`).
+The [assistant](04-assistant.md) is the one agent that isn't a teammate: it's the
+agent you chat with (start it from the web UI, or with `mpt assistant`).
 
 ## How a teammate works
 
@@ -34,7 +34,7 @@ Work with no directory always runs in parallel. Turn this off under
 ## The Team tab
 
 Teammates live in the **Team** tab of the dock (beside the **Assistant** tab),
-on every page — the teammate pool (the leader isn't listed: it's the agent you talk
+on every page — the teammate pool (the assistant isn't listed: it's the agent you talk
 to on the Assistant tab). Each row shows:
 
 - its status — the icon *is* the status:
@@ -57,10 +57,10 @@ compacts, until its next reply). Both the gauge and the cost reset when the team
 starts a fresh session for its next run.
 
 With nobody online the tab says so, and how to change it: **Start the assistant**
-while the leader isn't running (it reads **Starting…** until the leader connects; if the
+while the assistant isn't running (it reads **Starting…** until the assistant connects; if the
 daemon can't start it, it says why, with the fix; **Or from a terminal** shows the
-command, `mpt lead`), and **Spawn a teammate** (when the daemon can start one — it
-doesn't need the leader for that; otherwise it's greyed out and says why, with the fix).
+command, `mpt assistant`), and **Spawn a teammate** (when the daemon can start one — it
+doesn't need the assistant for that; otherwise it's greyed out and says why, with the fix).
 It also warns when the [readiness probe](08-configuration.md#readiness-probe)
 is failing — a new teammate would start but get no work until it passes.
 
@@ -107,7 +107,7 @@ tab's row (right of the tabs, while Team is showing) has two icons:
 - **Team size** (people icon) — the steady size of the teammate pool: set `3` and the
   daemon keeps three teammates online, spawning replacements whenever one is
   dismissed, crashes, or goes silent long enough to be reaped. An amber dot on the
-  icon means no leader is connected, so the pool can't grow yet.
+  icon means the assistant isn't running, so the pool can't grow yet.
 - **Spawn** (person-plus icon) — start one teammate in a specific directory (see
   below).
 
@@ -119,18 +119,18 @@ Details:
 - The number is saved in `config.json` (also editable as **Min Teammates** on Config ›
   General — leave it blank for the default), so it's the target the daemon applies at
   startup.
-- It's capped by **Max Teammates**, and it waits for the **leader** to be connected
+- It's capped by **Max Teammates**, and it waits for the **assistant** to be running
   Until one is, the dialog tells you so and offers **Start the assistant**. The daemon starts the tmux
   windows itself; if it can't reach tmux, nothing spawns: the dialog and the Team tab
   say why, with the fix, and `mpt doctor` reports it too.
 - Lowering the number never kills anyone: it just stops replacements. Dismissing a
   teammate stays your call (but with a non-zero minimum, expect a fresh one to take
   its place).
-- Pool teammates spawn in the leader's working directory. To home a teammate in a
+- Pool teammates spawn in the assistant's working directory. To home a teammate in a
   specific repo, use **Spawn** and pick the directory — directory affinity then biases
   that repo's work toward it. It counts toward the team size like any other teammate.
 
-The **leader** isn't part of the pool: there is exactly one, and it's the agent the
+The **assistant** isn't part of the pool: there is exactly one, and it's the agent the
 chat talks to.
 
 The Team tab also shows **pending spawns** (starting up) and **failed spawns** with
@@ -142,7 +142,7 @@ with the fix) — dismiss a failed one once you've seen it.
 - **Reset** (↺) — clears its context window: the teammate starts a fresh session
   itself, within a few seconds. If it was in the middle of a run, that run is
   abandoned and its item is left for you to recover from the Queue. It doesn't need
-  the leader.
+  the assistant.
 - **Dismiss** (🗑) — removes it; the teammate shuts itself down on its next heartbeat.
   With a non-zero team size, a replacement takes its place.
 
@@ -161,7 +161,7 @@ daemon resumes distribution. To hold just one story, make it
 `mpt upgrade` updates the daemon and the Pi extension together, but running agents
 keep the old code until they restart. The Team tab marks each out-of-date teammate
 and shows a banner with a **Restart** button that rolls them all (their context is
-cleared). Restart the leader yourself (`mpt lead` after quitting it). An agent too old
+cleared). Restart the assistant yourself (quit it, then **Start the assistant** or `mpt assistant`). An agent too old
 to speak the daemon's protocol is refused at startup with a message saying so.
 
 ## Experimental: Kiro and Claude Code teammates

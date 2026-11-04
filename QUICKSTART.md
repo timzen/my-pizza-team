@@ -67,23 +67,24 @@ you turn them on under **Config → General → Work items** (or with `"features
 `.my-pizza-team/config.json`; see [Feature toggles](README.md#feature-toggles)). A
 team directory that already existed keeps everything on.
 
-## 4. Start the daemon and the leader
+## 4. Start the daemon and the assistant
 
 ```bash
 mpt start --daemon
-mpt lead
+mpt assistant
 ```
 
 The daemon runs in the background and serves the web UI at
-**http://localhost:7437/**. `mpt lead` opens the leader — the agent you chat with,
-here or in the web UI — in a tmux window and attaches you to it; detach with
-`Ctrl-b d`, and `mpt lead` again reattaches. Already inside tmux, it switches your
-client to the leader window instead.
+**http://localhost:7437/**. `mpt assistant` (alias `mpt lead`) opens the assistant —
+the agent you chat with, here or in the web UI — in a tmux window (named `leader`)
+and attaches you to it; detach with `Ctrl-b d`, and `mpt assistant` again reattaches.
+Already inside tmux, it switches your client to that window instead. Prefer the
+browser? Skip `mpt assistant` and click **Start the assistant** in the web UI.
 
 Then open the web UI. A new team's home page has a **Welcome checklist** that walks
 you through the rest — a first teammate, a one-click sample task, watching it run,
 reviewing it in the Inbox — and ticks each step off as you do it. Until you're
-through it, `mpt start --daemon` and `mpt lead` end by pointing you there.
+through it, `mpt start --daemon` and `mpt assistant` end by pointing you there.
 
 ## 5. Check everything
 
@@ -92,7 +93,7 @@ mpt doctor
 ```
 
 A read-only checklist of Pi, tmux, the extension, the permission system, trust, the
-daemon, and the leader — with the command that fixes each problem. Run it whenever
+daemon, and the assistant — with the command that fixes each problem. Run it whenever
 something seems off.
 
 ---

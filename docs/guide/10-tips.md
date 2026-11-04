@@ -6,7 +6,7 @@
   The editor scores them for you.
 - **Home the right teammates** — a teammate started in a repo preferentially picks up
   that repo's work. Use **Spawn** to put one where the work is (pool teammates spawn
-  in the leader's directory).
+  in the assistant's directory).
 - **Review early** — drain the Inbox; quick feedback loops keep teammates productive.
 - **Use personas** — give each agent step its own role framing, and give recurring
   jobs a persona of their own.
@@ -96,11 +96,12 @@ file, and a tmux server keeps the environment it started with, often weeks ago. 
 - A teammate that was already running keeps what it started with (a **Reset** clears
   its context, not its environment). [Dismiss](03-teammates.md#managing-a-teammate) it and let a new one
   spawn.
-- The leader's window gets the file when `mpt lead` opens it; an existing leader
-  keeps its old environment until you close its window and run `mpt lead` again.
+- The assistant's window gets the file when it's started (the web UI's button or
+  `mpt assistant`); a running assistant keeps its old environment until you close its
+  window and start it again.
 
-**`mpt lead` inside tmux.** From any tmux session it switches your client to the
-leader's window rather than starting a nested tmux. If that switch fails, it prints
+**`mpt assistant` inside tmux.** From any tmux session it switches your client to the
+assistant's window (named `leader`) rather than starting a nested tmux. If that switch fails, it prints
 the `tmux switch-client` command to run yourself.
 
 ## Keyboard and screen readers

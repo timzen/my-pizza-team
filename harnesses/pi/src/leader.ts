@@ -179,7 +179,7 @@ export async function setupLeader(
       const name = args?.trim();
       if (!name) { cmdCtx.ui.notify("Usage: /ppt-dismiss <name>", "warning"); return; }
 
-      if (name === LEADER_WINDOW) { cmdCtx.ui.notify("The leader can't dismiss itself", "warning"); return; }
+      if (name === LEADER_WINDOW) { cmdCtx.ui.notify("The assistant can't dismiss itself", "warning"); return; }
 
       // The same path as the UI's dismiss: the daemon tombstones the teammate so it
       // exits by itself, and its `dismiss` directive closes the window once it has
@@ -423,7 +423,7 @@ export async function setupLeader(
   });
 
   if (ctx.hasUI) {
-    ctx.ui.notify(`🍕 pi-pizza-team lead connected to daemon at ${client.url}`, "info");
+    ctx.ui.notify(`🍕 pi-pizza-team assistant connected to daemon at ${client.url}`, "info");
   }
 }
 

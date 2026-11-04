@@ -132,7 +132,7 @@ function TeamSizeForm({ pool, onDone }: { pool: TeammatePool | null; onDone: () 
         {pool && pool.minTeammates > 0 && !pool.leaderPresent && (
           <div className="space-y-1.5">
             <p className="flex items-center gap-1 text-xs text-amber-700 dark:text-amber-400">
-              <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden /> No leader connected — nothing can spawn until one is.
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden /> No assistant running — the team size waits until it is.
             </p>
             <StartAssistant size="xs" />
           </div>

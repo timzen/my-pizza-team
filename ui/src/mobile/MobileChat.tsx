@@ -24,8 +24,8 @@ export function MobileChat({
   const presence = !stream.connected
     ? { dot: "bg-amber-500", text: "Reconnecting…" }
     : stream.chatAgent
-      ? { dot: "bg-green-500", text: `Answered by ${stream.chatAgent.name}` }
-      : { dot: "bg-muted-foreground/40", text: "No leader online — messages will queue" };
+      ? { dot: "bg-green-500", text: "Answered by the assistant" }
+      : { dot: "bg-muted-foreground/40", text: "No assistant online — messages will queue" };
 
   return (
     <div className="flex h-full min-h-0 flex-col">

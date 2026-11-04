@@ -56,7 +56,7 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.registerFlag("ppt-lead", {
-    description: "Run as team leader (connect to daemon via --ppt-daemon or auto-detect)",
+    description: "Run as the team's assistant, the agent you chat with (connect to daemon via --ppt-daemon or auto-detect)",
     type: "boolean",
     default: false,
   });
@@ -70,7 +70,7 @@ export default function (pi: ExtensionAPI) {
   // Retired (kept so old spawn commands / templates don't crash on an unknown
   // flag). The leader answers the chat now.
   pi.registerFlag("ppt-assistant", {
-    description: "Deprecated: the leader is the chat agent; this flag does nothing",
+    description: "Deprecated: the assistant (--ppt-lead) is the chat agent; this flag does nothing",
     type: "boolean",
     default: false,
   });
@@ -136,7 +136,7 @@ export default function (pi: ExtensionAPI) {
       // message, so do nothing but explain (the daemon designates one leader).
       if (ctx.hasUI) {
         ctx.ui.notify(
-          "🤖 --ppt-assistant is retired: the leader is the agent you chat with. Close this window and chat with the leader (or the web UI).",
+          "🤖 --ppt-assistant is retired: the assistant started by `mpt assistant` (or the web UI's Start button) is the agent you chat with. Close this window and chat with it there.",
           "warning",
         );
       }
@@ -164,7 +164,7 @@ export default function (pi: ExtensionAPI) {
             "To get started:",
             "  1. Install mpt: https://github.com/timzen/my-pizza-team/releases",
             "  2. Run `mpt start` in this directory (creates .my-pizza-team/)",
-            "  3. Restart Pi — leader mode will activate automatically.",
+            "  3. Restart Pi — it will run as the team's assistant automatically.",
             "",
             "Or point Pi at an existing team:",
             "  cd /path/to/project-with-.my-pizza-team && pi",

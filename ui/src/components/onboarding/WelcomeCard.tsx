@@ -6,7 +6,7 @@
  *   ┌ Welcome to your team ─────────────────────────── Dismiss ┐
  *   │ A few first steps… You can reopen this from Help.        │
  *   │ ███████░░░░░░░░  2 of 7 done                             │
- *   │ ✓ Start the leader            Done          Learn more   │
+ *   │ ✓ Start the assistant            Done          Learn more   │
  *   │ ● Get a teammate              Next                       │
  *   │   Teammates are the agents…   [Spawn a teammate]         │
  *   │ ○ Create your first task      [Use a sample task] …      │

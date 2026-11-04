@@ -100,7 +100,7 @@ export const EMPTY_STATES = {
   },
   team: {
     title: "No teammates online",
-    text: "Teammates are the agents that pick up work; the leader, the assistant you chat with, starts them.",
+    text: "Teammates are the agents that pick up work, started by the daemon to meet the team size or one at a time.",
     learnMore: { topic: "teammates", anchor: "team-size-how-teammates-get-created" },
   },
   usage: {
@@ -186,5 +186,5 @@ export function spawnState(health: SpawnHealth | null | undefined): SpawnState {
   };
 }
 
-/** The command that starts the leader, shown by Start the assistant's "Or from a terminal" (components/assistant/StartAssistant). */
-export const LEADER_COMMAND = "mpt lead";
+/** The command that starts the assistant, shown by Start the assistant's "Or from a terminal" (components/assistant/StartAssistant). */
+export const LEADER_COMMAND = "mpt assistant";

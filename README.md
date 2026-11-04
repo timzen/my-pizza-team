@@ -28,15 +28,15 @@ Agents run on [Pi](https://pi.mariozechner.at/) today; see
   work, keeps the team at its declared size, and tracks everything
 
 📖 **New here?** [QUICKSTART.md](QUICKSTART.md) gets a team running in about five
-minutes: install `mpt` and Pi, then `mpt setup`, `mpt start --daemon`, `mpt lead`.
+minutes: install `mpt` and Pi, then `mpt setup`, `mpt start --daemon`, and **Start the assistant** in the web UI (or `mpt assistant`).
 The in-app **Help** (`/help`) is the user guide: short topic pages in
 [docs/guide/](docs/guide/00-getting-started.md), indexed by [GUIDE.md](GUIDE.md), with
 a table of contents, search, and a link for every section (`/help/<topic>#<section>`).
-A new team's home page shows a **Welcome checklist** — start the leader, get a teammate,
+A new team's home page shows a **Welcome checklist** — start the assistant, get a teammate,
 run a first task (a one-click sample), review it, ask the assistant, capture a note —
 that ticks off from the team's real state; dismiss it, and reopen it from Help. It
 (and Help) also offer an optional, skippable **tour** of the screen's areas. While
-it's showing, `mpt setup`, `mpt start --daemon` and `mpt lead` end by pointing you to it.
+it's showing, `mpt setup`, `mpt start --daemon` and `mpt assistant` end by pointing you to it.
 Every page's **?** (or the `?` key) opens the section about that page in the side dock,
 beside the page, and the forms' non-obvious fields (workflow, persona, directory,
 pending, cron…) each say what they do in one line, with a **Learn more** into it.
@@ -57,7 +57,10 @@ Commands:
   setup --uninstall     Undo what setup did (leaves the team directory and its data)
   doctor                Read-only checklist of prerequisites, with a fix for each problem
   start [--daemon|-d]   Start the daemon (foreground, or background with -d)
-  lead [--no-attach]    Start the leader in tmux and attach to it
+  assistant [--no-attach]
+                        Start the assistant (the agent you chat with) in tmux and
+                        attach to it; the web UI's Start button does the same
+  lead [--no-attach]    Alias for `assistant` (the original name)
   stop                  Stop the running daemon
   status                Check if the daemon is running + show a summary
   upgrade [--check]     Update mpt (npm) *and* its Pi extension, restart the service
@@ -121,13 +124,16 @@ a package that failed to load. To write one, see [docs/PLUGINS.md](docs/PLUGINS.
 Work Source plugin"; using one from the web UI is in
 [docs/guide/07-sources.md](docs/guide/07-sources.md).
 
-`mpt lead` opens a `leader` window in the project directory running the harness's
-`leader` command. Running it again attaches to the existing leader rather than
+`mpt assistant` (alias `mpt lead`) opens the assistant in the project directory,
+running the harness's `leader` command. Internally the assistant is the *leader*,
+so its tmux window is named `leader`, it registers as the member `leader`, and its
+config key is `harnesses.<harness>.leader`; only what you read in the UI, CLI and
+`mpt doctor` says "assistant". Running it again attaches to the existing assistant rather than
 starting a second one. Run from inside tmux, it doesn't nest an attach: it switches
 your client to `<session>:leader` (`tmux switch-client`), even from another session.
-`--no-attach` does neither and prints both commands. A new leader window gets the
+`--no-attach` does neither and prints both commands. A new assistant window gets the
 team's [`agentEnvFile`](#configuration) variables, like every teammate window.
-The daemon can start the same leader itself (`POST /api/assistant/start`, also
+The daemon can start the same assistant itself (`POST /api/assistant/start`, also
 idempotent), so it can be started without a terminal. The built-in Pi leader
 command passes `-a` so it doesn't stop at Pi's "Trust project folder?" prompt with
 nobody attached; if you override `harnesses.pi.leader`, keep `-a` in it.
@@ -569,8 +575,8 @@ creation. With no workflows on disk, a built-in `default` (`in_progress` →
 
 ## Assistant Chat
 
-The assistant is a live chat — and it is **your leader**. There is no separate
-assistant to start: the chat works whenever the leader is up (`mpt lead`). The web
+The assistant is a live chat with one agent (internally, the *leader*). The chat
+works whenever it's up — **Start the assistant** in the web UI, or `mpt assistant`. The web
 UI and the leader's tmux window are **two views of one conversation**: the daemon
 mirrors that Pi session in both directions. See
 [docs/DESIGN.md](docs/DESIGN.md#one-agent-to-talk-to).
@@ -678,7 +684,7 @@ integration. It ships **inside the `my-pizza-team` npm package** and `mpt setup`
 `~/.my-pizza-team/pi-extension/`, so the daemon and the extension always match
 versions — `mpt upgrade` moves both together.
 
-The **leader** is the Pi you chat with; `mpt lead` starts it. **Teammates** are
+The **assistant** (internally the leader) is the Pi you chat with; the web UI's **Start the assistant** or `mpt assistant` starts it. **Teammates** are
 started by the daemon in their own tmux windows and run an autonomous loop: poll →
 claim → execute → set state → repeat. The daemon is the only thing that opens and
 closes their windows: if it can't reach tmux (possible when it runs as a login

@@ -393,7 +393,7 @@ function realizeDismiss(
     ? directive.params.name
     : (directive.metadata?.tmuxWindow as string | undefined) ?? "";
   if (!name) throw new Error("dismiss directive names no window");
-  if (name === LEADER_WINDOW) throw new Error("refusing to close the leader's window");
+  if (name === LEADER_WINDOW) throw new Error("refusing to close the assistant's window");
 
   const session = (typeof directive.params.tmuxSession === "string" && directive.params.tmuxSession) ||
     (directive.metadata?.tmuxSession as string | undefined) || deps.config.tmuxSession || "mpt";

@@ -87,7 +87,7 @@ OUTLOOK_MCP_ENABLE_WRITES=true
 GREETING="hello world"
 ```
 
-Every window mpt opens — each teammate's, and the leader's from `mpt lead` — gets
+Every window mpt opens — each teammate's, and the assistant's (from **Start the assistant** or `mpt assistant`) — gets
 these variables. The file is read again each time a teammate starts, so an edit
 reaches the next teammate with no restart (teammates already running keep what they
 started with). It's the same syntax as systemd's `EnvironmentFile=`: no `export`, and

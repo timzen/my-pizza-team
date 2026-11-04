@@ -7,6 +7,8 @@
  *   - `mpt lead` creates **exactly one** window — the stray `zsh` window bug, which
  *     unit tests could not see because `spawnWindow` was correct in isolation and
  *     `cmdLead` composed it wrongly;
+ *   - `mpt assistant` is the same command, and its output says "assistant" (the
+ *     window keeps its internal name, `leader`);
  *   - a re-run attaches rather than starting a second leader (two leaders would both
  *     answer the chat);
  *   - the web UI's Start (`POST /api/assistant/start`) has the daemon open the same
@@ -74,14 +76,17 @@ async function api<T>(sb: Sandbox, path: string, body?: unknown, method = "POST"
   return await res.json() as T;
 }
 
-// ─── mpt lead ────────────────────────────────────────────────────────
+// ─── mpt assistant (alias mpt lead) ──────────────────────────────────
 
-test("mpt lead creates exactly one window, running the leader command in the project", { skip: !hasTmux() }, async () => {
+test("mpt assistant creates exactly one window, running the leader command in the project", { skip: !hasTmux() }, async () => {
   await using sb = await sandbox("lead");
   sb.writeTeamConfig({ harnesses: HARNESSES });
 
-  const result = await sb.mpt("lead", "--no-attach");
+  const result = await sb.mpt("assistant", "--no-attach");
   assertEquals(result.code, 0, result.output);
+  // What the user reads says "assistant"; the window keeps its internal name.
+  assertStringIncludes(result.output, "Assistant started in");
+  assertEquals(/leader/i.test(result.output.replace(/:leader\b/g, "")), false, result.output);
 
   // Exactly one — no stray initial window left beside the leader.
   assertEquals(await windows(sb), ["leader"]);
@@ -98,11 +103,12 @@ test("mpt lead creates exactly one window, running the leader command in the pro
   assertStringIncludes(output, "win=leader");
 });
 
-test("a second mpt lead attaches instead of starting another leader", { skip: !hasTmux() }, async () => {
+test("a second start attaches instead of starting another leader — `lead` is the same command", { skip: !hasTmux() }, async () => {
   await using sb = await sandbox("lead-twice");
   sb.writeTeamConfig({ harnesses: HARNESSES });
-  await sb.mpt("lead", "--no-attach");
+  await sb.mpt("assistant", "--no-attach");
 
+  // The alias: `mpt lead` finds the window `mpt assistant` opened.
   const again = await sb.mpt("lead", "--no-attach");
   assertEquals(again.code, 0, again.output);
   assertStringIncludes(again.output, "already running");

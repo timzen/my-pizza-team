@@ -41,11 +41,11 @@ export function TeamEmpty({ leaderPresent, onSpawn }: {
   // Where the team size and spawning are: this tab's icons, or (on the phone) the desktop.
   const leaderLine = onSpawn
     ? (leaderPresent
-      ? "The leader is connected: spawn a teammate now, or set a team size (the people icon above) to keep some online."
-      : "The leader isn't running yet. It's the assistant you chat with, and it starts teammates to meet the team size.")
+      ? "The assistant is running: spawn a teammate now, or set a team size (the people icon above) to keep some online."
+      : "The assistant isn't running yet. It's the agent you chat with, and teammates start to meet the team size once it's up.")
     : (leaderPresent
-      ? "The leader is connected: spawn a teammate or set a team size from the desktop view."
-      : "The leader isn't running yet. It's the assistant you chat with; once it runs, set a team size from the desktop view.");
+      ? "The assistant is running: spawn a teammate or set a team size from the desktop view."
+      : "The assistant isn't running yet. It's the agent you chat with; once it runs, set a team size from the desktop view.");
 
   const detail = (
     <>

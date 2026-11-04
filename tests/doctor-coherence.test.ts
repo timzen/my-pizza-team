@@ -110,7 +110,7 @@ test("no two checks contradict each other about spawning", () => {
   // The bug that motivated this file.
   for (const { combo, checks } of CHECKLISTS) {
     const spawning = checks.find((c) => c.name === "Spawning");
-    const leader = checks.find((c) => c.name === "Leader");
+    const leader = checks.find((c) => c.name === "Assistant");
     if (!spawning || !leader) continue;
 
     const daemonSpawns = spawning.status === "ok" && spawning.detail.includes("daemon-driven");
@@ -130,7 +130,7 @@ test("a leader check never appears without a running daemon to report it", () =>
   for (const { combo, checks } of CHECKLISTS) {
     if (combo.daemonRunning) continue;
     const named = checks.map((c) => c.name);
-    assertEquals(named.includes("Leader"), false, `leader reported with the daemon down: ${describe(combo)}`);
+    assertEquals(named.includes("Assistant"), false, `leader reported with the daemon down: ${describe(combo)}`);
     assertEquals(named.includes("Spawning"), false, `spawning reported with the daemon down: ${describe(combo)}`);
   }
 });

@@ -160,7 +160,7 @@ export function SideDock() {
 
   const pool = team.pool;
   const sizeTitle = pool
-    ? `Team size: ${pool.minTeammates}${pool.isDefault ? " (default)" : ""} · ${pool.online} online${!team.poolBlocked ? "" : pool.spawnBlocked ? ` · can't spawn: ${pool.spawnBlocked.reason}` : " · no leader connected"}`
+    ? `Team size: ${pool.minTeammates}${pool.isDefault ? " (default)" : ""} · ${pool.online} online${!team.poolBlocked ? "" : pool.spawnBlocked ? ` · can't spawn: ${pool.spawnBlocked.reason}` : " · no assistant connected"}`
     : "Team size";
 
   const dialogs = (
@@ -173,7 +173,7 @@ export function SideDock() {
   // Leader presence on the Assistant tab: who answers, or why nobody will.
   const chatOnline = stream.chatAgent !== null;
   const chatDot = !stream.connected ? "bg-amber-500" : chatOnline ? "bg-green-500" : "bg-muted-foreground/40";
-  const chatDotTitle = !stream.connected ? "Reconnecting…" : chatOnline ? `Answered by ${stream.chatAgent?.name}` : "No leader online to answer";
+  const chatDotTitle = !stream.connected ? "Reconnecting…" : chatOnline ? "Answered by the assistant" : "No assistant online to answer";
 
   // Row 1 (dock-level, 56px, aligned with the nav): + │ Queue summary │ collapse.
   const header = (

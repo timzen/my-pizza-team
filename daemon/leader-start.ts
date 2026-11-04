@@ -179,7 +179,7 @@ function checkTemplate(
   if (!template) {
     return {
       code: "no-template",
-      reason: `no leader command configured for harness "${harness}" (leading needs an in-process adapter; only some harnesses can do it)`,
+      reason: `no assistant command configured for harness "${harness}" (the assistant needs an in-process adapter; only some harnesses can run it)`,
       fix: `set harnesses.${harness}.leader in the team's config.json, or set the default harness back to Pi`,
     };
   }
@@ -188,7 +188,7 @@ function checkTemplate(
   if (unresolved.length > 0) {
     return {
       code: "unresolved-placeholders",
-      reason: `the leader template has unknown placeholders: ${unresolved.join(", ")}`,
+      reason: `the assistant's command template (harnesses.${harness}.leader) has unknown placeholders: ${unresolved.join(", ")}`,
       fix: `check harnesses.${harness}.leader in the team's config.json`,
     };
   }

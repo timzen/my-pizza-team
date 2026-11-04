@@ -124,6 +124,6 @@ test("spawnState: a failing readiness probe is reported, but doesn't block a spa
 });
 
 test("LEADER_COMMAND is the CLI's real command", () => {
-  assertEquals(LEADER_COMMAND, "mpt lead");
-  assertEquals(fs.readFileSync(path.join(ROOT, "README.md"), "utf8").includes("`mpt lead`"), true);
+  assertEquals(LEADER_COMMAND, "mpt assistant");
+  assertEquals(fs.readFileSync(path.join(ROOT, "README.md"), "utf8").includes("`mpt assistant`"), true);
 });

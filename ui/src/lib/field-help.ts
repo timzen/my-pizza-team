@@ -95,7 +95,7 @@ export const FIELD_HELP = {
     text: "The most teammates that may be online at once.",
   },
   spawnDirectory: {
-    text: "Where this teammate lives: it picks up work homed there first. Blank uses the leader's directory.",
+    text: "Where this teammate lives: it picks up work homed there first. Blank uses the assistant's directory.",
     learnMore: { topic: "teammates", anchor: "one-teammate-per-directory" },
   },
   harness: {

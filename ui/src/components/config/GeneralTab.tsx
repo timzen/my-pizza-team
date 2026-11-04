@@ -108,7 +108,7 @@ export function GeneralTab({ config, setConfig, saved, featureError }: {
           </div>
           <FieldHint id="config-readiness-probe-hint" field="readinessProbe" />
           <p id="config-readiness-probe-detail" className="text-xs text-muted-foreground">
-            Run by the leader. Exit 0 = ready; non-zero = not ready (stdout = reason). Held work fires once on recovery.
+            Run by the daemon. Exit 0 = ready; non-zero = not ready (stdout = reason). Held work fires once on recovery.
           </p>
           <div className="grid grid-cols-[160px_1fr] gap-3 items-center">
             <Label htmlFor="config-agent-env-file">Agent Env File</Label>

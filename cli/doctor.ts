@@ -294,14 +294,14 @@ export function evaluate(f: DoctorFacts): Check[] {
     const daemonSpawns = f.spawning?.canSpawn === true;
     checks.push(
       f.leaderConnected
-        ? { name: "Leader", status: "ok", detail: "connected" }
+        ? { name: "Assistant", status: "ok", detail: "connected" }
         : {
-          name: "Leader",
+          name: "Assistant",
           status: "warn",
           detail: daemonSpawns
-            ? "no leader connected — the chat is unanswered and the team size waits for one (a one-off spawn still starts)"
-            : "no leader connected — the chat is unanswered",
-          fix: "mpt lead (the leader is the agent you chat with)",
+            ? "no assistant connected — the chat is unanswered and the team size waits for one (a one-off spawn still starts)"
+            : "no assistant connected — the chat is unanswered",
+          fix: "mpt assistant, or the Start button in the web UI (the assistant is the agent you chat with)",
         },
     );
   }

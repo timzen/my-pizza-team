@@ -60,7 +60,7 @@ function NoLeaderNotice({ queued, readable }: { queued: boolean; readable?: bool
     <div className="shrink-0 border-b border-border bg-muted/40 px-3 py-2 text-xs" data-no-leader="">
       <div className={readable ? "mx-auto w-full max-w-3xl space-y-1.5" : "space-y-1.5"}>
         <p className="text-muted-foreground">
-          No leader is running to answer
+          No assistant is running to answer
           {queued ? ", so your messages are queued; they'll be delivered once it starts." : "; messages you send wait until it starts."}
         </p>
         <StartAssistant size="xs" />

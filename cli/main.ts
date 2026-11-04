@@ -292,7 +292,11 @@ Commands:
   doctor                Read-only checklist of prerequisites, with a fix for each problem
   start [--daemon|-d]   Start the daemon (foreground, or in the background with -d;
                         its output then goes to daemon.log in the team directory)
-  lead [--no-attach]    Start the leader in tmux and attach to it
+  assistant [--no-attach]
+                        Start the assistant (the agent you chat with) in tmux and
+                        attach to it; the web UI's Start button does the same,
+                        without the attach. Its tmux window is named "leader"
+  lead [--no-attach]    Alias for \`assistant\` (the original name)
   stop                  Stop the running daemon (sends SIGTERM)
   status                Check if the daemon is running and show a summary
   upgrade [--check]     Update mpt (npm) *and* its Pi extension, restart the service
@@ -320,7 +324,7 @@ Environment:
   MPT_NODE              The Node that runs mpt (overrides ~/.config/mpt/runtime.json)
 
 Getting started (in your project folder):
-  mpt setup && mpt start --daemon && mpt lead
+  mpt setup && mpt start --daemon && mpt assistant
 `);
 }
 
@@ -340,7 +344,11 @@ function teamToken(teamDir: string): string | null {
 }
 
 /**
- * `mpt lead` — start the leader in tmux and attach to it.
+ * `mpt assistant` (alias `mpt lead`) — start the assistant in tmux and attach to it.
+ *
+ * Internally the assistant is still the *leader*: member name, tmux window
+ * (`LEADER_WINDOW`), `--ppt-lead` and the `leader` template keep that name; only what
+ * the user reads says "assistant".
  *
  * The leader is the agent you chat with, and the team pool waits for it before
  * spawning, so a team with no leader has nobody answering and no teammates
@@ -365,7 +373,7 @@ async function cmdLead(args: string[]): Promise<void> {
   const harnessName = (config.defaultHarness as string) || DEFAULT_HARNESS;
 
   if (!tmuxAvailable()) {
-    console.error("❌ tmux is not available — the leader runs in a tmux window.");
+    console.error("❌ tmux is not available — the assistant runs in a tmux window.");
     console.error("   Install it (e.g. `brew install tmux`), then run `mpt doctor`.");
     process.exit(1);
   }
@@ -383,26 +391,26 @@ async function cmdLead(args: string[]): Promise<void> {
   const result = startLeader({ config, teamDir, daemonUrl, mpt: mptInvocation() });
   if (result.status === "error") {
     if (result.code === "no-template") {
-      console.error(`❌ No leader command configured for harness "${harnessName}".`);
-      console.error(`   Leading needs an in-process adapter; only some harnesses can do it.`);
+      console.error(`❌ No assistant command configured for harness "${harnessName}".`);
+      console.error(`   The assistant needs an in-process adapter; only some harnesses can run it.`);
       console.error(`   Set harnesses.${harnessName}.leader in ${path.join(teamDir, "config.json")}.`);
     } else if (result.code === "unresolved-placeholders") {
       console.error(`❌ ${result.reason.charAt(0).toUpperCase()}${result.reason.slice(1)}`);
       console.error(`   Check harnesses.${harnessName}.leader in ${path.join(teamDir, "config.json")}.`);
     } else {
-      console.error(`❌ Could not start the leader: ${result.reason}`);
+      console.error(`❌ Could not start the assistant: ${result.reason}`);
       console.error(`   Fix: ${result.fix}`);
     }
     process.exit(1);
   }
 
-  if (!daemonUp) console.log(`⚠️  Daemon not reachable at ${daemonUrl} — start it with \`mpt start\` (the leader will retry).`);
+  if (!daemonUp) console.log(`⚠️  Daemon not reachable at ${daemonUrl} — start it with \`mpt start\` (the assistant will retry).`);
   if (result.status === "already-running") {
     // Attach to it rather than starting a second one. Two leaders would both answer the chat.
-    console.log(`Leader already running in ${session}:${LEADER_WINDOW} — attaching.`);
+    console.log(`Assistant already running in ${session}:${LEADER_WINDOW} — attaching.`);
   } else {
     if (result.envWarning) console.log(`⚠️  ${result.envWarning} (run \`mpt doctor\`)`);
-    console.log(`✅ Leader started in ${session}:${LEADER_WINDOW} (${projectDir})`);
+    console.log(`✅ Assistant started in ${session}:${LEADER_WINDOW} (${projectDir})`);
     if (result.envPath) console.log(`   Agent env: ${result.envKeys} variable(s) from ${result.envPath}`);
   }
   // Before attaching, so it's in the scrollback when the user detaches.
@@ -608,7 +616,7 @@ async function cmdSetup(args: string[]): Promise<void> {
     ])],
   });
 
-  console.log("\nNext: `mpt start --daemon` to run the daemon, then `mpt lead` to start the leader.");
+  console.log("\nNext: `mpt start --daemon` to run the daemon, then `mpt assistant` to start the assistant (or use the Start button in the web UI).");
   console.log("      `mpt doctor` re-checks everything.");
   await printOnboardingHint(getPort(), teamToken(teamDir), "      ");
 }
@@ -765,7 +773,8 @@ export async function main(): Promise<void> {
     case "setup":
       await cmdSetup(args.slice(1));
       break;
-    case "lead":
+    case "assistant":
+    case "lead": // the original name, kept as an alias
       await cmdLead(args.slice(1));
       break;
     // Hidden: `mpt upgrade` invokes this on the freshly-installed copy so the

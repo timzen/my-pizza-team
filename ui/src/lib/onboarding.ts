@@ -23,7 +23,7 @@ import type { HelpTopic } from "./help.ts";
 
 /** One step's words: a short imperative title, one sentence, and where to read more. */
 export interface WelcomeStepCopy {
-  /** A few words, no period ("Start the leader"). */
+  /** A few words, no period ("Start the assistant"). */
   title: string;
   /** One sentence, ending in a period: what the step is and why. */
   text: string;
@@ -34,13 +34,13 @@ export interface WelcomeStepCopy {
 /** Every step's copy, keyed by the daemon's step id (listed in `ONBOARDING_STEP_IDS` order). */
 export const WELCOME_STEPS: Record<OnboardingStepId, WelcomeStepCopy> = {
   leaderOnline: {
-    title: "Start the leader",
-    text: "The leader is the assistant you chat with, and it starts teammates for you; start it with one click.",
-    learnMore: { topic: "glossary", anchor: "leader" },
+    title: "Start the assistant",
+    text: "The assistant is the agent you chat with, and the team size waits for it; start it with one click.",
+    learnMore: { topic: "glossary", anchor: "assistant" },
   },
   teammateOnline: {
     title: "Get a teammate",
-    text: "Teammates are the agents that pick up work; spawn one now, or let the leader start them to meet the team size.",
+    text: "Teammates are the agents that pick up work; spawn one now, or set a team size and they start once the assistant is running.",
     learnMore: { topic: "teammates", anchor: "the-team-tab" },
   },
   firstTaskCreated: {
@@ -125,7 +125,7 @@ export function welcomeMode(res: OnboardingResponse | null, opts: { sawChecklist
 
 /**
  * What changed between two answers, as sentences for the polite live region:
- * the steps that became done ("Done: Start the leader. 2 of 7.", several in one
+ * the steps that became done ("Done: Start the assistant. 2 of 7.", several in one
  * sentence), then "You're set" when the last one did. Nothing for the first answer (`prev` null — a
  * baseline), nothing when nothing ticked, and nothing for a step that went
  * back to undone (the leader stopping isn't news worth interrupting for).

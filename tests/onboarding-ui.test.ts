@@ -86,7 +86,7 @@ test("welcomeNews: the first answer is a baseline, an unchanged one is silent, a
   assertEquals(welcomeNews(answer(["leaderOnline"]), answer(["leaderOnline"])), []);
   assertEquals(welcomeNews(answer(["leaderOnline"]), answer([])), []); // went back to undone: not news
   assertEquals(welcomeNews(answer([]), answer(["leaderOnline", "thoughtCaptured"])), [
-    "Done: Start the leader, Capture a thought. 2 of 7.",
+    "Done: Start the assistant, Capture a thought. 2 of 7.",
   ]);
   const all = [...ONBOARDING_STEP_IDS];
   assertEquals(welcomeNews(answer(all.slice(0, 6)), answer(all)), [

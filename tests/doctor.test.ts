@@ -237,13 +237,13 @@ test("a stopped daemon warns, and the leader check is skipped", () => {
   // cause, which is the noise DESIGN.md "Setup Is One Command" complains about.
   const checks = evaluate(healthy({ daemonRunning: false, leaderConnected: null }));
   assertEquals(find(checks, "Daemon").status, "warn");
-  assertEquals(checks.some((c) => c.name === "Leader"), false);
+  assertEquals(checks.some((c) => c.name === "Assistant"), false);
 });
 
 test("what a missing leader costs depends on whether the daemon can spawn", () => {
   // Saying "nothing will spawn teammates" beside "Spawning: daemon-driven" would be
   // self-contradicting — and it was, until this was made conditional.
-  const daemonSpawns = find(evaluate(healthy({ leaderConnected: false, spawning: { canSpawn: true } })), "Leader");
+  const daemonSpawns = find(evaluate(healthy({ leaderConnected: false, spawning: { canSpawn: true } })), "Assistant");
   assertEquals(daemonSpawns.status, "warn");
   assertStringIncludes(daemonSpawns.detail, "a one-off spawn still starts");
 
@@ -251,7 +251,7 @@ test("what a missing leader costs depends on whether the daemon can spawn", () =
   // doesn't claim a leader would help — there is no leader-driven spawning.
   const cannot = find(
     evaluate(healthy({ leaderConnected: false, spawning: { canSpawn: false, reason: "no tmux", fix: "install tmux" } })),
-    "Leader",
+    "Assistant",
   );
   assertEquals(cannot.detail.includes("spawn"), false);
 });

@@ -68,7 +68,7 @@ export function registerOnboardingRoutes(ctx: RouteContext): void {
     const sample = sampleTaskFor(store);
     const directory = text(body.directory) ?? sample.directory;
     if (!directory) {
-      return fail(c, 400, "No leader is online to take a directory from; pass 'directory' (the project to summarize)");
+      return fail(c, 400, "No assistant is online to take a directory from; pass 'directory' (the project to summarize)");
     }
     const def = store.createWorkDef({
       title: text(body.title) ?? sample.title,

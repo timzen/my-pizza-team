@@ -196,7 +196,7 @@ export function SpawnRequestRow({ request, onCancel }: { request: SpawnRequest; 
           </button>
         </Tooltip>
       </div>
-      <p className="text-[11px] text-muted-foreground mt-1">pending · no leader has picked this up</p>
+      <p className="text-[11px] text-muted-foreground mt-1">pending · waiting to be started</p>
       {(dir || request.cwd) && (
         <div className="flex items-center gap-1 mt-1.5 flex-wrap">
           <Tooltip content={request.cwd ?? undefined}>

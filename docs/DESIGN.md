@@ -2161,6 +2161,21 @@ With one leader there is nothing to designate: `GET /api/assistant/inbox?agentId
 is an identity check — the leader drains the queue; any other agent gets an empty
 list, since draining it would lose the message.
 
+**Users meet the assistant; the code keeps "leader".** Every word a user reads —
+the UI, the in-app guide, `mpt --help` and the CLI's output, `mpt doctor`, the Pi
+extension's notifications — says *assistant*, and the primary command is
+`mpt assistant` (`mpt lead` stays as an alias). "Leader" described the role from
+the team's side (the agent that once spawned teammates); the user only ever meets
+the agent they talk to, and two names for one thing made the onboarding read like
+two steps. The internal names didn't change — the member name `leader`, the tmux
+window `LEADER_WINDOW`, `--ppt-lead`, the `leader` harness template key,
+`/api/leader/*`, `leaderPresent` — because they're protocol, config and muscle
+memory, and renaming them would break running teams for no user-visible gain. The
+few a user can still see (the tmux window name, the config key) are explained in
+the guide's glossary. `tests/user-visible-naming-ui.test.ts` parses the UI's
+sources and fails on any prose string or JSX text that says "leader", so it can't
+creep back.
+
 ## Assistant Chat Model (a mirror of the Pi session)
 
 The chat is a chatbot, not a request/response form. One inversion makes it work:

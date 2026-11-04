@@ -5,7 +5,7 @@ API, the CLI, log lines and the developer docs. Alphabetical.
 
 ## Agent
 
-The technical term for a [teammate](#teammate) or the [leader](#leader): an AI coding
+The technical term for a [teammate](#teammate) or the [assistant](#assistant): an AI coding
 agent connected to the daemon. The HTTP API uses it (e.g. `/api/agents`).
 
 ## Agent env file
@@ -13,6 +13,12 @@ agent connected to the daemon. The HTTP API uses it (e.g. `/api/agents`).
 A file of `KEY=value` lines (`agentEnvFile`) whose variables every agent window mpt
 opens gets, read again at each spawn. See
 [Agent environment file](08-configuration.md#agent-environment-file).
+
+## Assistant
+
+The one agent that isn't a teammate: the [agent you chat with](04-assistant.md),
+started by **Start the assistant** in the web UI or `mpt assistant` (alias `mpt lead`).
+Internally it's the [leader](#leader).
 
 ## Agent state
 
@@ -80,8 +86,12 @@ See [The Inbox](01-tasks-and-runs.md#the-inbox).
 
 ## Leader
 
-The one agent that isn't a teammate: the [assistant](04-assistant.md) you chat with,
-started with `mpt lead`.
+The internal name of the [assistant](#assistant). You still see it in a few places:
+its tmux window is called `leader` (`tmux attach -t <session>:leader`), it registers
+with the daemon as the member `leader` (so the Team API, logs and a task's activity
+may show that name), its Pi flag is `--ppt-lead`, its command template is
+`harnesses.<harness>.leader` in `config.json`, and its routes are `/api/leader/*`.
+`mpt lead` still works as an alias for `mpt assistant`.
 
 ## Lost contact
 
