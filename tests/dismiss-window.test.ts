@@ -15,7 +15,7 @@ import { TEST_CONFIG } from "./_config.ts";
 import { buildApp } from "../daemon/server.ts";
 import { Store } from "../daemon/store.ts";
 import { realizePending, type SpawnerStore } from "../daemon/spawner.ts";
-import type { ExecResult, TmuxExec } from "../daemon/tmux.ts";
+import type { ExecResult, TmuxExec } from "../daemon/terminal/tmux.ts";
 
 /** A fake tmux server holding `windows` in every session; kill-window removes one. */
 function fakeTmux(windows: string[]) {

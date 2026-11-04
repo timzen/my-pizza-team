@@ -36,7 +36,7 @@ import {
   type ExtensionRegistration,
 } from "./pi-config.ts";
 import { managedExtensionDir, readExtensionVersion, resolveExtensionSourceDir } from "./extension.ts";
-import { tmuxAvailable, tmuxSocketPath } from "../daemon/tmux.ts";
+import { getTerminalBackend } from "../daemon/terminal/index.ts";
 import { findPreCutoffLayout, type PreCutoffFinding } from "../daemon/layout-check.ts";
 import { MIN_UPGRADE_FROM_VERSION, PRE_CUTOFF_UPGRADE_MESSAGE } from "../shared/types.ts";
 import {
@@ -102,7 +102,8 @@ export interface DoctorFacts {
   spawning: { canSpawn: boolean; reason?: string; fix?: string } | null;
   /**
    * The tmux server socket the running daemon talks to (`/health` `tmuxSocket`),
-   * and the one this CLI resolves (daemon/tmux.ts tmuxSocketPath). Absent/null =
+   * and the one this CLI resolves (the terminal backend's `identity`,
+   * daemon/terminal/tmux.ts tmuxSocketPath). Absent/null =
    * not known (daemon down or older, or tmux unreachable); the same-server check
    * runs only when both are known.
    */
@@ -640,9 +641,10 @@ export async function gather(opts: GatherOptions): Promise<DoctorFacts> {
     } catch { /* an older or unreachable daemon: the check is skipped */ }
   }
 
+  const terminal = getTerminalBackend();
   return {
     piVersion: await probeVersion("pi"),
-    tmuxPresent: tmuxAvailable(),
+    tmuxPresent: terminal.available(),
     daemonVersion: opts.daemonVersion,
     bundledExtensionVersion: sourceDir ? readExtensionVersion(sourceDir) : null,
     registrations: findExtensionRegistrations(settings, { managedDir, agentDir }),
@@ -660,7 +662,7 @@ export async function gather(opts: GatherOptions): Promise<DoctorFacts> {
     leaderConnected,
     spawning,
     daemonTmuxSocket,
-    cliTmuxSocket: daemonTmuxSocket ? tmuxSocketPath() : null,
+    cliTmuxSocket: daemonTmuxSocket ? terminal.identity() : null,
     serviceInstalled: opts.serviceInstalled,
     node: gatherNodeFacts(opts.service ?? null),
     experimentalHarnesses: experimentalHarnessFacts(opts.teamDir),

@@ -20,7 +20,7 @@ import { test } from "node:test";
 import { assertEquals, assertStringIncludes } from "./_assert.ts";
 import { TEST_CONFIG } from "./_config.ts";
 import { LEADER_WINDOW, type TeamConfig } from "../shared/types.ts";
-import type { ExecResult, TmuxExec } from "../daemon/tmux.ts";
+import type { ExecResult, TmuxExec } from "../daemon/terminal/tmux.ts";
 import {
   DISMISS_KILL_DELAY_MS,
   DISMISS_WAIT_MS,

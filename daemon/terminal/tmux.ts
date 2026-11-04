@@ -1,5 +1,7 @@
 /**
- * daemon/tmux.ts — tmux session and window control, owned by the daemon.
+ * daemon/terminal/tmux.ts — tmux session and window control, owned by the daemon,
+ * and `createTmuxBackend`: tmux as a `TerminalBackend` (daemon/terminal/backend.ts),
+ * the default (and, for now, only) one `getTerminalBackend` returns.
  *
  * Moved here from the Pi extension (docs/DESIGN.md "The Daemon Is the Supervisor", P3-1). The
  * point of the move: while tmux lived in the extension, adding a harness meant
@@ -25,6 +27,8 @@ import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import type { ControlKey, OpenWindowOptions, TerminalBackend, WindowRef } from "./backend.ts";
+import { shellQuote } from "./template.ts";
 
 /** Result of one tmux invocation. */
 export interface ExecResult {
@@ -103,17 +107,6 @@ export function defaultTmuxSocketPath(env: NodeJS.ProcessEnv = process.env): str
   }
   const uid = typeof process.getuid === "function" ? process.getuid() : os.userInfo().uid;
   return path.join(real, `tmux-${uid}`, "default");
-}
-
-/**
- * Quote a string for a POSIX shell.
- *
- * Needed only for text typed *into* a shell via `send-keys`. Single quotes protect
- * everything except a single quote, which is closed, escaped, and reopened — the
- * standard `'\''` dance.
- */
-export function shellQuote(s: string): string {
-  return `'${s.replaceAll("'", `'\\''`)}'`;
 }
 
 /**
@@ -277,38 +270,53 @@ export function focusClient(session: string, window: string, exec: TmuxExec = re
   return switched.ok ? null : (switched.stderr.trim() || "switch-client failed");
 }
 
-// ─── Harness command templates ───────────────────────────────────────
-
-/** Placeholders a harness spawn template may use. */
-export interface TemplateVars {
-  /** `{mpt}`: how to run this mpt (daemon/self.ts), for `mpt agent` teammates. Left unfilled if absent. */
-  mpt?: string[];
-  name: string;
-  url: string;
-  cwd: string;
-  session: string;
-  window: string;
-}
+// ─── tmux as a TerminalBackend ───────────────────────────────────────
 
 /**
- * Fill a harness spawn template.
+ * tmux as a `TerminalBackend`: the functions above, bound to one `TmuxExec`.
  *
- * Templates live in team config (`TeamConfig.harnesses`) rather than in extension
- * code, which is what makes adding a harness a config change instead of a release
- * (DESIGN.md "The Daemon Is the Supervisor"). Substitution is literal: the result is typed into a shell by `send-keys`,
- * and values that need quoting are quoted by the caller.
+ * A thin adapter on purpose: every behaviour (idempotent windows by name, `-e` env,
+ * the reused first window, plain `tmux` = the user's default server) stays in the
+ * functions it delegates to, so routing callers through the interface changes
+ * nothing they do. `exec` is injectable so the daemon's tests use a fake tmux.
+ * A `WindowRef` is just `(session, window)`: tmux addresses windows by name.
  */
-export function renderTemplate(template: string, vars: TemplateVars): string {
-  const filled = vars.mpt ? template.replaceAll("{mpt}", vars.mpt.map(shellQuote).join(" ")) : template;
-  return filled
-    .replaceAll("{name}", vars.name)
-    .replaceAll("{url}", vars.url)
-    .replaceAll("{cwd}", shellQuote(vars.cwd))
-    .replaceAll("{session}", vars.session)
-    .replaceAll("{window}", vars.window);
-}
-
-/** Unfilled placeholders, so a typo in config is reported instead of run. */
-export function unresolvedPlaceholders(rendered: string): string[] {
-  return [...rendered.matchAll(/\{([a-zA-Z]+)\}/g)].map((m) => m[0]);
+export function createTmuxBackend(exec: TmuxExec = realTmux, env: NodeJS.ProcessEnv = process.env): TerminalBackend {
+  const ref = (session: string, window: string): WindowRef => ({ session, window });
+  return {
+    kind: "tmux",
+    displayName: "tmux",
+    available: () => tmuxAvailable(exec),
+    unavailableReason: () => tmuxUnavailableReason(exec),
+    unavailable: () => {
+      const reason = tmuxUnavailableReason(exec);
+      if (reason === "not-installed") {
+        return {
+          reason: "tmux is not on this process's PATH",
+          fix: "install tmux, or restart the daemon from a shell that has it on PATH (`mpt stop && mpt start`; for the login service, `mpt install` again from that shell)",
+        };
+      }
+      if (reason === "not-permitted") {
+        return {
+          reason: "this process is not permitted to run tmux",
+          fix: "make tmux executable by this user, or (if Node runs with --permission) add --allow-child-process",
+        };
+      }
+      return null;
+    },
+    identity: () => tmuxSocketPath(exec, env),
+    ensureContainer: (session, vars) => ensureSession(session, exec, vars),
+    listWindows: (session) => listWindows(session, exec),
+    findWindow: (session, window) => (windowExists(session, window, exec) ? ref(session, window) : null),
+    windowRef: ref,
+    openWindow: (opts: OpenWindowOptions) => ({ ...spawnWindow(opts, exec), ref: ref(opts.session, opts.window) }),
+    sendLine: (w, line) => sendKeys(w.session, w.window, line, exec),
+    sendControl: (w, key: ControlKey) => sendControl(w.session, w.window, key, exec),
+    closeWindow: (w) => killWindow(w.session, w.window, exec),
+    focusWindow: (w) => selectWindow(w.session, w.window, exec),
+    insideClient: (e = env) => Boolean(e["TMUX"]),
+    focusClient: (w) => focusClient(w.session, w.window, exec),
+    // `attach` needs a tty, so it inherits ours rather than going through `exec`'s pipes.
+    attach: (w) => spawnSync("tmux", ["attach", "-t", `${w.session}:${w.window}`], { stdio: "inherit" }).status === 0,
+  };
 }

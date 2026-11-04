@@ -1,5 +1,5 @@
 /**
- * tests/e2e/tmux.test.ts — daemon/tmux.ts against a real tmux server.
+ * tests/e2e/tmux.test.ts — daemon/terminal/tmux.ts against a real tmux server.
  *
  * The unit tests (tests/tmux.test.ts) inject a fake exec and assert the argv. That
  * catches the bug being fixed — arguments are no longer interpolated into a shell, so
@@ -20,11 +20,11 @@ import {
   hasSession,
   killWindow,
   listWindows,
-  shellQuote,
   spawnWindow,
   tmuxUnavailableReason,
   windowExists,
-} from "../../daemon/tmux.ts";
+} from "../../daemon/terminal/tmux.ts";
+import { shellQuote } from "../../daemon/terminal/template.ts";
 import { hasTmux, sandbox } from "./_sandbox.ts";
 
 test("tmux is probed with permission, so a skip below means tmux is truly absent", () => {

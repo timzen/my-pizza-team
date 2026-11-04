@@ -30,7 +30,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { existsSync } from "node:fs";
-import type { TmuxExec } from "../../daemon/tmux.ts";
+import type { TmuxExec } from "../../daemon/terminal/tmux.ts";
 import { TESTED_PI_VERSION } from "../../cli/doctor.ts";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -68,7 +68,7 @@ export interface Sandbox extends AsyncDisposable {
   /** Run `tmux` against this sandbox's private server. */
   tmux(...args: string[]): Promise<RunResult>;
   /**
-   * A `TmuxExec` bound to this sandbox's private server, for calling daemon/tmux.ts
+   * A `TmuxExec` bound to this sandbox's private server, for calling daemon/terminal/tmux.ts
    * directly. Without it, those calls would reach the user's real server.
    */
   tmuxExec: TmuxExec;

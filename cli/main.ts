@@ -18,7 +18,7 @@ import { configuredNode, extractNodeFlag, setNodeFlagOverride } from "../shared/
 import { isRunningFromSource, packageRoot, packageVersion } from "../shared/paths.ts";
 import { evaluate, gather, report } from "./doctor.ts";
 import { loadAgentEnv } from "../shared/env-file.ts";
-import { focusClient, tmuxAvailable } from "../daemon/tmux.ts";
+import { getTerminalBackend } from "../daemon/terminal/index.ts";
 import { startLeader } from "../daemon/leader-start.ts";
 import { managedExtensionDir, resolveExtensionSourceDir, writeExtension } from "./extension.ts";
 import { piAgentDir, readPiSettings } from "./pi-config.ts";
@@ -371,8 +371,10 @@ async function cmdLead(args: string[]): Promise<void> {
   const config = readTeamConfig(teamDir);
   const session = (config.tmuxSession as string) || "mpt";
   const harnessName = (config.defaultHarness as string) || DEFAULT_HARNESS;
+  const terminal = getTerminalBackend(config);
+  const leader = terminal.windowRef(session, LEADER_WINDOW);
 
-  if (!tmuxAvailable()) {
+  if (!terminal.available()) {
     console.error("❌ tmux is not available — the assistant runs in a tmux window.");
     console.error("   Install it (e.g. `brew install tmux`), then run `mpt doctor`.");
     process.exit(1);
@@ -425,8 +427,8 @@ async function cmdLead(args: string[]): Promise<void> {
   // Inside tmux already, attaching would nest; move this client instead. Selecting
   // the window alone isn't enough: a client showing another session (say
   // `mpt-services`) wouldn't move.
-  if (process.env["TMUX"]) {
-    const failed = focusClient(session, LEADER_WINDOW);
+  if (terminal.insideClient()) {
+    const failed = terminal.focusClient(leader);
     if (failed) {
       console.log(`   Could not switch automatically (${failed}). Run: tmux switch-client -t ${session}:${LEADER_WINDOW}`);
     } else {
@@ -436,8 +438,7 @@ async function cmdLead(args: string[]): Promise<void> {
   }
 
   // Hand the terminal over. `attach` needs a tty, so it inherits ours.
-  const attach = spawnSync("tmux", ["attach", "-t", `${session}:${LEADER_WINDOW}`], { stdio: "inherit" });
-  if (attach.status !== 0) {
+  if (!terminal.attach(leader)) {
     console.log(`   Could not attach automatically. Run: tmux attach -t ${session}`);
   }
 }

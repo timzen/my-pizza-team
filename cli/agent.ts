@@ -19,7 +19,7 @@ import * as path from "node:path";
 import { AgentSupervisor } from "../agent/supervisor.ts";
 import { DaemonClient } from "../runtime/client.ts";
 import { mptInvocation } from "../daemon/self.ts";
-import { shellQuote } from "../daemon/tmux.ts";
+import { shellQuote } from "../daemon/terminal/template.ts";
 import { DEFAULT_DAEMON_URL } from "../shared/types.ts";
 import { packageVersion } from "../shared/paths.ts";
 

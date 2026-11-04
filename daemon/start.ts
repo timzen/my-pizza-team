@@ -17,8 +17,8 @@ import {
   type DaemonContext,
 } from "./lifecycle.ts";
 import { resolveToken, validateBindSafety } from "./auth.ts";
-import { probeTmuxCapability, realizePending } from "./spawner.ts";
-import { tmuxSocketPath } from "./tmux.ts";
+import { probeTerminalCapability, realizePending } from "./spawner.ts";
+import { getTerminalBackend } from "./terminal/index.ts";
 import { startReadinessLoop } from "./readiness.ts";
 import { mptInvocation } from "./self.ts";
 import { findPreCutoffLayout, formatPreCutoffMessage } from "./layout-check.ts";
@@ -116,10 +116,11 @@ export async function startDaemonInProcess(
   // on PATH). The socket is the tmux server the daemon's windows open on, which
   // `mpt doctor` compares with the user's.
   // `store` is null only in health-only mode, which has no team to spawn into.
-  const tmuxCapability = store ? probeTmuxCapability() : null;
-  if (store && tmuxCapability) {
+  const terminal = store ? getTerminalBackend(store.getConfig()) : null;
+  const tmuxCapability = terminal ? probeTerminalCapability(terminal) : null;
+  if (store && terminal && tmuxCapability) {
     store.setTmuxCapability(tmuxCapability);
-    store.setTmuxSocket(tmuxCapability.canSpawn ? tmuxSocketPath() : null);
+    store.setTmuxSocket(tmuxCapability.canSpawn ? terminal.identity() : null);
     // The `{url}` a leader started from the web UI is given (POST /api/assistant/start).
     store.setDaemonUrl(`http://localhost:${port}`);
   }

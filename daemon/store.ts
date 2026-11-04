@@ -1017,7 +1017,7 @@ export class Store {
     return this.daemonUrl;
   }
 
-  /** The tmux server socket the daemon talks to (daemon/tmux.ts tmuxSocketPath), or null when unknown. */
+  /** The tmux server socket the daemon talks to (daemon/terminal/tmux.ts tmuxSocketPath), or null when unknown. */
   private tmuxSocket: string | null = null;
 
   /** Record the tmux server socket path (found once at startup). */

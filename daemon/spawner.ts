@@ -29,18 +29,9 @@ import {
   type HarnessTemplates,
   type TeamConfig,
 } from "../shared/types.ts";
-import {
-  killWindow,
-  listWindows,
-  realTmux,
-  renderTemplate,
-  selectWindow,
-  sendControl,
-  spawnWindow,
-  type TmuxExec,
-  tmuxUnavailableReason,
-  unresolvedPlaceholders,
-} from "./tmux.ts";
+import { getTerminalBackend, type TerminalBackend } from "./terminal/index.ts";
+import { renderTemplate, unresolvedPlaceholders } from "./terminal/template.ts";
+import { realTmux, type TmuxExec } from "./terminal/tmux.ts";
 
 /** Why the daemon can't realize spawns, when it can't. */
 export type SpawnCapability =
@@ -66,22 +57,16 @@ export function probeSpawnCapability(config: TeamConfig, exec: TmuxExec = realTm
  * message into repeated noise.
  */
 export function probeTmuxCapability(exec: TmuxExec = realTmux): SpawnCapability {
-  const reason = tmuxUnavailableReason(exec);
-  if (reason === "not-installed") {
-    return {
-      canSpawn: false,
-      reason: "tmux is not on this process's PATH",
-      fix: "install tmux, or restart the daemon from a shell that has it on PATH (`mpt stop && mpt start`; for the login service, `mpt install` again from that shell)",
-    };
-  }
-  if (reason === "not-permitted") {
-    return {
-      canSpawn: false,
-      reason: "this process is not permitted to run tmux",
-      fix: "make tmux executable by this user, or (if Node runs with --permission) add --allow-child-process",
-    };
-  }
-  return { canSpawn: true };
+  return probeTerminalCapability(getTerminalBackend(undefined, { tmuxExec: exec }));
+}
+
+/**
+ * Can this daemon process drive `backend`? Its own reason and fix when it can't
+ * (`TerminalBackend.unavailable`), so the message names the backend in use.
+ */
+export function probeTerminalCapability(backend: TerminalBackend): SpawnCapability {
+  const unavailable = backend.unavailable();
+  return unavailable ? { canSpawn: false, ...unavailable } : { canSpawn: true };
 }
 
 /**
@@ -208,8 +193,9 @@ export function focusMember(
   exec: TmuxExec = realTmux,
 ): string | null {
   const { session, window } = memberWindow(member, config);
+  const terminal = getTerminalBackend(config, { tmuxExec: exec });
   try {
-    if (selectWindow(session, window, exec)) return null;
+    if (terminal.focusWindow(terminal.windowRef(session, window))) return null;
   } catch (e) {
     return (e as Error).message; // assertSafeName: a name tmux can't be given safely
   }
@@ -243,6 +229,7 @@ export interface RealizeDeps {
   teamDir?: string;
   /** How to run this mpt, for templates using `{mpt}` (daemon/self.ts). */
   mpt?: string[];
+  /** A fake tmux for tests; the backend is `getTerminalBackend(config, { tmuxExec })`. */
   exec?: TmuxExec;
   /** Clock, injectable for tests. */
   now?: () => number;
@@ -278,7 +265,7 @@ export function realizePending(
   store: SpawnerStore,
   deps: RealizeDeps,
 ): { realized: string[]; failed: Array<{ id: string; error: string }>; warnings: string[] } {
-  const exec = deps.exec ?? realTmux;
+  const terminal = getTerminalBackend(deps.config, { tmuxExec: deps.exec });
   const realized: string[] = [];
   const failed: Array<{ id: string; error: string }> = [];
   const warnings: string[] = [];
@@ -296,10 +283,10 @@ export function realizePending(
           : `could not close the dismissed agent's window (the agent still exits): ${unreachable}`);
       }
       if (directive.action === "spawn") {
-        const warning = realizeSpawn(directive, deps, exec, store);
+        const warning = realizeSpawn(directive, deps, terminal, store);
         if (warning) warnings.push(`spawn ${directive.id}: ${warning}`);
       }
-      else if (realizeDismiss(directive, deps, exec, store) === "pending") continue;
+      else if (realizeDismiss(directive, deps, terminal, store) === "pending") continue;
       store.updateLeaderDirective(directive.id, "done");
       realized.push(directive.id);
     } catch (e) {
@@ -322,7 +309,7 @@ export function realizePending(
 function realizeSpawn(
   directive: SpawnableDirective,
   deps: RealizeDeps,
-  exec: TmuxExec,
+  terminal: TerminalBackend,
   store: SpawnerStore,
 ): string | null {
   const name = typeof directive.params.name === "string" ? directive.params.name : "";
@@ -363,7 +350,7 @@ function realizeSpawn(
   // Re-read on every spawn, so an edit to the file reaches the next teammate with no
   // daemon or tmux-server restart (docs/DESIGN.md "The Agent Environment Is a File").
   const env = loadAgentEnv(deps.config, deps.teamDir ?? process.cwd());
-  spawnWindow({ session, window: name, cwd, command, env: env.vars }, exec);
+  terminal.openWindow({ session, window: name, cwd, command, env: env.vars });
   return agentEnvWarning(env);
 }
 
@@ -384,7 +371,7 @@ function realizeSpawn(
 function realizeDismiss(
   directive: SpawnableDirective,
   deps: RealizeDeps,
-  exec: TmuxExec,
+  terminal: TerminalBackend,
   store: SpawnerStore,
 ): "done" | "pending" {
   const interrupts = deps.interrupts ?? defaultInterrupts;
@@ -397,7 +384,7 @@ function realizeDismiss(
 
   const session = (typeof directive.params.tmuxSession === "string" && directive.params.tmuxSession) ||
     (directive.metadata?.tmuxSession as string | undefined) || deps.config.tmuxSession || "mpt";
-  if (!listWindows(session, exec).includes(name)) {
+  if (!terminal.listWindows(session).includes(name)) {
     interrupts.delete(directive.id);
     return "done"; // already gone (the user closed it, or tmux isn't running)
   }
@@ -405,13 +392,13 @@ function realizeDismiss(
   const interruptedAt = interrupts.get(directive.id);
   if (interruptedAt === undefined) {
     if (!dismissReady(directive, store, now)) return "pending";
-    sendControl(session, name, "C-c", exec);
+    terminal.sendControl(terminal.windowRef(session, name), "C-c");
     interrupts.set(directive.id, now);
     return "pending";
   }
   if (now - interruptedAt < DISMISS_KILL_DELAY_MS) return "pending";
 
-  killWindow(session, name, exec);
+  terminal.closeWindow(terminal.windowRef(session, name));
   interrupts.delete(directive.id);
   return "done";
 }

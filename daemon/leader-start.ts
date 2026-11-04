@@ -21,15 +21,9 @@ import * as path from "node:path";
 import { agentEnvWarning, loadAgentEnv } from "../shared/env-file.ts";
 import { DEFAULT_HARNESS, LEADER_WINDOW, type TeamConfig } from "../shared/types.ts";
 import { resolveTemplates, type SpawnCapability } from "./spawner.ts";
-import {
-  listWindows,
-  realTmux,
-  renderTemplate,
-  spawnWindow,
-  type TemplateVars,
-  type TmuxExec,
-  unresolvedPlaceholders,
-} from "./tmux.ts";
+import { getTerminalBackend } from "./terminal/index.ts";
+import { renderTemplate, type TemplateVars, unresolvedPlaceholders } from "./terminal/template.ts";
+import type { TmuxExec } from "./terminal/tmux.ts";
 
 /** Whether the assistant can be started from here; when not, why and how to fix it. */
 export type AssistantStartability =
@@ -120,7 +114,7 @@ export function assistantStartability(config: TeamConfig, tmux: SpawnCapability 
  * doesn't stop the leader: it starts without it, and `envWarning` says why.
  */
 export function startLeader(deps: LeaderStartDeps): LeaderStartResult {
-  const exec = deps.exec ?? realTmux;
+  const terminal = getTerminalBackend(deps.config, { tmuxExec: deps.exec });
   const session = leaderSession(deps.config);
   const cwd = leaderCwd(deps.teamDir);
   if (deps.leaderOnline) return { status: "already-running", session, window: LEADER_WINDOW, cwd };
@@ -130,16 +124,16 @@ export function startLeader(deps: LeaderStartDeps): LeaderStartResult {
   if (!("command" in checked)) return { status: "error", ...checked };
 
   try {
-    // Deliberately *not* calling ensureSession first: spawnWindow reuses a freshly
+    // Deliberately *not* calling ensureContainer first: openWindow reuses a freshly
     // created session's initial window instead of leaving it stranded beside ours, and
     // it can only tell the session is fresh if it creates it. listWindows already
     // returns [] for a session that doesn't exist yet.
-    if (listWindows(session, exec).includes(LEADER_WINDOW)) {
+    if (terminal.listWindows(session).includes(LEADER_WINDOW)) {
       return { status: "already-running", session, window: LEADER_WINDOW, cwd };
     }
     const env = loadAgentEnv(deps.config, deps.teamDir);
     const envWarning = agentEnvWarning(env);
-    spawnWindow({ session, window: LEADER_WINDOW, cwd, command: checked.command, env: env.vars }, exec);
+    terminal.openWindow({ session, window: LEADER_WINDOW, cwd, command: checked.command, env: env.vars });
     return {
       status: "started",
       session,

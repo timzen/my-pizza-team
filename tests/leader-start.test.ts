@@ -24,7 +24,7 @@ import { assertEquals, assertStringIncludes } from "./_assert.ts";
 import { TEST_CONFIG } from "./_config.ts";
 import { get, post, withTeam } from "./_team.ts";
 import { DEFAULT_HARNESS_TEMPLATES, LEADER_WINDOW, type TeamConfig } from "../shared/types.ts";
-import type { ExecResult, TmuxExec } from "../daemon/tmux.ts";
+import type { ExecResult, TmuxExec } from "../daemon/terminal/tmux.ts";
 import { assistantStartability, startLeader } from "../daemon/leader-start.ts";
 
 /** A fake tmux recording every call; `windows` are what `list-windows` reports. */

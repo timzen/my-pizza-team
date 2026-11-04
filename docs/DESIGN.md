@@ -1956,6 +1956,13 @@ session control.
   needs `-a` too to be startable from the UI.
 - **Every window gets the agent env file** (`agentEnvFile`, see "The Agent
   Environment Is a File"), passed with `-e` rather than typed into its shell.
+- **One interface, not tmux calls everywhere.** Every caller reaches the terminal
+  through `TerminalBackend` (daemon/terminal/backend.ts), chosen in one place
+  (`getTerminalBackend`), so an alternative to tmux — herdr (docs/herdr.md) — is a
+  second implementation, not a branch in the spawner, the leader start, the focus
+  route, `mpt assistant` and doctor. It addresses windows by their labels
+  (`session`, `window`), never by a backend's IDs, because herdr's are
+  server-assigned and change; tmux addresses windows by name anyway.
 
 ## The Agent Environment Is a File
 

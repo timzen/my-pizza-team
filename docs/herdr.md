@@ -13,10 +13,10 @@ socket. tmux stays the default backend; herdr is to be an option a team picks.
 
 ## Operation mapping
 
-What `daemon/tmux.ts` does today, and the herdr call that does the same. All of these
+What `daemon/terminal/tmux.ts` does today, and the herdr call that does the same. All of these
 are argv-only CLI calls (`herdr --session <s> …`), like `TmuxExec`.
 
-| mpt (daemon/tmux.ts) | herdr 0.9.5 | Notes |
+| mpt (daemon/terminal/tmux.ts) | herdr 0.9.5 | Notes |
 |---|---|---|
 | `tmuxAvailable` / `tmux -V` | `herdr --version` → `herdr 0.9.5`; `herdr status --json` | `status` works with no server and never starts one |
 | server running? | `status server --json` → `.running` | API calls with no server fail with `server_not_running`; nothing auto-starts |

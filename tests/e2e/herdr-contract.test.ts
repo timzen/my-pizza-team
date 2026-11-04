@@ -3,7 +3,7 @@
  *
  * The spike for "herdr as an alternative terminal backend" (docs/herdr.md). Before
  * any production code depends on herdr, this proves that the installed herdr does
- * what mpt's tmux code does today (daemon/tmux.ts), mapped the way docs/herdr.md
+ * what mpt's tmux code does today (daemon/terminal/tmux.ts), mapped the way docs/herdr.md
  * decides:
  *
  *   mpt (tmux)                           herdr

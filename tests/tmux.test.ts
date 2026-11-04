@@ -25,18 +25,16 @@ import {
   focusClient,
   killWindow,
   listWindows,
-  renderTemplate,
   sendControl,
   sendKeys,
-  shellQuote,
   spawnWindow,
   switchClient,
   type TmuxExec,
   defaultTmuxSocketPath,
   envArgs,
   tmuxSocketPath,
-  unresolvedPlaceholders,
-} from "../daemon/tmux.ts";
+} from "../daemon/terminal/tmux.ts";
+import { renderTemplate, shellQuote, unresolvedPlaceholders } from "../daemon/terminal/template.ts";
 import { DEFAULT_HARNESS_TEMPLATES } from "../shared/types.ts";
 
 /** Records every invocation and replies from a scripted queue. */
