@@ -2,7 +2,8 @@
 
 The **assistant** is the agent you chat with — internally the
 [leader](glossary.md#leader), started with `mpt lead`. It isn't one of the teammates:
-it helps you plan, and it creates and edits work for you. It lives in the **Assistant** tab of the left dock, on every page.
+it helps you plan, and it creates and edits work for you. It lives in the **Assistant** tab of the dock (on the left, unless you
+[move it](10-tips.md#getting-around)), on every page.
 
 Things to ask it:
 

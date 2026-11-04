@@ -47,6 +47,20 @@ inside it, or one containing it — waits. "One teammate per directory" on
 Config → Teammates. See
 [One teammate per directory](03-teammates.md#one-teammate-per-directory).
 
+## Dock
+
+The panel beside every desktop page with the **Assistant**, **Team** and **Help**
+tabs, plus the **+** and the queue summary. It sits on the left by default, or on the
+right or across the bottom; it collapses to a rail of icons or goes
+[full page](#full-page). Where it sits, its size and its mode are remembered in this
+browser. See [Getting around](10-tips.md#getting-around).
+
+## Full page
+
+The [dock](#dock)'s biggest mode: it fills the area below the nav bar, which stays.
+The page you were on is hidden, not closed. **Restore**, **Esc** in the dock, or going
+to another page puts the dock back. See [Getting around](10-tips.md#getting-around).
+
 ## Harness
 
 The agent program a teammate runs: Pi by default; Kiro and Claude Code are

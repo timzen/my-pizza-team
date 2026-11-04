@@ -158,7 +158,7 @@ Tab to) the logo for what they count — "Pizza Team · 3 unread in Inbox · 2 q
 They stay on the icon when the nav bar is too narrow for the "Pizza Team" wordmark,
 refresh every ~10 seconds, and update right away when you mark Inbox items read or
 unread. Quick-create (the **+** beside the queue summary) and the assistant live in
-the left dock, on every page.
+the dock, on every page.
 
 ### The Queue
 
@@ -197,7 +197,7 @@ leaves an amber **[retry]** comment on the work's thread.
 ### The queue summary
 
 You don't have to open the tab to keep an eye on it: the **queue summary** at the top
-of the left dock (the row beside the nav bar, above both tabs) always shows the
+of the dock (its header row, in line with the nav bar, above both tabs) always shows the
 counts — `2 waiting · 1 working`, with **at risk** in amber. **Hover** it to preview
 every item and its status; click it to open the Queue tab. With the dock collapsed,
 the rail's ⏱ badge (amber when anything is at risk) does the same.

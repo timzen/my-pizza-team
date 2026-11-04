@@ -33,7 +33,7 @@ Work with no directory always runs in parallel. Turn this off under
 
 ## The Team tab
 
-Teammates live in the **Team** tab of the left dock (beside the **Assistant** tab),
+Teammates live in the **Team** tab of the dock (beside the **Assistant** tab),
 on every page — the teammate pool (the leader isn't listed: it's the agent you talk
 to on the Assistant tab). Each row shows:
 

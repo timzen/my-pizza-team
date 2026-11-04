@@ -49,7 +49,7 @@ export const TOUR_STEPS: readonly TourStep[] = [
   {
     id: "dock",
     title: "The side dock",
-    text: "The dock stays beside every page, with the assistant's chat, your team, and help. Its + starts new work, and the queue summary beside it counts what's in flight.",
+    text: "The dock stays with every page (left, right, or bottom), with the assistant's chat, your team, and help. Its + starts new work, and the queue summary beside it counts what's in flight.",
   },
   {
     id: "home",

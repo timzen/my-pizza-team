@@ -1,11 +1,11 @@
 /**
- * SideDock — the dock column: the **Assistant**, the **Team**, and **Help**, as
+ * SideDock — the dock: the **Assistant**, the **Team**, and **Help**, as
  * tabs, reachable from every page. It sits on the Left (the default), the
  * Right, or the Bottom, chosen with the header's **Dock position** menu and
  * remembered per browser (lib/dock-layout.ts holds the rules: stored values,
  * width and height limits, which edge the handle and tooltips face).
  *
- * The shell is two columns now: this dock, and the center (nav + page). The
+ * The shell is two regions now: this dock, and the center (nav + page). The
  * dock holds both things you keep an eye on *while* looking at something else —
  * the chat with the leader, and the team working — and
  * the center shows one thing at a time (DESIGN.md "The Shell: a Dock and a

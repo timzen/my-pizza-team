@@ -1,7 +1,7 @@
 /**
  * useMediaQuery — subscribe to a CSS media query from React.
  *
- * Used to pick the assistant's *presentation* (left dock vs floating panel)
+ * Used to pick the assistant's *presentation* (docked column/panel vs floating panel)
  * rather than rendering both and hiding one with CSS: two mounted chats would
  * mean duplicate `msg-*` DOM ids, two scroll containers, and double polling.
  *

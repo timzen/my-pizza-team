@@ -2138,9 +2138,9 @@ resume an old conversation with its context intact.
 
 ## The Shell: a Dock and a Center
 
-The app is two columns: a **dock** on the left for the things you keep an eye on
-*while* looking at something else, and a **center** that shows one thing at a
-time.
+The app is two regions: a **dock** for the things you keep an eye on *while* looking
+at something else — a column on the left by default, or the right, or a panel across
+the bottom — and a **center** that shows one thing at a time.
 
 | Column | What's there |
 | --- | --- |

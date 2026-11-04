@@ -11,7 +11,8 @@ plans work with you and writes tasks for you. The web UI at
 
 ## The five things you'll do
 
-1. **Ask the assistant.** The chat is in the left dock, on every page. Tell it what
+1. **Ask the assistant.** The chat is in the dock (on the left, unless you
+   move it), on every page. Tell it what
    you want ("add a dark mode toggle", "write these up as tasks for me to review").
    See [The assistant](04-assistant.md).
 2. **Create a task.** The **+** in the dock (beside the queue summary) makes a task,
