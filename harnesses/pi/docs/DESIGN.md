@@ -7,7 +7,7 @@ the current design, not a history of changes.
 
 pi-pizza-team models AI agents as a **team** working a **kanban board**:
 
-- **Team Lead Pi** — orchestrates work and manages tmux windows on a host.
+- **Team Lead Pi** — orchestrates work on a host (the daemon manages the tmux windows).
 - **Teammate Pis** — autonomous workers, each in its own tmux window.
 - **Assistant Pi** — a conversational helper (chat, memory, board edits).
 - **You (the Mentor)** — review, guide, and pair when needed.
@@ -47,7 +47,7 @@ Every task belongs to a teammate; the variable is how much mentoring it needs:
 
 ### 5. The leader is the chat — and its Pi session *is* the conversation
 The chat is a real chatbot, not a request/response form, and **there is no separate
-assistant process**: the leader already runs per host for tmux, nobody types in its
+assistant process**: the leader already runs per host, nobody types in its
 session, so it doubles as the agent you talk to. The inversion that makes it feel
 real: **the Pi session is the conversation and the daemon mirrors it**, rather than
 the daemon queueing work for a worker.
@@ -114,13 +114,18 @@ satisfies. A teammate can run as an `eager-helper` (any story it can do) or an
 `assigned-story` agent (one story, then it dismisses itself). The extension never
 implements matching — it just advertises capabilities and honors the daemon.
 
-### 7. The leader realizes daemon intent over tmux
-The daemon never knows about tmux or keystrokes; it enqueues **directives** ("an
-ask to the leader to do something about an agent"). The leader polls one per-host
-directive queue and realizes each: `spawn` → launch a tmux window; `reset-session`
-→ send Pi's `/new` (now only for a teammate too old to reset itself — a current
-teammate polls its own `new-session`). It supplies each spawned agent its tmux window/session, which
-the agent reports back as opaque `metadata` so later directives can target it.
+### 7. The daemon owns the terminal; the leader only asks
+The extension never runs tmux. The daemon spawns, dismisses, and focuses teammate
+windows (my-pizza-team docs/DESIGN.md "The Daemon Is the Supervisor"); the leader's
+`/ppt-spawn`, `/ppt-dismiss`, `/ppt-hop`, and `/ppt-status` are HTTP calls to it,
+reporting the daemon's answer (a spawn's name or failure reason). The leader used
+to carry its own copy of the tmux code as a fallback, and to reset teammates by
+typing `/new` into their windows — two terminal owners, and keystrokes standing in
+for intent. Now one place touches the multiplexer, which is also what lets the
+terminal backend become pluggable. Session control is realized in-process by the
+agent it's for (a `new-session` the teammate polls). The `--ppt-tmux-*` flags the
+daemon passes at spawn are reported back as opaque `metadata`; the extension never
+interprets them. `tests/structure.test.mjs` keeps tmux commands out of `src/`.
 
 ### 8. Permission toggling by mode
 The permission system (`@gotgenes/pi-permission-system`) follows the teammate's
@@ -214,8 +219,8 @@ while any agent there needs it (§8).
 Anything about *persistence* — stories/tasks/comments storage, workflows,
 archiving, pending stories, knowledge-base indexing, git checkpointing — is the **daemon's**
 design, documented in the my-pizza-team repo. This extension only consumes the
-daemon's HTTP API and turns intent into local action (tmux, Pi messages,
-permissions).
+daemon's HTTP API and turns intent into in-process action (Pi messages, session
+control, permissions) — never tmux, which is the daemon's.
 
 ## Future Directions
 

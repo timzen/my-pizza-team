@@ -85,8 +85,8 @@ function SpawnForm({ onDone }: { onDone: () => void }) {
     e.preventDefault();
     setError("");
 
-    // No leader online means nothing will realize this; the daemon accepts the
-    // directive and it shows as a pending spawn until one connects.
+    // The daemon realizes the spawn itself (no leader needed); one it can't is
+    // created failed, with the reason shown under Failed spawns in the Team tab.
     const res = await apiPost<{ success: boolean; error?: string }>("/api/leader/directives", {
       action: "spawn",
       params: { cwd: cwd || undefined, reason: "teammate", ...(harness !== "pi" ? { harness } : {}) },

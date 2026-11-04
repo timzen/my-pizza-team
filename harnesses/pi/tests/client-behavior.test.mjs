@@ -256,6 +256,20 @@ test("leader directives are polled, created, completed, and failed on the leader
   });
 });
 
+// The leader's slash commands ask the daemon to do the tmux work (it is the only
+// terminal owner), so these paths are what /ppt-hop and /ppt-spawn depend on.
+test("focus and spawn-request reads go to the daemon's routes", async () => {
+  await withServer(null, async (url, calls) => {
+    const c = client(url);
+    await c.focusAgent("swift ripley");
+    await c.getSpawnRequests();
+    assert.deepEqual(
+      calls.map((x) => `${x.method} ${x.url}`),
+      ["POST /api/agents/swift%20ripley/focus", "GET /api/spawn-requests"],
+    );
+  });
+});
+
 // ─── Usage reporting ─────────────────────────────────────────────────
 //
 // The ledger silently records nothing when this drifts (docs/DESIGN.md

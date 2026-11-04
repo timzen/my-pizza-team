@@ -4,9 +4,10 @@
  * This moves responsibility: until now the *leader* turned a `spawn` directive into a
  * tmux window. Two things therefore matter more than the happy path.
  *
- *   1. **The fallback must be real.** The daemon can only drive tmux if it can reach
- *      it, and under launchd/systemd it may have no `tmux` on PATH. When it can't,
- *      directives must stay pending for the leader — not fail, and not vanish.
+ *   1. **There is no fallback.** The daemon can only drive tmux if it can reach it,
+ *      and under launchd/systemd it may have no `tmux` on PATH. When it can't,
+ *      directives fail with the reason and fix — nothing else realizes them (the
+ *      leader no longer touches tmux).
  *   2. **A failure needs somewhere visible to live.** The leader used to report one;
  *      an unreported failure now looks exactly like a team that never grew, which is
  *      the silent class docs/DESIGN.md "Setup Is One Command" is about.
@@ -21,6 +22,7 @@ import {
   DISMISS_KILL_DELAY_MS,
   DISMISS_WAIT_MS,
   dismissParams,
+  focusMember,
   capabilityError,
   harnessCapability,
   probeSpawnCapability,
@@ -130,14 +132,15 @@ test("a spawn becomes a tmux window running the harness command", () => {
   assertStringIncludes(typed, "--ppt-tmux-window=swift-ripley");
 });
 
-test("a legacy reset-session (a teammate too old to reset itself) is left for the leader, not taken over", () => {
-  // It types `/new` — a Pi slash command. Doing it here would mean the daemon knowing
-  // each harness's commands, which is the coupling DESIGN.md "The Daemon Is the Supervisor" removes.
+test("a stray legacy reset-session is not typed into a window by the daemon", () => {
+  // Realizing it would mean typing `/new` — a Pi slash command — i.e. the daemon
+  // knowing each harness's commands, the coupling DESIGN.md "The Daemon Is the
+  // Supervisor" removes. (Resets go to the agent itself as `new-session` now.)
   const { store, updates } = fakeStore([{ id: "d", action: "reset-session", memberId: "a1", params: {} }]);
   const { exec, calls } = fakeTmux();
   const result = realizePending(store, deps({ exec }));
   assertEquals(result.realized, []);
-  assertEquals(updates, [], "must stay pending for the leader");
+  assertEquals(updates, []);
   assertEquals(calls, []);
 });
 
@@ -333,6 +336,29 @@ test("dismissParams falls back to the member's name and the configured session, 
     "w",
   );
   assertEquals(dismissParams({ id: "l", name: "leader", metadata: { tmuxWindow: LEADER_WINDOW } }, cfg), null);
+});
+
+test("focusMember selects the member's window in its session (the leader's /ppt-hop)", () => {
+  const cfg = config({ tmuxSession: "team" });
+  const { exec, calls } = fakeTmux();
+  assertEquals(focusMember({ name: "swift-ripley", metadata: {} }, cfg, exec), null);
+  assertEquals(focusMember({ name: "x", metadata: { tmuxSession: "s", tmuxWindow: "w" } }, cfg, exec), null);
+  // The leader's own window can be focused too (/ppt-hop leader).
+  assertEquals(focusMember({ name: "leader", metadata: { tmuxWindow: LEADER_WINDOW } }, cfg, exec), null);
+  assertEquals(calls, [
+    ["select-window", "-t", "team:swift-ripley"],
+    ["select-window", "-t", "s:w"],
+    ["select-window", "-t", `team:${LEADER_WINDOW}`],
+  ]);
+});
+
+test("focusMember reports a missing window, or a name tmux can't take, without throwing", () => {
+  const cfg = config({ tmuxSession: "team" });
+  const missing = fakeTmux(() => ({ ok: false, stderr: "can't find window" }));
+  assertEquals(focusMember({ name: "gone", metadata: {} }, cfg, missing.exec), "no tmux window team:gone");
+  const unsafe = fakeTmux();
+  assertStringIncludes(focusMember({ name: "a;rm -rf", metadata: {} }, cfg, unsafe.exec) ?? "", "window");
+  assertEquals(unsafe.calls, []);
 });
 
 test("tmux unreachable: every spawn and dismiss fails with the reason and fix, untouched by tmux", () => {

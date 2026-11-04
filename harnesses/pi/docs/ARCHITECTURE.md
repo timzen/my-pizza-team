@@ -15,7 +15,7 @@ The extension operates in one of three roles:
 │  Which --ppt-* flag is set?                                 │
 │  ├── --ppt-lead → setupLeader()                             │
 │  │         • Register with daemon as "leader" agent          │
-│  │         • Poll leader directives → tmux                    │
+│  │         • No tmux: slash commands are daemon calls        │
 │  │         • Register LLM tools + slash commands             │
 │  │         • Show status widget                              │
 │  │         • ALSO the chat agent (ChatMirror):               │
@@ -41,7 +41,7 @@ The extension operates in one of three roles:
 src/
 ├── index.ts              # Entry point: flag registration, role detection, setup
 ├── client.ts             # DaemonClient: unified HTTP client for all daemon API calls
-├── leader.ts             # Leader role: tmux management, spawn polling, slash commands, host readiness probe
+├── leader.ts             # Leader role: registration, slash commands (daemon calls — never tmux), the chat
 ├── teammate.ts           # TeammateLoop: poll → claim → work → set-state (COMPLETE/FAILED) → fresh session loop
 │                          #   (claims only between runs; completes only on the work prompt's own run)
 ├── chat.ts               # ChatMirror: mirrors the daemon chat ⇄ the leader's Pi session (no turns)
@@ -150,49 +150,38 @@ work — with the human's comments in the prompt. "Giving up" is the agent
 composing a comment + `FAILED` (the `fail` tool); the task is left stuck for a
 human. See the daemon's docs/DESIGN.md "The WorkItem".
 
-### Leader (spawn management)
+### Leader (the daemon does the tmux work)
 
 ```
 ┌─────────────────────────────────────────────────────────┐
 │  Leader                                                  │
 │                                                          │
-│  1. POST /api/agents/register (role=leader)             │
-│     └── adopts daemon config: tmuxSession, directories, │
-│         harness templates (syncDaemonConfig)            │
-│  2. Poll GET /api/hosts/:hostId/leader/directives (5s) │
-│     └── For each request: spawn tmux window + ack       │
+│  1. POST /api/agents/register (name=leader), reporting   │
+│     its --ppt-tmux-* flags as opaque metadata            │
+│  2. Heartbeat every 30s; re-register when the daemon     │
+│     forgot us (registerWithDaemon is retryable)          │
 │  3. User tools → POST /api/stories, /api/stories/:id/tasks │
-│  4. (opt) Run host readiness probe → POST                │
-│     /api/hosts/:hostId/readiness on each heartbeat       │
+│  4. /ppt-* commands → daemon calls (below)               │
 └─────────────────────────────────────────────────────────┘
 ```
 
-**Host readiness probe (leader-owned).** The leader is the per-host singleton,
-so it also owns the optional *host readiness probe* — a host-level check
-(credentials, VPN, network). Configured via the daemon's **Config page** (the
-recommended way — `readinessProbe` in config.json, with per-host override at
-`hosts[hostId].readinessProbe`), or the `--ppt-readiness-probe` flag /
-`PPT_READINESS_PROBE` env var (highest-priority override for local dev/testing).
-The leader resolves: **flag > host-specific config > default config**. On each
-heartbeat it runs the command (exit 0 = ready; non-zero = not ready, stdout's
-first line is the reason) and reports the result to `POST
-/api/hosts/:hostId/readiness`. The daemon uses this to **hold** scheduled work
-destined for the host instead of failing it — e.g. while cloud-desktop `mwinit`
-credentials are expired — and fires the held job once when the host recovers
-(see the daemon's docs/ARCHITECTURE.md "Scheduler readiness gating"). No probe
-configured → the host is always considered ready (fully backward compatible).
-Because the leader re-syncs daemon config on each heartbeat, changing the probe
-in the UI takes effect within 30 seconds without restarting the leader.
+**The leader never runs tmux.** The daemon is the only thing that touches the
+terminal multiplexer (my-pizza-team docs/DESIGN.md "The Daemon Is the
+Supervisor"); `tests/structure.test.mjs` fails if a tmux command appears anywhere
+in `src/`. There is no leader-directive poll either: the daemon realizes `spawn`
+and `dismiss` itself, and a reset goes to the agent it's for. The slash commands:
 
-**Config sync is retryable, not one-shot.** The leader starts with a
-hardcoded fallback `tmuxSession` ("pi-pizza-team") that must be replaced by
-the daemon-configured value before any spawn is realized. Because the leader
-may start while the daemon is down — or the daemon may restart and forget the
-registration — `syncDaemonConfig()` is retried from the heartbeat loop until
-it succeeds, re-runs whenever a heartbeat reports `dismissed` (daemon
-restart), and the directive poll refuses to dispatch until at least one sync
-has succeeded. This prevents agents from being spawned into the fallback
-session when the daemon was merely unreachable at leader startup.
+| Command | Daemon call |
+|---------|-------------|
+| `/ppt-spawn [name] [cwd]` | Validates the cwd (`validateSpawnCwd`), then `POST /api/leader/directives` `spawn` with `{ cwd, name? }`; `awaitSpawn` polls `GET /api/spawn-requests` (up to 15s) and reports the name, the failure's reason, or that it's still pending |
+| `/ppt-dismiss <name>` | Looks the name up in `GET /api/agents`, then `DELETE /api/agents/:id?dismiss=true` (the UI's dismiss). An unknown name is an error — there is no direct window close |
+| `/ppt-hop <name>` | `POST /api/agents/:id/focus`: the daemon selects the agent's window |
+| `/ppt-status` | `GET /api/status` plus the teammates from `GET /api/agents` |
+
+**Registration is retryable, not one-shot.** The leader may start while the
+daemon is down — or the daemon may restart and forget the registration — so
+`registerWithDaemon()` is retried from the heartbeat loop until it succeeds, and
+re-runs whenever a heartbeat reports `dismissed`/`reregister`.
 
 ### Transcript mirror (teammates and the leader; the web UI's watch view)
 
@@ -439,48 +428,25 @@ directory (my-dir → un-homed → other-dir-if-nobody-homed-there); the teammat
 never reasons about matching. A teammate on work whose directory it can't reach
 just fails that item.
 
-Spawn requests carry only a `cwd` (the teammate's working directory). There is
-no story binding or skills argument — `spawnAgent()` leaves the `{workArgs}`
-placeholder empty. The spawn cwd is where the teammate homes (and thus what it's
-biased toward).
+Spawn requests carry a `cwd` (the teammate's working directory) and, from
+`/ppt-spawn <name>`, a name. There is no story binding or skills argument. The
+spawn cwd is where the teammate homes (and thus what it's biased toward).
 
-`spawnAgent()` is idempotent by tmux window name: because tmux does **not**
-enforce unique window names, `new-window -n <name>` would create a duplicate
-window every time it runs. Before creating a window, `spawnAgent()` checks
-`listWindows()` and returns early (no window created) if one with that name
-already exists. This prevents retried spawn directives — e.g. when
-`completeLeaderDirective()` fails to reach the daemon and the poll loop re-runs
-the same directive — from filling the session with identically-named, empty
-windows.
+### Agent control intents (realized by the agent itself)
 
-**Spawn robustness.** `spawnAgent()` validates the working directory
-(`validateSpawnCwd()`) **before** touching tmux and throws if it's missing or
-not a directory — so an accidental/half-typed cwd can't create an orphan
-window. Writing the permissive Pi config (`ensurePermissiveConfig()` → `prepareSpawnConfig()`) is treated
-as best-effort: a failure (e.g. a read-only cwd) is caught and logged rather
-than aborting the spawn. When realizing a directive throws, the poll loop marks
-it **failed** via `client.failLeaderDirective()` (PUT status `failed`) instead
-of leaving it pending — otherwise an ask that can never succeed (like a bad cwd)
-would be retried every poll cycle forever. `/ppt-spawn` also validates the cwd
-up front and reports the error without creating a directive at all.
+A teammate reset comes to the teammate itself as a `new-session`
+(`TeammateLoop.pollSessionDirectives` polls `GET /api/agents/:id/directives`,
+acks, then queues `/ppt-reset-session`, which calls `ctx.newSession()`). That keeps
+`/new`'s semantics — immediate even mid-run, and it deregisters on the way out, so
+a held item goes MORIBUND. The leader's own `new-session`/`resume-session` come the
+same way, through its chat mirror. Nothing types keystrokes into a window: the
+leader used to realize a `reset-session` by sending `/new` to an older teammate's
+window, and the daemon now refuses those older (protocol < 6) agents at
+registration instead.
 
-### Agent control intents (daemon → leader → tmux)
-
-A teammate reset no longer comes this way: the daemon asks the teammate itself for
-a `new-session` (`TeammateLoop.pollSessionDirectives` polls
-`GET /api/agents/:id/directives`, acks, then queues `/ppt-reset-session`, which calls
-`ctx.newSession()`). That keeps `/new`'s semantics — immediate even mid-run, and it
-deregisters on the way out, so a held item goes MORIBUND. Only a teammate too old
-to poll (protocol < 6) still gets the leader's `reset-session` below.
-
-The daemon expresses out-of-band intents (e.g. `reset-session`) without knowing
-how they're realized. At spawn time the leader passes each agent its tmux
-session/window (`--ppt-tmux-session/--ppt-tmux-window`); the agent reports those
-as opaque `metadata` on registration. The leader polls its single directive
-queue and `dispatchDirective()` realizes each one; `deliverAgentCommand()` maps a
-control intent to Pi keystrokes — `reset-session`
-becomes `/new` sent to the agent's window — then acks. This is where all
-harness/tmux mechanism lives; the daemon stays agnostic.
+The `--ppt-tmux-session`/`--ppt-tmux-window` flags the daemon passes at spawn are
+reported as opaque `metadata` on registration; only the daemon reads them (to
+close the window on dismiss, or focus it for `/ppt-hop`).
 
 ## Permission System Integration
 
@@ -492,18 +458,18 @@ File: `<cwd>/.pi/extensions/pi-permission-system/config.json`
   - yolo = any live lease needs it (an unattended agent must never be stuck on a prompt); a teammate lease present → the full `teammateConfig(yolo)` map; leader-only → `mergeYoloMode(original, yolo)` (the user's rules + `yoloMode` + the chain link);
   - no live leases → restore `original` (the file as the first lease found it; deleted if none) and remove the sidecar.
   Holders re-assert every 10s (self-heals a config deleted underneath them, e.g. a demo reset) and release on `session_shutdown`. Behavior: `tests/permission-leases.test.mjs`.
-- **Created at spawn time** by the leader's tmux spawner via `prepareSpawnConfig` (`teammateConfig(true)`, only if the directory has no config or leases), recorded as ppt-authored (`original: null`) so it's removed rather than preserved when the last agent leaves.
+- **Spawn-time config** (`prepareSpawnConfig`: `teammateConfig(true)`, only if the directory has no config or leases, recorded as ppt-authored — `original: null` — so it's removed rather than preserved when the last agent leaves) is no longer written by the leader, since the daemon does the spawning; a spawned teammate's own lease composes the config when it starts.
 - **Teammates** (`registerPermissionBypass` → lease, role `teammate`): autonomous → `yolo: true`; interactive input → `setYolo(false)` + pause loop; `/ppt-worker-resume` → `setYolo(true)` + resume loop.
 - **The leader (chat agent)** uses `registerChatAgentPermissions` (lease, role `leader`): a web-driven run has nobody at the terminal, so an `ask` hangs the chat with no visible cause (the UI just shows `…`). Its lease needs yolo while the current run was triggered by non-`interactive` input (the mirror's `sendUserMessage`, or RPC), and not when the user types in its pane — the same autonomous/pairing distinction, keyed on *who drove the run*. In a leader-only directory that only merges into the user's config and restores it on the way out; in a directory shared with teammates, their leases win, so the leader can no longer delete or un-yolo their config.
 - **Authorizer chain link** (`ppt-autonomous`, registered by `registerAutonomousAuthorizer`): yoloMode alone cannot approve the permission system's fail-closed asks — as of v24 its bash **wrapper floor** clamps any `allow` (yolo included) back to `ask` for indirection wrappers (`timeout`, `nohup`, `sudo`, `env`, `xargs`, ...). The link answers those asks: `allow` while autonomous, `defer` (normal prompting) while pairing. It resolves *this session's* service (`findPermissionsService`) from the permission system's session-keyed `globalThis` map (`Symbol.for("@gotgenes/pi-permission-system:session-services")`, the only slot since 29.0.0), falling back to the pre-29 process-root slot — no hard dependency, and it degrades gracefully when absent. It registers immediately if the service is up and otherwise on this session's `permissions:ready` (another session's — an in-process subagent's — is ignored), is disposed at session shutdown so each fresh session registers its own, and writes a `ppt.autonomous_auto_allow` audit entry per auto-allowed ask. The chain owner caps its authority: an allow on the `path`/`external_directory` surfaces downgrades to defer.
 
-## tmux Integration (leader only)
+## tmux (the daemon's, not the extension's)
 
-- Polls its directive queue via `/api/hosts/:hostId/leader/directives`
-- Creates tmux windows with `pi -a --ppt-worker --ppt-daemon=<url> --ppt-name=<name>`
-- Identity is daemon-owned: the leader names each tmux window (and the `--ppt-name`) after the directive's `params.name`, never inventing one. Every spawn is a teammate with a generated adjective-noun name — there is no assistant to spawn (the leader is the chat agent), so `reason: "assistant"` is just an ordinary spawn now. This is why the tmux window, registered name, and MPT UI label always match.
+- The daemon creates each teammate window with its harness template (Pi's:
+  `pi -a --ppt-worker --ppt-daemon=<url> --ppt-name=<name> --ppt-tmux-session=… --ppt-tmux-window=…`)
+- Identity is daemon-owned: the window, `--ppt-name`, registered name, and MPT UI label all use the directive's `params.name`. Every spawn is a teammate — there is no assistant to spawn (the leader is the chat agent).
 - `-a` (`--approve`) trusts the teammate's project cwd non-interactively, so a spawn into a folder outside a trusted parent (`~/.pi/agent/trust.json`) doesn't block on pi's "Trust project folder?" prompt
-- Writes permissive permission config to teammate's cwd before launching (only applied once the project is trusted, hence `-a`)
+- The extension runs no tmux at all (`tests/structure.test.mjs`)
 
 ## Key Design Decisions
 
@@ -515,7 +481,7 @@ File: `<cwd>/.pi/extensions/pi-permission-system/config.json`
 6. **Daemon owns the prompt** — the teammate sends `claim.prompt` verbatim and never augments it; all prompt content/wording lives in the daemon so every harness stays consistent (session-specific framing, if ever needed, would be the harness's only addition)
 7. **`fail` over sentinel parsing** — giving up is the agent composing two primitives (a comment + set the WorkItem `FAILED`), never a magic string in the agent's output
 8. **Permission toggle is file-based** — leverages permission system's runtime config reload
-9. **One leader directive queue** — leader polls `/api/hosts/:hostId/leader/directives` and realizes each (spawn, reset-session) locally over tmux. The two exceptions are `new-session`/`resume-session`, which the *target agent* polls from `/api/agents/:id/directives` and realizes with Pi's session APIs — tmux keystrokes can't express "switch to this exact session file"
+9. **The daemon is the only terminal owner** — the daemon realizes `spawn`/`dismiss` and focuses windows; the leader asks over HTTP and never runs tmux. `new-session`/`resume-session` are polled by the *target agent* from `/api/agents/:id/directives` and realized with Pi's session APIs — tmux keystrokes can't express "switch to this exact session file"
 10. **Task-level comments** — lead ↔ teammate via comments on the WorkDef (`/api/agents/comments/:workItemId` for agents, `/api/work-defs/:id/comment[s]` for the UI), not a chat stream
 11. **The assistant just talks; the harness mirrors it** — there is no `send_message` tool. The agent's own prose is mirrored into chat bubbles by splitting on blank lines (`src/bubbles.ts`), its reasoning feeds an ephemeral peek buffer, and messages typed in its terminal are mirrored back into the chat. Bubble boundaries are the *harness's* call because only the harness sees the raw message stream — but the framing that produces good boundaries (blank lines between points) is the daemon's `ASSISTANT_CHAT_FRAMING`. Routing replies through tool calls (v1) made prose stilted and turned the tmux transcript into a wall of tool calls.
 12. **Fresh session per work item** — after each COMPLETE/FAILED the teammate queues `/ppt-fresh-session` (a command, because session control only exists on command contexts) which calls `ctx.newSession()`; the queueing call **must** pass `expandPromptTemplates: true` to `pi.sendUserMessage()` (it defaults to `false`, in which case the slash command is handed to the LLM as plain text and the reset is silently skipped); the reload re-runs `session_start`, re-registering the same member with a clean context. The shutdown for a self-reset skips deregistration so the member never flickers offline in the UI (the daemon's heartbeat timeout still covers a reset that dies mid-way). Self-managed by the teammate. A manual reset from the UI is a `new-session` self-directive the teammate polls and realizes with `/ppt-reset-session` (which, like Pi's `/new`, does *not* skip deregistration).

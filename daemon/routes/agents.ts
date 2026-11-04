@@ -18,7 +18,7 @@ import { personaRefOf } from "../personas/resolve.ts";
 import { DEFAULT_HARNESS, isExperimentalHarness, type ResolvedPersona, type TeamConfig, type TriageOutcome, type TriageProposal, type WorkDef, type WorkItemRef } from "../../shared/types.ts";
 import { MIN_PROTOCOL_VERSION, PROTOCOL_VERSION, type AgentListResponse } from "../../shared/protocol.ts";
 import { packageVersion } from "../../shared/paths.ts";
-import { dismissParams } from "../spawner.ts";
+import { dismissParams, focusMember } from "../spawner.ts";
 
 export function registerAgentRoutes(ctx: RouteContext): void {
   const { app, store, config, isPaused } = ctx;
@@ -352,6 +352,18 @@ export function registerAgentRoutes(ctx: RouteContext): void {
       store.dismissMember(agentId);
       if (params) store.createLeaderDirective("dismiss", { params });
     } else store.removeMember(agentId);
+    return c.json({ success: true });
+  });
+
+  // Bring an agent's tmux window to the front (the leader's /ppt-hop). The daemon
+  // is the only thing that touches tmux (docs/DESIGN.md "The Daemon Is the
+  // Supervisor"), so a harness asks here rather than running `tmux select-window`
+  // itself. 409 with the reason when the window can't be selected.
+  app.post("/api/agents/:id/focus", (c) => {
+    const member = store.getMember(c.req.param("id"));
+    if (!member) return fail(c, 404, `Agent "${c.req.param("id")}" not found`);
+    const error = focusMember(member, config);
+    if (error) return fail(c, 409, `Could not focus ${member.name}: ${error}`);
     return c.json({ success: true });
   });
 

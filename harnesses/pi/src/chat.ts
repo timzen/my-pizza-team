@@ -1,10 +1,10 @@
 // Chat mirror: keep the daemon's chat and this Pi session in sync
 //
 // The leader is the agent you talk to. There is no separate "assistant" process:
-// a leader already runs per host to realize tmux spawns, nobody types in its
-// session, and this mirror is role-agnostic — so it doubles as the team's chat
-// participant (see my-pizza-team/docs/DESIGN.md "Assistant Chat Model" and DESIGN.md "One
-// agent to talk to").
+// a leader already runs per host, nobody types in its session, and this mirror
+// is role-agnostic — so it doubles as the team's chat participant (see
+// my-pizza-team/docs/DESIGN.md "Assistant Chat Model" and DESIGN.md "One agent
+// to talk to").
 //
 // Chat v2 inverts the old model: the **Pi session is the conversation**, and the
 // daemon is a mirror of it. There are no response turns to claim, no composer

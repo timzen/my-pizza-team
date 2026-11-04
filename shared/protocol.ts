@@ -44,19 +44,14 @@ export type {
  * readiness to a path that 404s, silently losing the gating that stops overnight
  * cron pile-ups. Refusing at registration turns both into a message telling the
  * user to restart the agent.
+ *
+ * 6 when the Pi leader stopped touching tmux (docs/DESIGN.md "The Daemon Is the
+ * Supervisor"). A v5 teammate never polls its own directives, and the leader that
+ * used to reset it by typing `/new` into its window is gone, so its Reset would
+ * silently do nothing; a v5 leader's /ppt-spawn would open a second window for a
+ * spawn the daemon already realizes.
  */
-export const MIN_PROTOCOL_VERSION = 5;
-
-/**
- * The first agent-protocol version whose agents realize a `new-session`
- * self-directive (GET /api/agents/:id/directives) — teammates as well as the
- * leader. A teammate reset goes to the teammate itself from this version on; an
- * older one (or a pre-handshake one) still gets the legacy `reset-session`
- * leader directive, so the skew banner's Restart keeps working on the very
- * agents it is for (docs/DESIGN.md "Leader Directives"). Not a floor: v5 agents
- * register as before.
- */
-export const SELF_RESET_PROTOCOL_VERSION = 6;
+export const MIN_PROTOCOL_VERSION = 6;
 
 /** Which harness an agent runs under. Open-ended: Tier 0 harnesses self-report. */
 export type HarnessKind = "pi" | (string & {});

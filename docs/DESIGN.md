@@ -1919,7 +1919,11 @@ session control.
   for a pluggable terminal backend needs exactly one. So a spawn the daemon can't
   realize fails at once with the reason and a fix, the pool queues none while it
   can't, and `mpt doctor` fails its Spawning check. A dismiss still stops the agent
-  (its tombstone needs no tmux); only the window close fails.
+  (its tombstone needs no tmux); only the window close fails. The Pi leader runs no
+  tmux at all: its `/ppt-spawn`, `/ppt-dismiss`, `/ppt-hop` and `/ppt-status` are
+  daemon calls, and a structure test in the extension fails if a tmux command
+  creeps back. The `--ppt-tmux-session`/`--ppt-tmux-window` flags stay, as opaque
+  metadata the agent reports and only the daemon reads.
 - **One tmux server: the user's default.** The daemon never passes `-L`/`-S`, so
   `tmux attach -t mpt` finds the team. But "default" depends on the environment
   (`$TMUX`, `$TMUX_TMPDIR`), so `/health` names the socket the daemon resolved and
@@ -2043,13 +2047,17 @@ POST /api/leader/directives      # { action, memberId?, params? }
 PUT  /api/leader/directives/:id  # { status }
 ```
 
-A directive has an `action` (`spawn`, `dismiss`, `reset-session`, `new-session`,
-`resume-session`), an optional `memberId`, `params` (e.g. spawn `name`/`cwd`), and a
-`status`. The daemon realizes `spawn` and `dismiss` itself — always; one it can't is
-failed with the reason, never handed on — the target agent realizes `new-session`
-and `resume-session` (below), and the leader realizes whatever is left (today only
-a legacy `reset-session` → `/new`, for a teammate too old to reset itself). Three
-rules hold:
+A directive has an `action` (`spawn`, `dismiss`, `new-session`, `resume-session`),
+an optional `memberId`, `params` (e.g. spawn `name`/`cwd`), and a `status`. The
+daemon realizes `spawn` and `dismiss` itself — always; one it can't is failed with
+the reason, never handed on — and the target agent realizes `new-session` and
+`resume-session` (below). Despite the queue's name, nothing is left for the leader:
+it doesn't poll it, and it never touches tmux. Its `/ppt-spawn` creates a `spawn`
+directive like the UI's (waiting briefly to report the name, or the failure's
+reason), `/ppt-dismiss` is the UI's dismiss, and `/ppt-hop` asks the daemon to
+select the window (`POST /api/agents/:id/focus`) — one place touches the terminal
+multiplexer, which is what a pluggable terminal backend will need. Three rules
+hold:
 
 1. **Intent, not mechanism, crosses the channel.** A directive says *what*; its
    realizer decides *how*.
@@ -2074,12 +2082,12 @@ the way out — unlike the between-items `/ppt-fresh-session`, which skips that 
 an item it held goes MORIBUND for a human to recover in the Queue, and the fresh
 session re-registers and picks up new work. An `mpt agent` teammate has nothing to
 do when idle (every item opens a fresh ACP session anyway); mid-item it cancels the
-turn and fails the item with a comment saying it was reset. Only agents speaking
-protocol v6 (`SELF_RESET_PROTOCOL_VERSION`) poll for it — plus the leader, whose chat
-mirror always has — so a reset aimed at an older teammate is still a `reset-session`
-for the leader. Otherwise the skew banner's Restart, which exists for out-of-date
-agents, would silently do nothing to them. An older UI's `reset-session` POST is
-translated the same way.
+turn and fails the item with a comment saying it was reset. Every agent the daemon
+serves polls for it: protocol v6 made teammates do so, and became the floor
+(`MIN_PROTOCOL_VERSION`) when the leader stopped typing `/new` into an older
+teammate's window — a v5 teammate is refused at registration ("restart the agent")
+rather than left with a Reset that silently does nothing. An older UI's
+`reset-session` POST is translated to the same `new-session`.
 
 *Why:* one concept, one queue, one poll — new asks are new *actions*, not new
 endpoints.
@@ -2087,8 +2095,8 @@ endpoints.
 ## One Agent to Talk To
 
 There is no dedicated "assistant" process. **The leader is the agent you chat
-with.** A leader already runs, and nobody types in its session — its directive
-polling is extension timers, not agent turns — so its Pi session contains *only*
+with.** A leader already runs, and nobody types in its session — its polling is
+extension timers, not agent turns — so its Pi session contains *only*
 the chat. That keeps sessions-as-conversations (snapshots, resume) meaningful, and
 removes an entire concept: no assistant spawn, no reserved name, no "assistant
 offline" dead end.

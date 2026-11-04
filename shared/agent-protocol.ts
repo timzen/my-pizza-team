@@ -54,9 +54,11 @@
  *   6 — Every agent, teammates included, polls GET /api/agents/:id/directives
  *       and realizes `new-session` itself: a teammate reset from the web UI goes
  *       to the teammate, not through the leader typing `/new` into its tmux
- *       window. Additive for the agent (v5 is still served); the daemon reads
- *       the version to know which agents can take a reset this way (shared/protocol.ts
- *       SELF_RESET_PROTOCOL_VERSION).
+ *       window. Became the floor (shared/protocol.ts MIN_PROTOCOL_VERSION) when
+ *       the Pi leader stopped touching tmux: nothing realizes the legacy
+ *       `reset-session` a v5 teammate needed, and a v5 leader still spawned its
+ *       own windows. The same change added POST /api/agents/:id/focus (the
+ *       leader's /ppt-hop), which is additive.
  */
 export const PROTOCOL_VERSION = 6;
 

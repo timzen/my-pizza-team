@@ -57,6 +57,52 @@ test("src/teammate/ directory removed", () => notExists("src/teammate"));
 test("src/assistant/ directory removed", () => notExists("src/assistant"));
 test("src/shared/protocol.ts removed", () => notExists("src/shared/protocol.ts"));
 
+// The daemon is the only thing that touches tmux (my-pizza-team docs/DESIGN.md
+// "The Daemon Is the Supervisor"). The leader used to carry its own copy of the
+// tmux code as a fallback; this keeps it from creeping back into any harness file.
+// Mentions of tmux in prose and the opaque --ppt-tmux-* flags are fine; running it
+// is not.
+const TMUX_SUBCOMMANDS = "attach|attach-session|new-session|has-session|kill-session|new-window|kill-window|" +
+  "rename-window|select-window|list-windows|send-keys|split-window|select-pane|capture-pane|switch-client|display-message";
+const TMUX_EXEC = [
+  /["'`]tmux["'`]/, // tmux as an argv token: spawn("tmux", …), execFileSync('tmux', …)
+  new RegExp(`\\btmux\\s+(?:-\\S+\\s+\\S+\\s+)*(?:${TMUX_SUBCOMMANDS})\\b`), // a tmux command line
+];
+
+function sourceFiles(dir) {
+  return fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
+    const p = path.join(dir, e.name);
+    return e.isDirectory() ? sourceFiles(p) : /\.(ts|mts|js|mjs)$/.test(e.name) ? [p] : [];
+  });
+}
+
+test("no harness source runs tmux (the daemon is the only terminal owner)", () => {
+  const offenders = [];
+  for (const file of sourceFiles(path.join(root, "src"))) {
+    const text = fs.readFileSync(file, "utf-8");
+    text.split("\n").forEach((line, i) => {
+      if (TMUX_EXEC.some((re) => re.test(line))) offenders.push(`${path.relative(root, file)}:${i + 1}: ${line.trim()}`);
+    });
+    // A file that can run processes mustn't be talking about tmux at all.
+    if (/node:child_process|["']child_process["']/.test(text) && /\btmux\b/.test(text)) {
+      offenders.push(`${path.relative(root, file)}: imports child_process and mentions tmux`);
+    }
+  }
+  if (offenders.length) throw new Error(`tmux is run from the harness:\n    ${offenders.join("\n    ")}`);
+});
+
+test("the tmux check catches the forms it guards against", () => {
+  for (const bad of [
+    'execSync(`tmux send-keys -t "${t}" C-c`)',
+    'execSync(`tmux -L sock new-window -n x`)',
+    'spawnSync("tmux", ["kill-window"])',
+  ]) if (!TMUX_EXEC.some((re) => re.test(bad))) throw new Error(`missed: ${bad}`);
+  for (const ok of [
+    '// the daemon closes the tmux window',
+    'pi.registerFlag("ppt-tmux-window", { description: "tmux window name" })',
+  ]) if (TMUX_EXEC.some((re) => re.test(ok))) throw new Error(`false positive: ${ok}`);
+});
+
 // Package.json checks
 const pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf-8"));
 // Deliberately not pinned to a literal: since the monorepo merge the version is

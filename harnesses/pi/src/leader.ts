@@ -1,4 +1,4 @@
-// Leader role: tmux management, directive polling, LLM tools, and the team chat
+// Leader role: daemon registration, LLM tools, slash commands, and the team chat
 //
 // The leader is the Pi-specific host coordinator *and* the agent you talk to.
 // There is no separate assistant process: the leader already runs per host, its
@@ -7,21 +7,18 @@
 // to"). The daemon designates one leader as the chat agent so a multi-host team
 // can't answer twice.
 //
-// It doesn't own state — the daemon does. The leader's responsibilities are:
+// It doesn't own state — the daemon does. And it never touches tmux: the daemon
+// is the only thing that does (my-pizza-team docs/DESIGN.md "The Daemon Is the
+// Supervisor"), so spawning, dismissing and switching windows are asks to the
+// daemon. The leader's responsibilities are:
 //   1. Register with daemon as { name: "leader", harness: "pi", + handshake }
-//   2. Poll GET /api/leader/directives every 5s (one queue)
-//   3. Realize each directive locally (spawn via tmux, reset via /new, ...)
-//   4. Mark done: PUT /api/leader/directives/:id { status }
-//   5. Register LLM tools for planning work, active only for the work-item
+//   2. Register LLM tools for planning work, active only for the work-item
 //      kinds the team has on (features.ts; re-checked on every status read)
-//   6. Provide tmux commands: /ppt-spawn, /ppt-dismiss, /ppt-hop, /ppt-status
-//   7. Show status widget with team progress
-//   8. Mirror the daemon's chat into this Pi session and back (ChatMirror)
-//
-// Multi-harness support:
-//   Spawn requests may specify a harness type. The leader uses command
-//   templates to spawn the appropriate agent process. Default is "pi".
-//   Templates use {name}, {url}, {cwd} placeholders.
+//   3. Provide /ppt-spawn, /ppt-dismiss, /ppt-hop, /ppt-status — each a daemon
+//      call (a spawn directive, a dismiss, POST /api/agents/:id/focus, status)
+//   4. Show status widget with team progress
+//   5. Mirror the daemon's chat into this Pi session and back (ChatMirror),
+//      including its own new-session/resume-session self-directives
 
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -30,39 +27,10 @@ import type { DaemonClient } from "./runtime/client.js";
 import { ALL_FEATURES_ON, type Features, featuresFromStatus } from "./shared/agent-protocol.js";
 import { registerLeaderTools } from "./tools.js";
 import { applyFeatureTools, featurePromptNote } from "./features.js";
-import { prepareSpawnConfig } from "./permissions.js";
 import { summarizeRun, hasUsage } from "./runtime/usage.js";
-import { DEFAULT_HARNESS_TEMPLATES, DEFAULT_TMUX_SESSION, LEADER_WINDOW } from "./shared/types.js";
+import { LEADER_WINDOW } from "./shared/types.js";
 
-const SPAWN_POLL_INTERVAL_MS = 5000;
 const WIDGET_UPDATE_INTERVAL_MS = 10000;
-
-// ─── Harness command templates ───────────────────────────────────────
-
-/** Command templates for spawning agents by harness type */
-interface HarnessTemplates {
-  [harness: string]: string;
-}
-
-/**
- * Teammate start commands by harness, for when this leader realizes a spawn itself
- * (the daemon's fallback when it can't reach tmux). The same templates the daemon
- * uses: team config's `harnesses` when set, else the built-in defaults — generated
- * from the daemon's shared/types.ts (`npm run sync-shared`), so the two paths
- * can't drift. The built-in Pi template passes `-a` so a spawned teammate trusts its
- * cwd non-interactively instead of blocking on Pi's "Trust project folder?" prompt.
- */
-function teammateTemplates(harnesses?: Record<string, { teammate?: string }>): HarnessTemplates {
-  const out: HarnessTemplates = {};
-  for (const [name, t] of Object.entries({ ...DEFAULT_HARNESS_TEMPLATES, ...harnesses })) {
-    // `{mpt}` (the experimental `mpt agent` harnesses) is filled in by the daemon,
-    // which knows how it was run; this fallback path can't, so it doesn't offer them.
-    if (t?.teammate && !t.teammate.includes("{mpt}")) out[name] = t.teammate;
-  }
-  return out;
-}
-
-
 
 /** This leader's tmux location, when it was told (see `mpt lead`). */
 function readLeaderTmuxMetadata(pi: ExtensionAPI): Record<string, unknown> {
@@ -72,13 +40,6 @@ function readLeaderTmuxMetadata(pi: ExtensionAPI): Record<string, unknown> {
   if (window) metadata.tmuxWindow = window;
   if (session) metadata.tmuxSession = session;
   return metadata;
-}
-
-// ─── Shell safety ────────────────────────────────────────────────────
-
-/** Sanitize a string for safe use in shell commands */
-function shellSafe(s: string): string {
-  return s.replace(/[^a-zA-Z0-9._~/:@-]/g, "");
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -91,72 +52,37 @@ export async function setupLeader(
   client: DaemonClient,
   cwd: string
 ): Promise<void> {
-  const { execSync } = await import("node:child_process");
-
-  // Configuration from daemon.
-  //
-  // tmuxSession starts as a hardcoded fallback and MUST be replaced by the
-  // daemon-configured value before any spawn is realized — otherwise agents
-  // land in the wrong tmux session. Because the leader may start while the
-  // daemon is down (or the daemon may restart and forget our registration),
-  // config resolution is a retryable operation, not a one-shot at startup:
-  // syncDaemonConfig() is retried from the heartbeat and before dispatching
-  // directives until it succeeds (configSynced).
-  let tmuxSession = DEFAULT_TMUX_SESSION;
-  let harnessTemplates: HarnessTemplates = teammateTemplates();
-  let configSynced = false;
+  // Registration is retryable, not a one-shot at startup: the leader may start
+  // while the daemon is down, or the daemon may restart and forget us, so the
+  // heartbeat re-registers until it succeeds (registered).
+  let registered = false;
 
   /**
-   * Register with the daemon and adopt its configuration (tmux session,
-   * harness templates). Safe to call repeatedly; throws if the daemon is
+   * Register with the daemon. Safe to call repeatedly; throws if the daemon is
    * unreachable so callers can retry later.
    */
-  async function syncDaemonConfig(): Promise<void> {
-    // Report where this leader lives in tmux. The daemon relays metadata verbatim
-    // and uses it to address the right window — which is how a directive aimed at the
-    // leader (and, from P3-1, a daemon-driven spawn) finds it. `mpt lead` passes these
-    // flags; a hand-started `pi` simply reports nothing, as before.
-    const regRes = await client.register({
+  async function registerWithDaemon(): Promise<void> {
+    // Report where this leader lives in tmux, as opaque metadata: the daemon relays
+    // it verbatim and uses it to address the right window. `mpt lead` passes these
+    // flags; a hand-started `pi` simply reports nothing. The leader itself never
+    // reads them back — it doesn't touch tmux (docs/DESIGN.md "The Daemon Is the
+    // Supervisor").
+    await client.register({
       name: "leader",
       directory: cwd,
       metadata: readLeaderTmuxMetadata(pi),
     });
-    if (regRes.config?.tmuxSession) tmuxSession = regRes.config.tmuxSession;
-
-    // A tmuxSession fallback, if register didn't carry one.
-    if (!regRes.config?.tmuxSession) {
-      try {
-        const teamConfig = await client.getConfig();
-        if (teamConfig.tmuxSession) tmuxSession = teamConfig.tmuxSession;
-      } catch {
-        // Daemon unreachable: keep whatever we had (retried next heartbeat).
-      }
-    }
-
-    // The team's harness templates (config.json `harnesses`), if it has any —
-    // the same ones the daemon spawns with. (This used to read a
-    // `harnessCommands` field no config has, so custom templates never reached
-    // the leader's spawn path.)
-    try {
-      const daemonConfig = await client.getConfig();
-      if (daemonConfig.harnesses) harnessTemplates = teammateTemplates(daemonConfig.harnesses);
-    } catch {
-      // Keep the defaults (retried on the next sync).
-    }
-
-    configSynced = true;
+    registered = true;
   }
 
   // Register with daemon
   try {
-    await syncDaemonConfig();
+    await registerWithDaemon();
   } catch {
     if (ctx.hasUI) {
       ctx.ui.notify(`🍕 Failed to register with daemon — will retry via heartbeat`, "warning");
     }
   }
-
-
 
   // Register LLM tools (stories, tasks, queue, search)
   registerLeaderTools(pi, client);
@@ -180,10 +106,9 @@ export async function setupLeader(
   // ─── Leader Heartbeat ──────────────────────────────────────────────
   // Send periodic heartbeats so the daemon knows the leader is alive.
   // Without this, the daemon's reaper marks the leader as offline.
-  // The heartbeat also doubles as the config-sync retry loop: if the initial
+  // The heartbeat also doubles as the registration retry loop: if the initial
   // registration failed (daemon not up yet) or the daemon restarted and no
-  // longer knows us (heartbeat reports dismissed), re-register so tmuxSession
-  // and friends reflect the daemon's config instead of the hardcoded default.
+  // longer knows us (heartbeat reports dismissed), re-register.
   //
   // The readiness probe is the *daemon's* job now (P3-2). While it lived here, a
   // machine too wedged for the leader to start was reported as healthy — nothing
@@ -191,49 +116,30 @@ export async function setupLeader(
   // whenever it matters and answers with no agents connected.
   const HEARTBEAT_INTERVAL_MS = 30_000;
   const heartbeatTick = async () => {
-    if (!configSynced) {
-      try { await syncDaemonConfig(); } catch { /* daemon still unreachable */ }
+    if (!registered) {
+      try { await registerWithDaemon(); } catch { /* daemon still unreachable */ }
     }
     const res = await client.heartbeat("idle");
     if (res.dismissed || res.reregister) {
       // The daemon doesn't know us (it restarted, or forgot us) — re-register.
-      configSynced = false;
-      try { await syncDaemonConfig(); } catch { /* retry next beat */ }
+      registered = false;
+      try { await registerWithDaemon(); } catch { /* retry next beat */ }
     }
   };
   const heartbeatTimer = setInterval(() => { heartbeatTick().catch(() => {}); }, HEARTBEAT_INTERVAL_MS);
   // Send an initial heartbeat immediately
   heartbeatTick().catch(() => {});
 
-  // ─── Spawn Request Polling ─────────────────────────────────────────
-
-  const spawnPollTimer = setInterval(async () => {
-    try {
-      // Never realize a directive with the hardcoded fallback session: if the
-      // daemon is reachable enough to hand us directives, it can also tell us
-      // the configured tmuxSession. A throw here leaves directives pending for
-      // the next poll cycle rather than spawning into the wrong session.
-      if (!configSynced) await syncDaemonConfig();
-      const { directives } = await client.getLeaderDirectives();
-      for (const directive of directives) {
-        try {
-          dispatchDirective(directive, { session: tmuxSession, daemonUrl: client.url, harnessTemplates, fallbackCwd: cwd }, execSync);
-          await client.completeLeaderDirective(directive.id);
-        } catch (err) {
-          // A directive that can't be realized (e.g. an invalid spawn cwd) would
-          // otherwise stay pending and be retried every poll cycle forever,
-          // piling up empty tmux windows. Mark it failed so it leaves the queue.
-          const reason = err instanceof Error ? err.message : String(err);
-          if (ctx.hasUI) ctx.ui?.notify?.(`Spawn directive failed: ${reason}`, "error");
-          await client.failLeaderDirective(directive.id).catch(() => {});
-        }
-      }
-    } catch {
-      // Daemon unreachable
-    }
-  }, SPAWN_POLL_INTERVAL_MS);
+  // There is no leader-directive poll. The daemon realizes `spawn` and `dismiss`
+  // itself (daemon/spawner.ts) and a reset goes to the agent it is for — this
+  // leader's own new-session/resume-session arrive through the chat mirror's
+  // self-directive poll (chat.ts). Nothing is left in the queue for a leader.
 
   // ─── Slash Commands ────────────────────────────────────────────────
+  //
+  // Every one goes through the daemon, which is the only thing that touches tmux
+  // (docs/DESIGN.md "The Daemon Is the Supervisor"). The leader asks; it never
+  // runs tmux itself.
 
   pi.registerCommand("ppt-spawn", {
     description: "Hire a new teammate: /ppt-spawn [name] [cwd]",
@@ -249,21 +155,18 @@ export async function setupLeader(
       if (cwdError) { cmdCtx.ui.notify(`Cannot spawn: ${cwdError}`, "error"); return; }
 
       try {
-        // Create a spawn directive so the daemon generates a unique name, then
-        // realize it immediately and mark it done (so our own poll won't re-run it).
-        const res = await client.createLeaderDirective("spawn", { params: { cwd: resolvedCwd } });
-        const generated = (res.directive?.params?.name as string) || `agent-${Date.now()}`;
-        const name = userProvidedName || generated;
+        // A `spawn` directive, like the UI's Add teammate: the daemon names it
+        // (unless a name was given) and opens its window, or fails it with a reason.
+        const params: Record<string, unknown> = { cwd: resolvedCwd };
+        if (userProvidedName) params.name = userProvidedName;
+        const res = await client.createLeaderDirective("spawn", { params });
+        if (!res.directive) throw new Error(res.error || "the daemon created no spawn directive");
+        const name = (res.directive.params?.name as string) || userProvidedName || "the new teammate";
 
-        spawnAgent(name, resolvedCwd, {
-          session: tmuxSession,
-          daemonUrl: client.url,
-          harness: "pi",
-          harnessTemplates,
-        }, execSync);
-
-        if (res.directive) await client.completeLeaderDirective(res.directive.id);
-        cmdCtx.ui.notify(`✓ ${name} has joined the team working in ${spawnCwd} 🍕`, "info");
+        const outcome = await awaitSpawn(client, res.directive.id, res.directive.status);
+        if (outcome.state === "failed") cmdCtx.ui.notify(`Failed to spawn ${name}: ${outcome.error}`, "error");
+        else if (outcome.state === "pending") cmdCtx.ui.notify(`${name} is still waiting to be spawned — see the Team tab`, "warning");
+        else cmdCtx.ui.notify(`✓ ${name} has joined the team working in ${spawnCwd} 🍕`, "info");
       } catch (err: any) {
         cmdCtx.ui.notify(`Failed to spawn: ${err.message}`, "error");
       }
@@ -278,22 +181,17 @@ export async function setupLeader(
 
       if (name === LEADER_WINDOW) { cmdCtx.ui.notify("The leader can't dismiss itself", "warning"); return; }
 
-      // Through the daemon when it knows the teammate — the same path as the UI's
-      // dismiss: tombstone it so it exits by itself, and let the daemon's `dismiss`
-      // directive close its window once it has (daemon/spawner.ts realizeDismiss).
+      // The same path as the UI's dismiss: the daemon tombstones the teammate so it
+      // exits by itself, and its `dismiss` directive closes the window once it has
+      // (daemon/spawner.ts realizeDismiss).
       try {
-        const { agents } = await client.listAgents();
-        const member = agents.find((a) => a.name === name);
-        if (member) {
-          await client.dismissAgent(member.id);
-          cmdCtx.ui.notify(`✓ ${name} is leaving the team (its window closes once it exits)`, "info");
-          return;
-        }
-      } catch { /* daemon unreachable: close the window directly */ }
-
-      // Not a registered teammate (or no daemon): close its window directly.
-      if (dismissAgent(name, tmuxSession, execSync)) cmdCtx.ui.notify(`✓ ${name} has left the team`, "info");
-      else cmdCtx.ui.notify(`No tmux window named "${name}" found`, "error");
+        const member = await findAgent(client, name);
+        if (!member) { cmdCtx.ui.notify(`"${name}" is not a registered teammate`, "error"); return; }
+        await client.dismissAgent(member.id);
+        cmdCtx.ui.notify(`✓ ${name} is leaving the team (its window closes once it exits)`, "info");
+      } catch (err: any) {
+        cmdCtx.ui.notify(`Failed to dismiss ${name}: ${err.message}`, "error");
+      }
     },
   });
 
@@ -302,11 +200,14 @@ export async function setupLeader(
     handler: async (args, cmdCtx) => {
       const name = args?.trim();
       if (!name) { cmdCtx.ui.notify("Usage: /ppt-hop <name>", "warning"); return; }
+      // The daemon selects the window (POST /api/agents/:id/focus).
       try {
-        execSync(`tmux select-window -t "${shellSafe(tmuxSession)}:${shellSafe(name)}"`, { stdio: "pipe" });
+        const member = await findAgent(client, name);
+        if (!member) { cmdCtx.ui.notify(`"${name}" is not a registered teammate`, "error"); return; }
+        await client.focusAgent(member.id);
         cmdCtx.ui.notify(`→ Switching to ${name}'s window`, "info");
-      } catch {
-        cmdCtx.ui.notify(`No tmux window named "${name}"`, "error");
+      } catch (err: any) {
+        cmdCtx.ui.notify(`Cannot switch to ${name}: ${err.message}`, "error");
       }
     },
   });
@@ -324,11 +225,10 @@ export async function setupLeader(
         if (byStatus) output += ` (${byStatus})`;
         output += `\n  Team: ${status.members.total} members (${status.members.working} working, ${status.members.idle} idle)\n`;
 
-        // List active tmux windows
-        const windows = listWindows(tmuxSession, execSync);
-        if (windows.length > 0) {
-          output += `\n  tmux windows: ${windows.join(", ")}\n`;
-        }
+        // The teammates, as the daemon knows them (not tmux's window list); the
+        // leader registers as "leader", the same name as its window.
+        const teammates = (await client.listAgents()).agents.filter((a) => a.name !== LEADER_WINDOW);
+        output += `\n  Teammates: ${teammates.length > 0 ? teammates.map((a) => `${a.name} (${a.status})`).join(", ") : "none"}\n`;
 
         cmdCtx.ui.notify(output, "info");
       } catch {
@@ -512,7 +412,6 @@ export async function setupLeader(
 
   pi.on("session_shutdown", async () => {
     clearInterval(heartbeatTimer);
-    clearInterval(spawnPollTimer);
     clearInterval(widgetInterval);
     chat.stop();
     // A chat-driven session roll (New chat / Resume) shuts this session down and
@@ -529,8 +428,12 @@ export async function setupLeader(
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-// TMUX HELPERS
+// SLASH-COMMAND HELPERS
 // ═══════════════════════════════════════════════════════════════════════
+
+/** How long /ppt-spawn waits for the daemon to realize its spawn before reporting it pending. */
+const SPAWN_WAIT_MS = 15_000;
+const SPAWN_WAIT_POLL_MS = 500;
 
 /** Resolve ~ and relative paths */
 function resolvePath(p: string): string {
@@ -538,225 +441,43 @@ function resolvePath(p: string): string {
   return path.resolve(p);
 }
 
-/** Ensure a tmux session exists. Returns true if just created. */
-function ensureSession(session: string, execSync: any): boolean {
-  const safeSession = shellSafe(session);
-  try {
-    execSync(`tmux has-session -t "${safeSession}" 2>/dev/null`, { stdio: "pipe" });
-    return false;
-  } catch {
-    execSync(`tmux new-session -d -s "${safeSession}"`, { stdio: "pipe" });
-    return true;
-  }
-}
-
-/** List tmux window names in a session */
-function listWindows(session: string, execSync: any): string[] {
-  const safeSession = shellSafe(session);
-  try {
-    const output = execSync(
-      `tmux list-windows -t "${safeSession}" -F "#{window_name}"`,
-      { stdio: "pipe" }
-    ).toString();
-    return output.trim().split("\n").filter(Boolean);
-  } catch {
-    return [];
-  }
+/** A registered agent by name (the daemon's member list), or null. */
+async function findAgent(client: DaemonClient, name: string): Promise<{ id: string; name: string } | null> {
+  const { agents } = await client.listAgents();
+  return agents.find((a) => a.name === name) ?? null;
 }
 
 /**
- * Spawn an agent in a tmux window.
- *
- * Supports multiple harness types via command templates. The template
- * uses {name}, {url}, {cwd} placeholders that are replaced with the
- * actual values.
- *
- * Idempotent: returns false (without creating anything) if a window with the
- * given name already exists, so retried spawn directives can't pile up
- * duplicate windows. Returns true when a window was actually created.
- *
- * Throws if the working directory is invalid (missing / not a directory) so no
- * tmux window is created; the caller marks the directive failed rather than
- * retrying an ask that can never succeed.
+ * Wait briefly for the daemon to realize a spawn directive: `done` once it has
+ * left the pending list without failing, `failed` with the daemon's reason, or
+ * `pending` if it's still queued after SPAWN_WAIT_MS. The daemon's spawner runs
+ * every couple of seconds, so a healthy spawn settles well inside the wait.
  */
-function spawnAgent(
-  name: string,
-  agentCwd: string,
-  options: {
-    session: string;
-    daemonUrl: string;
-    harness: string;
-    harnessTemplates: HarnessTemplates;
-  },
-  execSync: any
-): boolean {
-  const { session, daemonUrl, harness, harnessTemplates } = options;
-  const safeName = shellSafe(name);
-  const safeSession = shellSafe(session);
-  const safeCwd = shellSafe(agentCwd);
-
-  // Validate the working directory BEFORE touching tmux. A bad cwd (e.g. a
-  // half-typed path that was submitted by accident) would otherwise create an
-  // empty window and then fail, leaving an orphan window and an un-acked
-  // directive that retries forever. Throwing here keeps tmux untouched and lets
-  // the caller mark the directive failed.
-  const cwdError = validateSpawnCwd(agentCwd);
-  if (cwdError) throw new Error(cwdError);
-
-  const justCreated = ensureSession(session, execSync);
-
-  // Idempotency guard: tmux does NOT enforce unique window names, so
-  // `new-window -n <name>` would happily create a duplicate every time it
-  // runs. If a spawn directive is retried (e.g. completion failed to reach the
-  // daemon), that produces a pile of identically-named windows with no agent.
-  // Bail out if a window with this name already exists in the session.
-  if (!justCreated && listWindows(session, execSync).includes(name)) {
-    return false;
+async function awaitSpawn(
+  client: DaemonClient,
+  directiveId: string,
+  initialStatus: string,
+): Promise<{ state: "done" | "pending" } | { state: "failed"; error: string }> {
+  const deadline = Date.now() + SPAWN_WAIT_MS;
+  for (;;) {
+    const { requests, failed } = await client.getSpawnRequests();
+    const failure = failed.find((f) => f.id === directiveId);
+    if (failure) return { state: "failed", error: failure.error || "the daemon could not spawn it" };
+    // Created failed but already gone from the failed list (e.g. cleared): still a failure.
+    if (initialStatus === "failed") return { state: "failed", error: "the daemon could not spawn it" };
+    if (!requests.some((r) => r.id === directiveId)) return { state: "done" };
+    if (Date.now() >= deadline) return { state: "pending" };
+    await new Promise((r) => setTimeout(r, SPAWN_WAIT_POLL_MS));
   }
-
-  // Ensure permissive permission config for Pi-based agents. This is a
-  // convenience (skips permission prompts), not a requirement — so a failure
-  // (e.g. a read-only cwd) must not abort the spawn. Do it before creating the
-  // window so a throw here can't orphan one.
-  if (harness === "pi") {
-    try {
-      ensurePermissiveConfig(agentCwd);
-    } catch (err) {
-      const reason = err instanceof Error ? err.message : String(err);
-      console.warn(`[ppt] Could not write permissive config in ${agentCwd}: ${reason}`);
-    }
-  }
-
-  // Create or reuse tmux window
-  if (justCreated) {
-    try {
-      execSync(`tmux rename-window -t "${safeSession}" "${safeName}"`, { stdio: "pipe" });
-    } catch {
-      execSync(`tmux new-window -n "${safeName}" -t "${safeSession}"`, { stdio: "pipe" });
-    }
-  } else {
-    execSync(`tmux new-window -n "${safeName}" -t "${safeSession}"`, { stdio: "pipe" });
-  }
-
-  // Resolve the command template. Teammates are generalists biased by their
-  // working directory (the spawn cwd), so there are no per-teammate extra args.
-  // `harnessTemplates` is an index signature, so both the lookup and the `pi`
-  // fallback can be absent — a config that defines templates but omits the one
-  // being spawned would otherwise crash here, surfacing as a teammate that
-  // never appears. Fail with the reason instead.
-  const template = harnessTemplates[harness] || harnessTemplates.pi;
-  if (!template) {
-    throw new Error(
-      `No spawn command template for harness "${harness}" (and no "pi" fallback). Add one to the team config.`,
-    );
-  }
-  const cmd = template
-    .replace(/\{name\}/g, shellSafe(name))
-    .replace(/\{url\}/g, shellSafe(daemonUrl))
-    .replace(/\{cwd\}/g, safeCwd)
-    .replace(/\{session\}/g, safeSession)
-    .replace(/\{window\}/g, safeName);
-
-  // Send the command to the tmux window
-  execSync(`tmux send-keys -t "${safeSession}:${safeName}" 'cd ${safeCwd} && ${cmd}' Enter`, { stdio: "pipe" });
-  return true;
-}
-
-/**
- * Realize a leader directive: dispatch by action to the right mechanism.
- * This is where all harness/tmux specifics live — the daemon only said what.
- */
-function dispatchDirective(
-  directive: { action: string; params: Record<string, unknown>; metadata: Record<string, unknown> },
-  ctx: { session: string; daemonUrl: string; harnessTemplates: HarnessTemplates; fallbackCwd: string },
-  execSync: any
-): void {
-  if (directive.action === "spawn") {
-    const params = directive.params || {};
-    // The daemon owns identity: it supplies params.name (a generated
-    // adjective-noun). Every spawn is a teammate — the chat is answered by the
-    // leader itself, so there is no assistant to spawn. We only pick the harness.
-    const name = (params.name as string) || `agent-${Date.now()}`;
-    const harness = (params.harness as string) || "pi";
-    spawnAgent(name, (params.cwd as string) || ctx.fallbackCwd, {
-      session: ctx.session,
-      daemonUrl: ctx.daemonUrl,
-      harness,
-      harnessTemplates: ctx.harnessTemplates,
-    }, execSync);
-    return;
-  }
-  if (directive.action === "dismiss") {
-    // Fallback for when the daemon can't drive tmux: it holds a dismiss back until
-    // the agent has exited (or its grace deadline passed), so closing now is safe.
-    const params = directive.params || {};
-    const window = (params.name as string) || (directive.metadata?.tmuxWindow as string) || "";
-    const session = (params.tmuxSession as string) || (directive.metadata?.tmuxSession as string) || ctx.session;
-    if (window) dismissAgent(window, session, execSync);
-    return;
-  }
-  // Actions on an existing agent are delivered via its tmux window.
-  deliverAgentCommand(directive, ctx.session, execSync);
-}
-
-/**
- * Realize a daemon control intent by translating it into tmux keystrokes.
- *
- * This is where harness-specific mechanism lives — the daemon only expressed
- * intent (e.g. "reset-session"); the leader decides that means sending Pi's
- * `/new` command to the agent's tmux window. The target window comes from the
- * opaque metadata the agent reported at registration (which the leader itself
- * supplied at spawn time).
- */
-function deliverAgentCommand(
-  command: { action: string; metadata: Record<string, unknown> },
-  leaderSession: string,
-  execSync: any
-): void {
-  const window = typeof command.metadata?.tmuxWindow === "string" ? command.metadata.tmuxWindow : "";
-  if (!window) return; // Can't target without a window
-  const session = typeof command.metadata?.tmuxSession === "string" ? command.metadata.tmuxSession : leaderSession;
-  const target = `${shellSafe(session)}:${shellSafe(window)}`;
-
-  // Map abstract intent -> Pi keystrokes.
-  const keysByAction: Record<string, string> = {
-    "reset-session": "/new",
-  };
-  const keys = keysByAction[command.action];
-  if (!keys) return; // Unknown intent — ignore
-
-  execSync(`tmux send-keys -t "${target}" '${keys}' Enter`, { stdio: "pipe" });
-}
-
-/**
- * Close an agent's tmux window: Ctrl+C now, kill-window a moment later (never in
- * the same breath, so a final flush can land). Returns false when there is no such
- * window. Never touches the leader's own window.
- */
-function dismissAgent(name: string, session: string, execSync: any): boolean {
-  if (name === LEADER_WINDOW) return false;
-  if (!listWindows(session, execSync).includes(name)) return false;
-  const safeName = shellSafe(name);
-  const safeSession = shellSafe(session);
-  // Send Ctrl+C to interrupt Pi, then kill the tmux window after a brief delay
-  execSync(`tmux send-keys -t "${safeSession}:${safeName}" C-c`, { stdio: "pipe" });
-  setTimeout(() => {
-    try {
-      execSync(`tmux kill-window -t "${safeSession}:${safeName}"`, { stdio: "pipe" });
-    } catch {
-      // Window may already be gone
-    }
-  }, 2000);
-  return true;
 }
 
 /**
  * Validate a spawn working directory. Returns an error message if the path is
  * unusable, or null if it's a real directory.
  *
- * Guards against accidental spawns (e.g. a half-typed path submitted early)
- * that would otherwise create an orphan tmux window and a directive that can
- * never succeed.
+ * Guards against accidental spawns (e.g. a half-typed path submitted early):
+ * the daemon would fail the directive anyway, but this answers at once, before
+ * any directive exists.
  */
 function validateSpawnCwd(agentCwd: string): string | null {
   if (!agentCwd || !agentCwd.trim()) return "No working directory specified";
@@ -768,15 +489,4 @@ function validateSpawnCwd(agentCwd: string): string | null {
   }
   if (!stat.isDirectory()) return `Not a directory: ${agentCwd}`;
   return null;
-}
-
-/**
- * Ensure permissive permission config exists for autonomous Pi agents, so the
- * spawned teammate's first turn has no prompt window. Delegates to
- * permissions.ts `prepareSpawnConfig`, which records the file as ppt-authored
- * (so it's removed, not preserved, when the last agent there exits) and leaves
- * a directory that already has a config or live agents to their leases.
- */
-function ensurePermissiveConfig(agentCwd: string): void {
-  prepareSpawnConfig(agentCwd);
 }

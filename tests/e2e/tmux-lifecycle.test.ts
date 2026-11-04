@@ -17,7 +17,9 @@
  *     and never hands them (or dismisses) to a leader — it is the only realizer;
  *   - a dismiss closes the teammate's window once it has exited;
  *   - a teammate reset goes to the teammate itself (nothing typed into its window),
- *     except for a teammate too old to poll for it, which the leader still resets;
+ *     and a teammate too old to poll for it is refused at registration;
+ *   - the leader's slash commands' daemon calls: a named spawn (/ppt-spawn <name>)
+ *     and focusing a teammate's window (/ppt-hop, POST /api/agents/:id/focus);
  *   - /health names the tmux server the daemon talks to — the sandbox's own,
  *     resolved from TMUX_TMPDIR like the user's default server.
  *
@@ -30,7 +32,7 @@ import * as path from "node:path";
 import { test } from "node:test";
 import { assertEquals, assertStringIncludes } from "../_assert.ts";
 import { hasTmux, sandbox, type Sandbox } from "./_sandbox.ts";
-import { PROTOCOL_VERSION, SELF_RESET_PROTOCOL_VERSION } from "../../shared/protocol.ts";
+import { MIN_PROTOCOL_VERSION, PROTOCOL_VERSION } from "../../shared/protocol.ts";
 
 /**
  * Stand-in agent commands. Each prints a marker that only *execution* can produce —
@@ -204,19 +206,70 @@ test("a teammate reset goes to the teammate itself — nothing is typed into its
   assertEquals((await windows(sb)).includes(name), true, "and its window left alone");
 });
 
-test("a teammate too old to reset itself still gets the leader's reset-session, untouched by the daemon", { skip: !hasTmux() }, async () => {
-  // Kept until the leader stops realizing it: the skew banner's Restart is aimed at
-  // exactly these agents, and they never poll their own directives.
+test("a teammate too old to reset itself is refused at registration, not left for a leader", { skip: !hasTmux() }, async () => {
+  // A v5 teammate never polls its own directives, and the leader that used to type
+  // `/new` into its window no longer touches tmux — so its reset would silently do
+  // nothing. MIN_PROTOCOL_VERSION refuses it instead, with the fix.
   await using sb = await sandbox("spawn-reset-legacy");
   sb.writeTeamConfig({ minTeammates: 0, harnesses: HARNESSES });
   await sb.startDaemon();
 
-  await api(sb, "/api/agents/register", { id: "t1", name: "swift-ripley", directory: sb.projectDir, protocolVersion: SELF_RESET_PROTOCOL_VERSION - 1 });
-  await api(sb, "/api/agents/t1/directives", { action: "new-session" });
+  const res = await fetch(`http://127.0.0.1:${sb.port}/api/agents/register`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id: "t1", name: "swift-ripley", directory: sb.projectDir, protocolVersion: MIN_PROTOCOL_VERSION - 1 }),
+  });
+  assertEquals(res.status, 409);
+  assertStringIncludes(((await res.json()) as { error: string }).error, "Restart the agent");
+});
 
-  await new Promise((r) => setTimeout(r, 4500));
-  const pending = await api<{ directives: Array<{ action: string }> }>(sb, "/api/leader/directives", undefined, "GET");
-  assertEquals(pending.directives.map((d) => d.action), ["reset-session"], "must still be pending for the leader");
+// ─── The leader's slash commands, through the daemon ──────────────────
+//
+// The Pi leader no longer runs tmux (harnesses/pi/tests/structure.test.mjs keeps it
+// that way): /ppt-spawn is a spawn directive, /ppt-hop is POST /api/agents/:id/focus.
+// These drive the same daemon calls against real tmux.
+
+test("a spawn with a given name (/ppt-spawn <name>) opens a window with that name", { skip: !hasTmux() }, async () => {
+  await using sb = await sandbox("spawn-named");
+  sb.writeTeamConfig({ minTeammates: 0, harnesses: HARNESSES });
+  await sb.startDaemon();
+
+  const created = await api<{ directive: { id: string; params: { name: string } } }>(
+    sb, "/api/leader/directives", { action: "spawn", params: { name: "bold-uhura", cwd: sb.projectDir } },
+  );
+  assertEquals(created.directive.params.name, "bold-uhura");
+  assertEquals(await sb.waitFor(async () => (await pane(sb, "bold-uhura")).includes("SPAWNED-42 name=bold-uhura"), 8000), true,
+    `no window for bold-uhura; windows: ${await windows(sb)}`);
+  // What /ppt-spawn waits on: the directive leaves the pending list without failing.
+  const spawns = await api<{ requests: Array<{ id: string }>; failed: Array<{ id: string }> }>(sb, "/api/spawn-requests", undefined, "GET");
+  assertEquals(spawns.requests.some((r) => r.id === created.directive.id), false);
+  assertEquals(spawns.failed.some((f) => f.id === created.directive.id), false);
+});
+
+test("focusing a teammate (/ppt-hop) selects its window; an unknown window is a 409 with the reason", { skip: !hasTmux() }, async () => {
+  await using sb = await sandbox("focus");
+  sb.writeTeamConfig({ minTeammates: 0, harnesses: HARNESSES });
+  await sb.startDaemon();
+
+  // Two teammate windows, so selecting one is observable.
+  for (const name of ["kind-sulu", "calm-data"]) {
+    await api(sb, "/api/leader/directives", { action: "spawn", params: { name, cwd: sb.projectDir } });
+    assertEquals(await sb.waitFor(async () => (await windows(sb)).includes(name), 8000), true, `no window for ${name}`);
+  }
+  await api(sb, "/api/agents/register", {
+    id: "t1", name: "kind-sulu", protocolVersion: PROTOCOL_VERSION, metadata: { tmuxSession: sb.session, tmuxWindow: "kind-sulu" },
+  });
+  const current = async () => (await sb.tmux("display-message", "-p", "-t", sb.session, "#{window_name}")).stdout.trim();
+  assertEquals(await current(), "calm-data", "the newest window is current before the hop");
+
+  const res = await fetch(`http://127.0.0.1:${sb.port}/api/agents/t1/focus`, { method: "POST" });
+  assertEquals(res.status, 200);
+  assertEquals(await current(), "kind-sulu");
+
+  // A registered agent whose window is gone: the reason, not a silent success.
+  await api(sb, "/api/agents/register", { id: "t2", name: "lost-worf", protocolVersion: PROTOCOL_VERSION, metadata: {} });
+  const missing = await fetch(`http://127.0.0.1:${sb.port}/api/agents/t2/focus`, { method: "POST" });
+  assertEquals(missing.status, 409);
+  assertStringIncludes(((await missing.json()) as { error: string }).error, `no tmux window ${sb.session}:lost-worf`);
 });
 
 test("/health names the daemon's tmux server: the user's default one, under TMUX_TMPDIR", { skip: !hasTmux() }, async () => {

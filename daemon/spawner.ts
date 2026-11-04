@@ -33,6 +33,7 @@ import {
   listWindows,
   realTmux,
   renderTemplate,
+  selectWindow,
   sendControl,
   spawnWindow,
   type TmuxExec,
@@ -170,13 +171,48 @@ export function dismissParams(
   config: Pick<TeamConfig, "tmuxSession">,
   now = Date.now(),
 ): DismissParams | null {
+  const { session, window } = memberWindow(member, config);
+  if (!window || window === LEADER_WINDOW) return null;
+  return { memberId: member.id, name: window, tmuxSession: session, deadline: now + DISMISS_WAIT_MS };
+}
+
+/**
+ * The tmux session and window a member lives in: its registration metadata (the
+ * `--ppt-tmux-*` values spawn passed it, reported back verbatim), else its name in
+ * the configured session — spawned windows are named after the teammate. The
+ * harness never reads these values; only the daemon does.
+ */
+export function memberWindow(
+  member: { name: string; metadata?: Record<string, unknown> },
+  config: Pick<TeamConfig, "tmuxSession">,
+): { session: string; window: string } {
   const meta = member.metadata ?? {};
   const window = typeof meta.tmuxWindow === "string" && meta.tmuxWindow ? meta.tmuxWindow : member.name;
   const session = typeof meta.tmuxSession === "string" && meta.tmuxSession
     ? meta.tmuxSession
     : config.tmuxSession || "mpt";
-  if (!window || window === LEADER_WINDOW) return null;
-  return { memberId: member.id, name: window, tmuxSession: session, deadline: now + DISMISS_WAIT_MS };
+  return { session, window };
+}
+
+/**
+ * Bring a member's window to the front of its tmux session (`/ppt-hop`,
+ * POST /api/agents/:id/focus). The daemon does it because it is the only thing
+ * that touches tmux (docs/DESIGN.md "The Daemon Is the Supervisor"); the leader
+ * just asks. Returns an error message when the window can't be selected (no such
+ * window, a name tmux can't take, or tmux unreachable), else null.
+ */
+export function focusMember(
+  member: { name: string; metadata?: Record<string, unknown> },
+  config: Pick<TeamConfig, "tmuxSession">,
+  exec: TmuxExec = realTmux,
+): string | null {
+  const { session, window } = memberWindow(member, config);
+  try {
+    if (selectWindow(session, window, exec)) return null;
+  } catch (e) {
+    return (e as Error).message; // assertSafeName: a name tmux can't be given safely
+  }
+  return `no tmux window ${session}:${window}`;
 }
 
 /**
@@ -225,12 +261,10 @@ export function capabilityError(capability: SpawnCapability): string | null {
  * `spawn` and `dismiss` are tmux work and are the daemon's alone: when tmux is
  * unreachable (`deps.tmux`) they are failed with its reason and fix, never left
  * pending — nothing else will realize them. A teammate reset isn't tmux work at
- * all: it is a `new-session` the teammate realizes itself. The legacy
- * `reset-session` (only for a teammate too old to reset itself) is *left alone*:
- * it types `/new` into an agent's window, which is harness-specific behaviour
- * (Pi's command), and the leader does it. Moving it here
- * would mean the daemon knowing each harness's slash commands — the coupling DESIGN.md "The Daemon Is the Supervisor"
- * removes, reintroduced.
+ * all: it is a `new-session` the teammate realizes itself. Any other action is
+ * *left alone* — in particular nothing here types a harness's slash commands
+ * into a window, which would mean the daemon knowing each harness's commands
+ * (the coupling DESIGN.md "The Daemon Is the Supervisor" removes).
  *
  * Returns what happened, for logging and tests.
  */

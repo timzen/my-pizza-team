@@ -81,12 +81,12 @@ export default function (pi: ExtensionAPI) {
     default: "",
   });
 
-  // Set by the leader when spawning an agent, so the agent can report its own
-  // tmux window/session back to the daemon as opaque metadata (used to deliver
-  // control intents like session reset). `mpt lead` passes them to the leader too,
-  // so the daemon can address its window.
-  pi.registerFlag("ppt-tmux-window", { description: "tmux window name (set by leader on spawn)", type: "string", default: "" });
-  pi.registerFlag("ppt-tmux-session", { description: "tmux session name (set by leader on spawn)", type: "string", default: "" });
+  // Set by the daemon when it spawns an agent (and by `mpt lead` for the leader),
+  // so the agent can report its own tmux window/session back as opaque metadata:
+  // the daemon uses it to address the window (dismiss, /ppt-hop). The harness only
+  // relays these values — it never interprets them or runs tmux.
+  pi.registerFlag("ppt-tmux-window", { description: "tmux window name (set by the daemon on spawn)", type: "string", default: "" });
+  pi.registerFlag("ppt-tmux-session", { description: "tmux session name (set by the daemon on spawn)", type: "string", default: "" });
 
   // ─── Session Start ─────────────────────────────────────────────────
 
@@ -181,9 +181,9 @@ export default function (pi: ExtensionAPI) {
 // ═══════════════════════════════════════════════════════════════════════
 
 /**
- * Read the tmux window/session the leader passed at spawn time and package it
- * as opaque registration metadata. The daemon stores it verbatim and hands it
- * back so the leader can deliver control intents (e.g. session reset).
+ * Read the tmux window/session the daemon passed at spawn time and package it
+ * as opaque registration metadata. The daemon stores it verbatim and uses it to
+ * address this agent's window (closing it on dismiss, focusing it for /ppt-hop).
  */
 function readTmuxMetadata(pi: ExtensionAPI): Record<string, unknown> {
   const metadata: Record<string, unknown> = {};

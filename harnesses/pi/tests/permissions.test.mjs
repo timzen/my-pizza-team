@@ -18,10 +18,6 @@ const indexSrc = fs.readFileSync(
   path.join(import.meta.dirname, "../src/index.ts"),
   "utf-8"
 );
-const leaderSrc = fs.readFileSync(
-  path.join(import.meta.dirname, "../src/leader.ts"),
-  "utf-8"
-);
 
 let passed = 0;
 let failed = 0;
@@ -75,9 +71,9 @@ test("both config variants name the link in authorizerChain", () => {
   assert.strictEqual(matches.length, 2, `expected 2 authorizerChain entries, got ${matches.length}`);
 });
 
-test("leader's spawn-time config goes through the lease module (names the link)", () => {
+test("spawn-time config goes through the lease module (names the link)", () => {
   // prepareSpawnConfig writes teammateConfig(true), which names the chain link.
-  assert.ok(leaderSrc.includes("prepareSpawnConfig(agentCwd)"));
+  assert.ok(src.includes("export function prepareSpawnConfig("));
   assert.ok(src.includes("teammateConfig(true)"));
 });
 

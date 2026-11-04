@@ -1,12 +1,12 @@
 /**
  * tests/leader-directives.test.ts — Tests for the leader directive queue.
  *
- * A directive is an ask: "do X about an agent" (spawn, dismiss, reset-session).
+ * A directive is an ask: "do X about an agent" (spawn, dismiss, new-session).
  * `spawn` and `dismiss` are the daemon's alone (daemon/spawner.ts), so GET never
  * hands them to a leader; a spawn the daemon can't realize fails on creation.
  * A teammate reset goes to the teammate itself (`new-session` on
- * /api/agents/:id/directives) unless the teammate is too old to poll for it,
- * when it is still a `reset-session` for the leader.
+ * /api/agents/:id/directives) — every agent the daemon serves polls for it.
+ * POST /api/agents/:id/focus (the leader's /ppt-hop) is pinned here too.
  * Verifies GET/POST/PUT on /api/leader/directives and POST /api/agents/:id/directives.
  *
  * The queue lost its host key in P1c-1: there is exactly one leader
@@ -16,7 +16,7 @@
 import { test } from "node:test";
 import { assertEquals } from "./_assert.ts";
 import { withTeam, post } from "./_team.ts";
-import { PROTOCOL_VERSION, SELF_RESET_PROTOCOL_VERSION } from "../shared/protocol.ts";
+import { MIN_PROTOCOL_VERSION, PROTOCOL_VERSION } from "../shared/protocol.ts";
 
 test("POST spawn directive generates a unique agent name in params", async () => {
   await withTeam({}, async ({ app }) => {
@@ -60,11 +60,14 @@ test("GET returns every pending leader directive, oldest first — never a spawn
   // guarantee is FIFO order — the leader must realize asks in the order made.
   await withTeam({}, async ({ app }) => {
     for (const id of ["a1", "a2", "a3"]) await post(app, "/api/agents/register", { id, name: id, metadata: {} });
-    await post(app, "/api/leader/directives", { action: "reset-session", memberId: "a1" });
+    // (An action nothing realizes yet — what's left once spawn, dismiss and resets
+    // are filtered out.)
+    await post(app, "/api/leader/directives", { action: "some-future-action", memberId: "a1" });
     await post(app, "/api/leader/directives", { action: "spawn", params: { reason: "daemon's" } });
     await post(app, "/api/leader/directives", { action: "dismiss", params: { name: "a2" } });
-    await post(app, "/api/leader/directives", { action: "reset-session", memberId: "a2" });
-    await post(app, "/api/leader/directives", { action: "reset-session", memberId: "a3" });
+    await post(app, "/api/leader/directives", { action: "reset-session", memberId: "a2" }); // → a2's own queue
+    await post(app, "/api/leader/directives", { action: "some-future-action", memberId: "a2" });
+    await post(app, "/api/leader/directives", { action: "some-future-action", memberId: "a3" });
 
     const res = await app.request("/api/leader/directives");
     const body = await res.json();
@@ -97,17 +100,16 @@ test("an unconfigured harness fails its spawn on creation too; the default harne
   });
 });
 
-test("a legacy reset-session (an agent too old to reset itself) resolves target member metadata", async () => {
+test("a member-targeted directive resolves the target member's metadata", async () => {
   await withTeam({}, async ({ app }) => {
-    // Register a pre-handshake agent (no protocolVersion) with opaque metadata (its tmux window).
+    // Register an agent with opaque metadata (its tmux window).
     await post(app, "/api/agents/register", { id: "a1", name: "neo", metadata: { tmuxWindow: "win1" } });
-    // Create a reset directive targeting that member.
-    const res = await post(app, "/api/leader/directives", { action: "reset-session", memberId: "a1" });
+    const res = await post(app, "/api/leader/directives", { action: "some-future-action", memberId: "a1" });
     assertEquals(res.status, 201);
 
     const list = await (await app.request("/api/leader/directives")).json();
     assertEquals(list.directives.length, 1);
-    assertEquals(list.directives[0].action, "reset-session");
+    assertEquals(list.directives[0].action, "some-future-action");
     assertEquals(list.directives[0].memberId, "a1");
     assertEquals(list.directives[0].metadata.tmuxWindow, "win1"); // resolved, opaque
   });
@@ -196,7 +198,7 @@ test("a teammate reset goes to the teammate itself as `new-session`, not to the 
 
 test("an older client's reset-session POST is translated to the teammate's own ask", async () => {
   await withTeam({}, async ({ app, store }) => {
-    await post(app, "/api/agents/register", { id: "t1", name: "neo", protocolVersion: SELF_RESET_PROTOCOL_VERSION, metadata: {} });
+    await post(app, "/api/agents/register", { id: "t1", name: "neo", protocolVersion: MIN_PROTOCOL_VERSION, metadata: {} });
     const res = await post(app, "/api/leader/directives", { action: "reset-session", memberId: "t1" });
     assertEquals(res.status, 201);
     assertEquals((await res.json()).directive.action, "new-session");
@@ -205,15 +207,22 @@ test("an older client's reset-session POST is translated to the teammate's own a
   });
 });
 
-test("a teammate older than SELF_RESET_PROTOCOL_VERSION still gets the leader's reset-session", async () => {
-  // It never polls its own directives, so a new-session would silently do nothing —
-  // and the skew banner's Restart is aimed at exactly these agents.
+test("a reset is never a leader-realized `reset-session` any more, whatever the agent", async () => {
+  // Nothing types `/new` into a window now (the leader doesn't touch tmux), so even
+  // a pre-handshake agent gets the self-directive rather than an ask no one realizes.
   await withTeam({}, async ({ app, store }) => {
-    await post(app, "/api/agents/register", { id: "old", name: "old-neo", protocolVersion: SELF_RESET_PROTOCOL_VERSION - 1, metadata: { tmuxWindow: "old-neo" } });
+    await post(app, "/api/agents/register", { id: "old", name: "old-neo", metadata: { tmuxWindow: "old-neo" } });
     const res = await post(app, "/api/agents/old/directives", { action: "new-session" });
-    assertEquals((await res.json()).directive.action, "reset-session");
-    assertEquals(store.getMemberDirectives("old"), []);
-    assertEquals(store.getLeaderDirectives().filter((d) => d.memberId).map((d) => [d.action, d.memberId]), [["reset-session", "old"]]);
+    assertEquals((await res.json()).directive.action, "new-session");
+    assertEquals(store.getLeaderDirectives().filter((d) => d.memberId), []);
+  });
+});
+
+test("POST /api/agents/:id/focus: 404 for an unknown agent", async () => {
+  // A known agent's window is selected by the daemon's tmux (focusMember, covered in
+  // tests/spawner.test.ts with a fake tmux and in tests/e2e/tmux-lifecycle.test.ts).
+  await withTeam({}, async ({ app }) => {
+    assertEquals((await post(app, "/api/agents/ghost/focus", {})).status, 404);
   });
 });
 

@@ -10,9 +10,10 @@
  *     heartbeat answer `dismissed`, and the "it has gone" signals the spawner
  *     waits on before closing its tmux window;
  *   - the reaper (`reapOfflineAgents`);
- *   - leader directives (the daemon spawner's — and, for a legacy `reset-session`,
- *     the leader's — queue), with daemon-assigned spawn names, and whether this
- *     daemon can realize spawns at all (a spawn it can't is failed on creation);
+ *   - leader directives (the daemon spawner's queue — despite the name, no
+ *     leader realizes them any more), with daemon-assigned spawn names, and
+ *     whether this daemon can realize spawns at all (a spawn it can't is failed
+ *     on creation);
  *   - agent self-directives (`new-session`, `resume-session`), including a
  *     teammate reset (`resetMemberSession`), which the target agent realizes;
  *   - the teammate pool (`minTeammates`) and its reconciler.
@@ -31,7 +32,6 @@ import {
   type WorkItemState,
 } from "../../shared/types.ts";
 import { normalizeDirectory } from "../../shared/directory.ts";
-import { SELF_RESET_PROTOCOL_VERSION } from "../../shared/protocol.ts";
 import { capabilityError, harnessCapability, type SpawnCapability } from "../spawner.ts";
 import type { StoreDomainContext } from "./domain.ts";
 
@@ -461,29 +461,24 @@ export class MemberStore {
    * The ask goes to the agent itself as a `new-session` self-directive, which it
    * realizes in-process (Pi: `ctx.newSession()`; `mpt agent`: a fresh ACP
    * session) — the daemon says *what*, never which keys to press (docs/DESIGN.md
-   * "Leader Directives"). Two kinds of agent poll for it: the leader (its chat
-   * mirror always has) and any agent speaking SELF_RESET_PROTOCOL_VERSION or
-   * later. An older teammate never polls, so it still gets the legacy
-   * `reset-session` leader directive the leader realizes — otherwise the Restart
-   * that the skew banner offers would silently do nothing to exactly the agents
-   * it is for.
+   * "Leader Directives"). Every agent the daemon serves polls for it: the floor,
+   * MIN_PROTOCOL_VERSION 6, is the version that made teammates do so. (Until the
+   * leader stopped touching tmux, an older teammate got a `reset-session` the
+   * leader realized by typing `/new` into its window; nothing realizes that now.)
    */
   resetMemberSession(memberId: string): LeaderDirective | null {
     const member = this.getMember(memberId);
     if (!member) return null;
-    const selfServe = member.name.includes(LEADER_MEMBER_NAME)
-      || (member.protocolVersion ?? 0) >= SELF_RESET_PROTOCOL_VERSION;
-    return this.createLeaderDirective(selfServe ? "new-session" : "reset-session", { memberId });
+    return this.createLeaderDirective("new-session", { memberId });
   }
 
   /**
-   * Pending directives for a host's *leader*, oldest first, each resolved with
-   * target metadata. Self-handled actions are excluded: the leader realizes
-   * intents by driving tmux, but a `new-session`/`resume-session` ask has to be
-   * executed *inside* the target agent (`ctx.newSession()` / `ctx.switchSession()`),
-   * so the agent polls those itself via `getMemberDirectives`. Without this
-   * filter the leader would consume and complete them, and the agent would never
-   * see them. See docs/DESIGN.md "Assistant Chat Model".
+   * Pending directives in the leader-directive queue, oldest first, each resolved
+   * with target metadata — the daemon spawner's work list (`spawn`, `dismiss`).
+   * Self-handled actions are excluded: a `new-session`/`resume-session` ask has
+   * to be executed *inside* the target agent (`ctx.newSession()` /
+   * `ctx.switchSession()`), so the agent polls those itself via
+   * `getMemberDirectives`. See docs/DESIGN.md "Assistant Chat Model".
    */
   getLeaderDirectives(): LeaderDirective[] {
     const rows = this.db.prepare("SELECT * FROM leader_directives WHERE status = 'pending' ORDER BY created_at ASC").all() as Array<Record<string, unknown>>;

@@ -383,6 +383,16 @@ export class DaemonClient {
   }
 
   /**
+   * Bring another agent's tmux window to the front (the leader's /ppt-hop). The
+   * daemon selects the window — a harness never runs tmux itself (docs/DESIGN.md
+   * "The Daemon Is the Supervisor"). Throws a DaemonError with the reason when it
+   * can't (unknown agent, no such window, tmux unreachable).
+   */
+  async focusAgent(agentId: string): Promise<{ success: boolean }> {
+    return this.post<{ success: boolean }>(`/api/agents/${encodeURIComponent(agentId)}/focus`, {});
+  }
+
+  /**
    * Send a heartbeat to the daemon.
    *
    * Called periodically (e.g., every 30s) to confirm the agent is alive.
@@ -551,9 +561,9 @@ export class DaemonClient {
   // ═══════════════════════════════════════════════════════════════════
 
   /**
-   * Poll this host's leader directives — the single queue of asks (spawn,
-   * reset-session, ...). Each directive carries its action, params, and the
-   * target member's opaque metadata (e.g. tmux window) so the leader can act.
+   * Pending leader directives the daemon hands out. Since the daemon realizes
+   * `spawn` and `dismiss` itself and resets go to the agent, a current leader has
+   * nothing to poll here; kept for the protocol's sake.
    */
   async getLeaderDirectives(): Promise<LeaderDirectivesResponse> {
     return this.get<LeaderDirectivesResponse>("/api/leader/directives");
@@ -568,6 +578,17 @@ export class DaemonClient {
       "/api/leader/directives",
       { action, memberId: opts?.memberId, params: opts?.params }
     );
+  }
+
+  /**
+   * Spawn requests the daemon hasn't realized yet, and the ones it failed (with
+   * the reason), so a caller that asked for a spawn can tell how it went.
+   */
+  async getSpawnRequests(): Promise<{
+    requests: Array<{ id: string; name: string | null; cwd: string | null; createdAt: string }>;
+    failed: Array<{ id: string; name: string | null; cwd: string | null; error: string | null; at: string }>;
+  }> {
+    return this.get("/api/spawn-requests");
   }
 
   /** Mark a directive complete once the leader has realized it. */

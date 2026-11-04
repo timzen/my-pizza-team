@@ -2,13 +2,13 @@
 
 Because the industry has "two pizza teams" and "one pizza teams", but we're a **π pizza team** (3.14 pizzas, the perfect size).
 
-A [Pi](https://pi.mariozechner.at/) extension for multi-agent task orchestration. Connects to the [my-pizza-team daemon](https://github.com/timzen/my-pizza-team) for state management and coordinates teammates via tmux.
+A [Pi](https://pi.mariozechner.at/) extension for multi-agent task orchestration. Connects to the [my-pizza-team daemon](https://github.com/timzen/my-pizza-team) for state management; the daemon runs each teammate in its own tmux window.
 
 ## What It Does
 
-- **Team Lead Pi** — connects to the daemon, polls its leader directives, manages tmux windows
+- **Team Lead Pi** — connects to the daemon and asks it to spawn, dismiss, and focus teammates (it never runs tmux itself — the daemon does)
 - **Teammate Pis** — poll the daemon for tasks, execute autonomously, report back
-- **Leader Pi** — manages tmux *and* chats with you live (web UI *or* its own terminal — same conversation)
+- **Leader Pi** — also chats with you live (web UI *or* its own terminal — same conversation)
 - **You (the Mentor)** — review work via the daemon's web UI, or hop into any teammate's window to pair
 
 ## Install
@@ -37,7 +37,7 @@ pi
 # Or explicit leader mode with custom daemon URL:
 pi --ppt-lead --ppt-daemon=http://localhost:7438
 
-# Spawn a teammate (usually done by the leader via /ppt-spawn):
+# A teammate (usually started by the daemon — the Team tab, or the leader's /ppt-spawn):
 pi --ppt-worker --ppt-daemon=http://localhost:7437 --ppt-name=swift-ripley
 
 # The leader IS the chat agent — nothing extra to run.
@@ -61,8 +61,8 @@ The extension detects which role to activate:
 | `--ppt-assistant` | boolean | false | **Retired** — the leader answers the chat; kept so old spawn commands don't crash |
 | `--ppt-daemon` | string | `http://localhost:7437` | Daemon URL |
 | `--ppt-name` | string | (auto-generated) | Agent name |
-| `--ppt-tmux-session` | string | (set by leader) | tmux session the agent runs in (reported as metadata) |
-| `--ppt-tmux-window` | string | (set by leader) | tmux window the agent runs in (reported as metadata) |
+| `--ppt-tmux-session` | string | (set by the daemon) | tmux session the agent runs in (reported as opaque metadata; only the daemon reads it) |
+| `--ppt-tmux-window` | string | (set by the daemon) | tmux window the agent runs in (reported as opaque metadata; only the daemon reads it) |
 | `--ppt-readiness-probe` | string | (none) | **Leader only.** Host readiness probe command (highest-priority override); exit 0 = ready, non-zero = not ready (stdout's first line is the reason). Also settable via the `PPT_READINESS_PROBE` env var or — the recommended way — via the daemon's **Config page** (`readinessProbe` in config.json, with optional per-host override at `hosts[hostId].readinessProbe`). A not-ready host makes the daemon **hold** scheduled work destined for it instead of failing it (e.g. while `mwinit` credentials are expired), firing it once on recovery. No probe = always ready. |
 
 ### Work selection: directory affinity
@@ -92,10 +92,10 @@ pi --ppt-worker
 | Command | Description |
 |---------|-------------|
 | `/ppt-help` | Shows setup instructions (install mpt, run `mpt start`) |
-| `/ppt-spawn [name] [cwd]` | Spawn a teammate in a tmux window |
-| `/ppt-dismiss <name>` | Stop a teammate (via the daemon, like the UI's dismiss; its window closes once it exits) |
-| `/ppt-hop <name>` | Jump to teammate's tmux window |
-| `/ppt-status` | Quick status summary from daemon |
+| `/ppt-spawn [name] [cwd]` | Ask the daemon to spawn a teammate (in its own tmux window); reports the name, or why the spawn failed |
+| `/ppt-dismiss <name>` | Stop a registered teammate (via the daemon, like the UI's dismiss; its window closes once it exits) |
+| `/ppt-hop <name>` | Jump to a teammate's tmux window (the daemon selects it) |
+| `/ppt-status` | Quick status summary from the daemon, with its teammates |
 | `/ppt-browse` | Show recently used directories for spawning |
 
 ### Teammate
@@ -207,19 +207,16 @@ tool, and nothing to spawn. See
 [docs/DESIGN.md "Assistant Chat Model"](../../docs/DESIGN.md#assistant-chat-model-a-mirror-of-the-pi-session).
 
 
-## Multi-Harness Spawning
+## Spawning
 
-The leader supports spawning agents with different harness types:
+The **daemon** spawns every teammate: it opens a tmux window and types the
+harness's `teammate` start command from the team config (`harnesses`, with built-in
+defaults), passing `--ppt-tmux-session`/`--ppt-tmux-window` so the agent can report
+where it lives. The extension holds no templates and runs no tmux — `/ppt-spawn`
+just creates the daemon's `spawn` directive. See the daemon's
+[docs/DESIGN.md "The Daemon Is the Supervisor"](../../docs/DESIGN.md).
 
-| Harness | Command Template |
-|---------|-----------------|
-| `pi` (default) | `pi --ppt-worker --ppt-daemon={url} --ppt-name={name}` |
-| `claude-code` | `mpt-claude-runner --name={name} --daemon={url} --cwd={cwd}` |
-| `codex` | `mpt-codex-runner --name={name} --daemon={url} --cwd={cwd}` |
-
-Custom templates can be configured via the daemon's `harnessCommands` config field.
-
-Every spawn is a **teammate**: the chat is answered by the leader itself, so there is no assistant to spawn (and no `pi-assistant` template). Identity stays daemon-owned — the daemon generates the name and `{name}` is threaded from the directive, which keeps the tmux window, the registered agent name, and the MPT web UI label consistent.
+Every spawn is a **teammate**: the chat is answered by the leader itself, so there is no assistant to spawn (and no `pi-assistant` template). Identity stays daemon-owned — the daemon generates the name (unless `/ppt-spawn` was given one), which keeps the tmux window, the registered agent name, and the MPT web UI label consistent.
 
 ## Workflow
 
@@ -244,7 +241,7 @@ This extension is a **thin daemon client** (v0.2.0). It owns no state:
 ```
 src/
 ├── index.ts          Entry point: flag registration, role detection, wiring
-├── leader.ts         Leader: tmux management, spawn polling, slash commands
+├── leader.ts         Leader: registration, slash commands (daemon calls), the chat
 ├── teammate.ts       TeammateLoop: autonomous work loop (fresh session per work item)
 ├── chat.ts           ChatMirror: mirrors the daemon chat ⇄ the leader's Pi session
 ├── session-transcript.ts  attachTranscriptMirror / deliverWebMessage: the one wiring, shared by teammate and leader
