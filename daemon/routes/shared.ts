@@ -66,9 +66,13 @@ export function registerSharedRoutes(ctx: RouteContext): void {
       // The team's readiness when it is *not* ready (e.g. expired credentials),
       // else null. While not ready, scheduled work is held (not failed).
       notReady: store.getTeamReadiness()?.ready === false ? store.getTeamReadiness() : null,
-      // Which path realizes spawns (P3-1), so `mpt doctor` can say rather than the
-      // user discovering that nothing spawns.
+      // Whether the daemon can realize spawns (it is the only realizer), so
+      // `mpt doctor` and the Team tab can say why not rather than the user
+      // discovering that nothing spawns.
       spawning: store.getSpawnCapability(),
+      // The tmux server the daemon's windows open on, so `mpt doctor` can check
+      // it is the one the user attaches to (`tmux attach -t <tmuxSession>`).
+      tmuxSocket: store.getTmuxSocket(),
     });
   });
 

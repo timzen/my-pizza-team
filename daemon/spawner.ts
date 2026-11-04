@@ -7,13 +7,16 @@
  * connected. With the daemon doing it, a harness is a config entry and a teammate
  * needs no in-process code at all (Tier 0, DESIGN.md "Harness Tiers, and Why Not MCP").
  *
- * **The leader path is kept as a fallback, deliberately.** The daemon can only drive
- * tmux if it can reach it, and that is not guaranteed: started by `mpt start` it
- * inherits the user's environment, but under launchd/systemd it may have no `tmux` on
- * PATH and may see a different tmux server than the interactive one. So the daemon
- * probes once at startup; if it cannot spawn, directives stay `pending` and the
- * leader realizes them exactly as before. `mpt doctor` reports which path is live, so
- * this is a visible fact rather than spawns mysteriously not happening.
+ * **The daemon is the only realizer.** There used to be a fallback: when the daemon
+ * couldn't reach tmux (under launchd/systemd it may have no `tmux` on PATH, or see a
+ * different tmux server), directives stayed `pending` and the leader realized them
+ * with its own copy of the tmux code. That kept two places touching the terminal
+ * multiplexer. Now a spawn the daemon can't realize is marked `failed` with the
+ * capability's reason and fix — shown in the Team tab like any failed spawn — and a
+ * dismiss's window close is failed the same way (the tombstone still makes the agent
+ * exit). `mpt doctor` reports the capability, and the tmux server the daemon talks to,
+ * so "nothing spawns" is always a visible, fixable fact (docs/DESIGN.md "The Daemon
+ * Is the Supervisor").
  */
 
 import * as fs from "node:fs";
@@ -66,7 +69,7 @@ export function probeTmuxCapability(exec: TmuxExec = realTmux): SpawnCapability 
     return {
       canSpawn: false,
       reason: "tmux is not on this process's PATH",
-      fix: "install tmux, or start the daemon from a shell that has it (a leader will spawn teammates meanwhile)",
+      fix: "install tmux, or restart the daemon from a shell that has it on PATH (`mpt stop && mpt start`; for the login service, `mpt install` again from that shell)",
     };
   }
   if (reason === "not-permitted") {
@@ -83,9 +86,10 @@ export function probeTmuxCapability(exec: TmuxExec = realTmux): SpawnCapability 
  * Does the config name a default harness the daemon may spawn?
  *
  * Unlike tmux reachability this is a property of config, which `PUT /api/config`
- * changes live (Config → Teammates), so the daemon re-checks it every spawn pass
- * rather than only at startup — otherwise a team started with an inconsistent
- * config would stay leader-driven until a restart even after it was fixed.
+ * changes live (Config → Teammates), so it is re-checked on every use (the Store's
+ * `getSpawnCapability`) rather than only at startup — otherwise a team started with
+ * an inconsistent config would stay unable to spawn until a restart even after it
+ * was fixed.
  */
 export function harnessCapability(config: TeamConfig): SpawnCapability {
   const harness = config.defaultHarness ?? DEFAULT_HARNESS;
@@ -178,8 +182,6 @@ export function dismissParams(
 /**
  * Is a dismiss directive ready to act on — its agent has exited, or its deadline has
  * passed? A directive without a member or deadline (one asked for directly) always is.
- * Shared with the leader-directives route, which holds dismissals back from a
- * leader-realized fallback until the same moment.
  */
 export function dismissReady(
   directive: Pick<SpawnableDirective, "params">,
@@ -204,12 +206,25 @@ export interface RealizeDeps {
   now?: () => number;
   /** Dismiss interrupts in flight; injectable so tests don't share module state. */
   interrupts?: Map<string, number>;
+  /**
+   * Can this process reach tmux (`probeTmuxCapability`, probed once at startup)?
+   * When it can't, every pending spawn and dismiss is failed with the reason and
+   * fix rather than left for anyone else. Absent = reachable.
+   */
+  tmux?: SpawnCapability;
+}
+
+/** A capability failure as one line for a directive's `error`: the reason, then the fix. */
+export function capabilityError(capability: SpawnCapability): string | null {
+  return capability.canSpawn ? null : `${capability.reason} — fix: ${capability.fix}`;
 }
 
 /**
  * Realize every pending directive the daemon can handle.
  *
- * `spawn` and `dismiss` are tmux work and become the daemon's. `reset-session` is
+ * `spawn` and `dismiss` are tmux work and are the daemon's alone: when tmux is
+ * unreachable (`deps.tmux`) they are failed with its reason and fix, never left
+ * pending — nothing else will realize them. `reset-session` is
  * *left alone*: it types `/new` into an agent's window, which is harness-specific
  * behaviour (Pi's command), and the leader already does it correctly. Moving it here
  * would mean the daemon knowing each harness's slash commands — the coupling DESIGN.md "The Daemon Is the Supervisor"
@@ -225,9 +240,18 @@ export function realizePending(
   const realized: string[] = [];
   const failed: Array<{ id: string; error: string }> = [];
 
+  const unreachable = capabilityError(deps.tmux ?? { canSpawn: true });
+
   for (const directive of store.getLeaderDirectives()) {
     if (directive.action !== "spawn" && directive.action !== "dismiss") continue;
     try {
+      if (unreachable) {
+        // A dismissed agent still exits (its tombstone answers its next heartbeat);
+        // only closing its window needs tmux, so that is what fails.
+        throw new Error(directive.action === "spawn"
+          ? `could not spawn: ${unreachable}`
+          : `could not close the dismissed agent's window (the agent still exits): ${unreachable}`);
+      }
       if (directive.action === "spawn") realizeSpawn(directive, deps, exec, store);
       else if (realizeDismiss(directive, deps, exec, store) === "pending") continue;
       store.updateLeaderDirective(directive.id, "done");

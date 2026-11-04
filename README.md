@@ -654,9 +654,12 @@ versions — `mpt upgrade` moves both together.
 
 The **leader** is the Pi you chat with; `mpt lead` starts it. **Teammates** are
 started by the daemon in their own tmux windows and run an autonomous loop: poll →
-claim → execute → set state → repeat. If the daemon can't reach tmux (possible when
-it runs as a login service), the leader starts them instead; `mpt doctor` says which
-path is live.
+claim → execute → set state → repeat. The daemon is the only thing that opens and
+closes their windows: if it can't reach tmux (possible when it runs as a login
+service without your PATH), a spawn fails at once with the reason and a fix, shown
+in the Team tab, and `mpt doctor` fails its "Spawning" check. `mpt doctor` also
+warns when the daemon talks to a different tmux server than your shell (its windows
+would open where `tmux attach -t mpt` doesn't look).
 
 Recommended: `@gotgenes/pi-permission-system`, which lets teammates work
 autonomously. Without it they stop at the first permission prompt (the extension

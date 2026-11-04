@@ -5,9 +5,8 @@
  * Teaches").
  *
  *  - **Spawn a teammate** opens the dock's Spawn dialog — when a spawn would
- *    actually happen: the daemon can start one itself, or a leader is connected
- *    to (lib/empty-states.ts `spawnState`, from `/health` and the pool's
- *    `leaderPresent`). Otherwise it's disabled, and the reason — and the
+ *    actually happen: the daemon can start one (lib/empty-states.ts
+ *    `spawnState`, from `/health`). Otherwise it's disabled, and the reason — and the
  *    daemon's own fix — says why. A failing readiness probe is said too: a
  *    teammate would start, but get no work until it passes.
  *  - **How to start the leader** unfolds the one command (`mpt lead`) and what
@@ -33,7 +32,7 @@ export function TeamEmpty({ leaderPresent, onSpawn }: {
   onSpawn?: () => void;
 }) {
   const { data: health } = useApi<SpawnHealth>("/health", [], { pollInterval: 30_000 });
-  const spawn = spawnState(health, leaderPresent);
+  const spawn = spawnState(health);
   const reasonId = useId();
   const readinessId = useId();
 

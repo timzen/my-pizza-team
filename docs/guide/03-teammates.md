@@ -57,8 +57,8 @@ compacts, until its next reply). Both the gauge and the cost reset when the team
 starts a fresh session for its next run.
 
 With nobody online the tab says so, and how to change it: **Spawn a teammate** (when
-something can start one — the daemon itself, or a connected leader; otherwise it's
-greyed out and says why) and **How to start the leader**, which shows the command:
+the daemon can start one — it doesn't need the leader for that; otherwise it's
+greyed out and says why, with the fix) and **How to start the leader**, which shows the command:
 `mpt lead`. It also warns when the [readiness probe](08-configuration.md#readiness-probe)
 is failing — a new teammate would start but get no work until it passes.
 
@@ -119,7 +119,8 @@ Details:
   startup.
 - It's capped by **Max Teammates**, and it waits for the **leader** to be connected
   (`mpt lead`). Until one is, the dialog tells you so. The daemon starts the tmux
-  windows itself; if it can't reach tmux, the leader does.
+  windows itself; if it can't reach tmux, nothing spawns: the dialog and the Team tab
+  say why, with the fix, and `mpt doctor` reports it too.
 - Lowering the number never kills anyone: it just stops replacements. Dismissing a
   teammate stays your call (but with a non-zero minimum, expect a fresh one to take
   its place).
@@ -131,8 +132,8 @@ The **leader** isn't part of the pool: there is exactly one, and it's the agent 
 chat talks to.
 
 The Team tab also shows **pending spawns** (starting up) and **failed spawns** with
-the reason (e.g. a directory that doesn't exist) — dismiss a failed one once you've
-seen it.
+the reason (e.g. a directory that doesn't exist, or the daemon can't reach tmux —
+with the fix) — dismiss a failed one once you've seen it.
 
 ## Managing a teammate
 

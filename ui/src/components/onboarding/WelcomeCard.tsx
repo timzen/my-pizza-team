@@ -109,8 +109,6 @@ export function WelcomeCard({ phone = false }: { phone?: boolean }) {
   }
 
   const progress = welcomeProgress(data.steps);
-  const doneOf = (id: OnboardingStepId) => data.steps.some((s) => s.id === id && s.done);
-  const leaderPresent = doneOf("leaderOnline");
 
   return (
     <section ref={cardRef} aria-labelledby={headingId} aria-describedby={hintId} data-welcome-card="checklist" className="space-y-3 rounded-lg border border-border bg-card p-4">
@@ -153,7 +151,6 @@ export function WelcomeCard({ phone = false }: { phone?: boolean }) {
               done={step.done}
               next={isNext}
               phone={phone}
-              leaderPresent={leaderPresent}
               sampleTask={data.sampleTask}
               onCreated={() => { refetch(); focusHeading(); }}
             />
@@ -165,12 +162,11 @@ export function WelcomeCard({ phone = false }: { phone?: boolean }) {
 }
 
 /** One step: its state (icon and text), title, Learn more, and — while undone — its action. */
-function StepRow({ id, done, next, phone, leaderPresent, sampleTask, onCreated }: {
+function StepRow({ id, done, next, phone, sampleTask, onCreated }: {
   id: OnboardingStepId;
   done: boolean;
   next: boolean;
   phone: boolean;
-  leaderPresent: boolean;
   sampleTask: OnboardingSampleTask | null;
   onCreated: () => void;
 }) {
@@ -203,7 +199,7 @@ function StepRow({ id, done, next, phone, leaderPresent, sampleTask, onCreated }
       {!done && (next || !phone) && (
         <div className="mt-1 space-y-1.5 pl-6">
           {next && <p className="text-xs text-muted-foreground">{copy.text}</p>}
-          <StepAction id={id} phone={phone} leaderPresent={leaderPresent} sampleTask={sampleTask} onCreated={onCreated} />
+          <StepAction id={id} phone={phone} sampleTask={sampleTask} onCreated={onCreated} />
         </div>
       )}
     </li>
@@ -211,10 +207,9 @@ function StepRow({ id, done, next, phone, leaderPresent, sampleTask, onCreated }
 }
 
 /** What to do for one undone step. */
-function StepAction({ id, phone, leaderPresent, sampleTask, onCreated }: {
+function StepAction({ id, phone, sampleTask, onCreated }: {
   id: OnboardingStepId;
   phone: boolean;
-  leaderPresent: boolean;
   sampleTask: OnboardingSampleTask | null;
   onCreated: () => void;
 }) {
@@ -224,7 +219,7 @@ function StepAction({ id, phone, leaderPresent, sampleTask, onCreated }: {
     case "teammateOnline":
       return phone
         ? <p className="text-xs text-muted-foreground">Spawn one, or set a team size, from the desktop view.</p>
-        : <SpawnAction leaderPresent={leaderPresent} />;
+        : <SpawnAction />;
     case "firstTaskCreated":
       return <FirstTaskAction phone={phone} sampleTask={sampleTask} onCreated={onCreated} />;
     case "firstRunStarted":
@@ -267,10 +262,10 @@ function LeaderCommand() {
 }
 
 /** Spawn a teammate (its own Spawn dialog), or why it wouldn't happen yet. */
-function SpawnAction({ leaderPresent }: { leaderPresent: boolean }) {
+function SpawnAction() {
   const [open, setOpen] = useState(false);
   const { data: health } = useApi<SpawnHealth>("/health", [], { pollInterval: 30_000 });
-  const spawn = spawnState(health, leaderPresent);
+  const spawn = spawnState(health);
   const reasonId = useId();
   return (
     <div className="space-y-1">

@@ -145,22 +145,36 @@ test("dismissing the leader never queues a window close", async () => {
   });
 });
 
-test("the leader sees a dismiss only when the daemon can't drive tmux, and only once it's ready", async () => {
+test("the leader is never handed a dismiss — the daemon realizes it, or fails it", async () => {
   await withTeam({ tmuxSession: "team" }, async ({ app, store }) => {
     await register(app, "a1", "swift-ripley");
     await app.request("/api/agents/a1?dismiss=true", { method: "DELETE" });
     const forLeader = async () =>
       ((await (await app.request("/api/leader/directives")).json()).directives as Array<{ action: string }>)
-        .filter((d) => d.action === "dismiss");
+        .filter((d) => d.action === "dismiss" || d.action === "spawn");
 
-    store.setSpawnCapability({ canSpawn: true });
     assertEquals(await forLeader(), [], "the daemon's to realize");
-
-    store.setSpawnCapability({ canSpawn: false, reason: "no tmux" });
-    assertEquals(await forLeader(), [], "held back while the agent is still running");
-
+    store.setTmuxCapability({ canSpawn: false, reason: "no tmux", fix: "install tmux" });
     await heartbeat(app, "a1");
     await app.request("/api/agents/a1", { method: "DELETE" }); // deregisters on its way out
-    assertEquals((await forLeader()).length, 1);
+    assertEquals(await forLeader(), [], "even with tmux unreachable, there is no leader fallback");
+  });
+});
+
+test("with tmux unreachable, a dismiss's window close fails with the reason — the agent still exits", async () => {
+  await withTeam({ tmuxSession: "team" }, async ({ app, store }) => {
+    await register(app, "a1", "swift-ripley");
+    await app.request("/api/agents/a1?dismiss=true", { method: "DELETE" });
+    const { exec, calls } = fakeTmux(["swift-ripley"]);
+    const { failed } = realizePending(store, {
+      config: { ...TEST_CONFIG, tmuxSession: "team" }, daemonUrl: "http://x", fallbackCwd: process.cwd(),
+      exec, interrupts: new Map(), tmux: { canSpawn: false, reason: "tmux is not on this process's PATH", fix: "install tmux" },
+    });
+    assertEquals(failed.length, 1);
+    assertEquals(failed[0]!.error.includes("tmux is not on this process's PATH — fix: install tmux"), true);
+    assertEquals(calls, [], "tmux is never called");
+    assertEquals(dismissDirectives(store), []);
+    // The tombstone is what stops the agent; it doesn't need tmux.
+    assertEquals((await heartbeat(app, "a1")).dismissed, true);
   });
 });

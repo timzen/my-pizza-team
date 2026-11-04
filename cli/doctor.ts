@@ -36,7 +36,7 @@ import {
   type ExtensionRegistration,
 } from "./pi-config.ts";
 import { managedExtensionDir, readExtensionVersion, resolveExtensionSourceDir } from "./extension.ts";
-import { tmuxAvailable } from "../daemon/tmux.ts";
+import { tmuxAvailable, tmuxSocketPath } from "../daemon/tmux.ts";
 import { findPreCutoffLayout, type PreCutoffFinding } from "../daemon/layout-check.ts";
 import { MIN_UPGRADE_FROM_VERSION, PRE_CUTOFF_UPGRADE_MESSAGE } from "../shared/types.ts";
 import {
@@ -97,8 +97,16 @@ export interface DoctorFacts {
   projectTrusted: boolean;
   daemonRunning: boolean;
   leaderConnected: boolean | null;
-  /** Which path realizes spawns, as reported by the running daemon. */
+  /** Whether the daemon can realize spawns (it is the only realizer), as reported by the running daemon. */
   spawning: { canSpawn: boolean; reason?: string; fix?: string } | null;
+  /**
+   * The tmux server socket the running daemon talks to (`/health` `tmuxSocket`),
+   * and the one this CLI resolves (daemon/tmux.ts tmuxSocketPath). Absent/null =
+   * not known (daemon down or older, or tmux unreachable); the same-server check
+   * runs only when both are known.
+   */
+  daemonTmuxSocket?: string | null;
+  cliTmuxSocket?: string | null;
   serviceInstalled: boolean;
   /** Which Node runs mpt, and how that compares to the service and this process. Absent = not checked. */
   node?: NodeFacts;
@@ -272,9 +280,10 @@ export function evaluate(f: DoctorFacts): Check[] {
     checks.push({ name: "Daemon", status: "warn", detail: "not running", fix: "mpt start" });
   } else {
     checks.push({ name: "Daemon", status: "ok", detail: `running (v${f.daemonVersion})` });
-    // What a missing leader costs depends on who spawns. With daemon-driven spawning
-    // (P3-1) teammates still start without one; only the chat is unanswered. Saying
-    // "nothing will spawn" next to "spawning: daemon-driven" would be self-contradicting.
+    // What a missing leader costs depends on whether the daemon can spawn (it is the
+    // only thing that does). Saying "nothing will spawn" next to "Spawning:
+    // daemon-driven" would be self-contradicting; when it can't, the Spawning check
+    // below says so, with its own fix.
     const daemonSpawns = f.spawning?.canSpawn === true;
     checks.push(
       f.leaderConnected
@@ -283,26 +292,38 @@ export function evaluate(f: DoctorFacts): Check[] {
           name: "Leader",
           status: "warn",
           detail: daemonSpawns
-            ? "no leader connected — the chat is unanswered (teammates still spawn, daemon-driven)"
-            : "no leader connected — nothing will spawn teammates or answer the chat",
+            ? "no leader connected — the chat is unanswered and the team size waits for one (a one-off spawn still starts)"
+            : "no leader connected — the chat is unanswered",
           fix: "mpt lead (the leader is the agent you chat with)",
         },
     );
   }
 
-  // Which path spawns teammates. Both work; knowing which is live turns "nothing
-  // spawned" from a mystery into a fact.
+  // Spawning: the daemon realizes every spawn and dismiss, or none — there is no
+  // leader-driven fallback any more, so "can't" is an error with a fix, not a mode.
   if (f.daemonRunning && f.spawning) {
     checks.push(
       f.spawning.canSpawn
         ? { name: "Spawning", status: "ok", detail: "daemon-driven (it can reach tmux)" }
         : {
           name: "Spawning",
-          status: "warn",
-          detail: `leader-driven — the daemon can't reach tmux: ${f.spawning.reason ?? "unknown"}`,
-          fix: f.spawning.fix ?? "start the daemon from a shell that has tmux",
+          status: "fail",
+          detail: `the daemon can't spawn teammates: ${f.spawning.reason ?? "unknown"}`,
+          fix: f.spawning.fix ?? "restart the daemon from a shell that has tmux (mpt stop && mpt start)",
         },
     );
+  }
+
+  // Same tmux server: plain `tmux` means the user's default server, but which socket
+  // that is depends on the environment ($TMUX, $TMUX_TMPDIR, the uid). A daemon that
+  // resolves a different one opens its windows where `tmux attach -t mpt` never looks.
+  if (f.daemonRunning && f.daemonTmuxSocket && f.cliTmuxSocket && f.daemonTmuxSocket !== f.cliTmuxSocket) {
+    checks.push({
+      name: "tmux server",
+      status: "warn",
+      detail: `the daemon uses ${f.daemonTmuxSocket}, this shell uses ${f.cliTmuxSocket} — its windows open on a server you don't attach to`,
+      fix: `restart the daemon from this shell (mpt stop && mpt start; for the login service, mpt install) so they match, or attach with: tmux -S ${f.daemonTmuxSocket} attach`,
+    });
   }
 
   checks.push(
@@ -563,11 +584,13 @@ export async function gather(opts: GatherOptions): Promise<DoctorFacts> {
   let daemonRunning = false;
   let leaderConnected: boolean | null = null;
   let spawning: DoctorFacts["spawning"] = null;
+  let daemonTmuxSocket: string | null = null;
   try {
     const health = await fetch(`${opts.daemonUrl}/health`, { signal: AbortSignal.timeout(1500) });
     if (health.ok) {
-      const body = await health.json() as { spawning?: { canSpawn: boolean; reason?: string; fix?: string } };
+      const body = await health.json() as { spawning?: { canSpawn: boolean; reason?: string; fix?: string }; tmuxSocket?: string | null };
       spawning = body.spawning ?? null;
+      daemonTmuxSocket = body.tmuxSocket ?? null;
     }
   } catch { /* covered by the daemon check below */ }
   try {
@@ -609,6 +632,8 @@ export async function gather(opts: GatherOptions): Promise<DoctorFacts> {
     daemonRunning,
     leaderConnected,
     spawning,
+    daemonTmuxSocket,
+    cliTmuxSocket: daemonTmuxSocket ? tmuxSocketPath() : null,
     serviceInstalled: opts.serviceInstalled,
     node: gatherNodeFacts(opts.service ?? null),
     experimentalHarnesses: experimentalHarnessFacts(opts.teamDir),

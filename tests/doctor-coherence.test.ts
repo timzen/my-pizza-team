@@ -27,6 +27,7 @@ const DIMENSIONS = {
     { canSpawn: true },
     { canSpawn: false, reason: "tmux is not on this process's PATH", fix: "install tmux" },
   ],
+  tmuxSockets: ["same", "differ", "unknown"],
   registrationKind: [null, "managed", "dev", "legacy", "missing", "double"],
   permissionSystemInstalled: [true, false],
   projectTrusted: [true, false],
@@ -79,6 +80,8 @@ function toFacts(c: Combo): DoctorFacts | null {
     daemonRunning: c.daemonRunning,
     leaderConnected: c.leaderConnected,
     spawning: c.spawning as DoctorFacts["spawning"],
+    daemonTmuxSocket: c.tmuxSockets === "unknown" || !c.daemonRunning ? null : "/tmp/tmux-501/default",
+    cliTmuxSocket: c.tmuxSockets === "differ" ? "/sandbox/tmux-501/default" : "/tmp/tmux-501/default",
     serviceInstalled: true,
   };
 }
@@ -112,6 +115,8 @@ test("no two checks contradict each other about spawning", () => {
 
     const daemonSpawns = spawning.status === "ok" && spawning.detail.includes("daemon-driven");
     const claimsNothingSpawns = leader.detail.includes("nothing will spawn");
+    // And with no leader-driven fallback, a Leader check never implies a leader would spawn.
+    assertEquals(spawning.status !== "ok" && /spawn/.test(leader.detail), false, `leader check talks about spawning while the daemon can't: ${describe(combo)}`);
     assertEquals(
       daemonSpawns && claimsNothingSpawns,
       false,

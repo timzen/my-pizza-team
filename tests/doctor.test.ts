@@ -239,32 +239,48 @@ test("a stopped daemon warns, and the leader check is skipped", () => {
   assertEquals(checks.some((c) => c.name === "Leader"), false);
 });
 
-test("what a missing leader costs depends on who spawns", () => {
+test("what a missing leader costs depends on whether the daemon can spawn", () => {
   // Saying "nothing will spawn teammates" beside "Spawning: daemon-driven" would be
   // self-contradicting — and it was, until this was made conditional.
   const daemonSpawns = find(evaluate(healthy({ leaderConnected: false, spawning: { canSpawn: true } })), "Leader");
   assertEquals(daemonSpawns.status, "warn");
-  assertStringIncludes(daemonSpawns.detail, "teammates still spawn");
+  assertStringIncludes(daemonSpawns.detail, "a one-off spawn still starts");
 
-  const leaderSpawns = find(
+  // When it can't, the Spawning check says so (with its fix); the Leader check
+  // doesn't claim a leader would help — there is no leader-driven spawning.
+  const cannot = find(
     evaluate(healthy({ leaderConnected: false, spawning: { canSpawn: false, reason: "no tmux", fix: "install tmux" } })),
     "Leader",
   );
-  assertStringIncludes(leaderSpawns.detail, "nothing will spawn");
+  assertEquals(cannot.detail.includes("spawn"), false);
 });
 
-test("the spawning path is reported, and a daemon that can't reach tmux warns", () => {
-  // Both paths work — the leader realizes directives when the daemon can't. Saying
-  // which is live turns "nothing spawned" from a mystery into a fact.
+test("spawning is daemon-driven, or an error with a fix — there is no leader-driven mode", () => {
   assertEquals(find(evaluate(healthy()), "Spawning").status, "ok");
+  assertStringIncludes(find(evaluate(healthy()), "Spawning").detail, "daemon-driven");
 
-  const fallback = find(
+  const cannot = find(
     evaluate(healthy({ spawning: { canSpawn: false, reason: "tmux is not on this process's PATH", fix: "install tmux" } })),
     "Spawning",
   );
-  assertEquals(fallback.status, "warn");
-  assertStringIncludes(fallback.detail, "leader-driven");
-  assertStringIncludes(fallback.fix!, "tmux");
+  assertEquals(cannot.status, "fail");
+  assertStringIncludes(cannot.detail, "tmux is not on this process's PATH");
+  assertEquals(cannot.detail.includes("leader"), false);
+  assertStringIncludes(cannot.fix!, "tmux");
+});
+
+test("a daemon on a different tmux server than this shell warns, with the fix", () => {
+  const differ = evaluate(healthy({ daemonTmuxSocket: "/private/tmp/tmux-501/default", cliTmuxSocket: "/tmp/other/tmux-501/default" }));
+  const c = find(differ, "tmux server");
+  assertEquals(c.status, "warn");
+  assertStringIncludes(c.detail, "/private/tmp/tmux-501/default");
+  assertStringIncludes(c.fix!, "mpt stop && mpt start");
+
+  // Same server, or either side unknown (an older daemon, no tmux): no check at all.
+  const same = "/tmp/tmux-501/default";
+  assertEquals(evaluate(healthy({ daemonTmuxSocket: same, cliTmuxSocket: same })).some((x) => x.name === "tmux server"), false);
+  assertEquals(evaluate(healthy({ daemonTmuxSocket: null, cliTmuxSocket: same })).some((x) => x.name === "tmux server"), false);
+  assertEquals(evaluate(healthy()).some((x) => x.name === "tmux server"), false);
 });
 
 test("no spawning check when the daemon isn't running to report it", () => {

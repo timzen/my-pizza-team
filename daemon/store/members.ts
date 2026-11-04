@@ -10,8 +10,9 @@
  *     heartbeat answer `dismissed`, and the "it has gone" signals the spawner
  *     waits on before closing its tmux window;
  *   - the reaper (`reapOfflineAgents`);
- *   - leader directives (the leader's — or the daemon spawner's — queue), with
- *     daemon-assigned spawn names;
+ *   - leader directives (the daemon spawner's — and, for `reset-session`, the
+ *     leader's — queue), with daemon-assigned spawn names, and whether this
+ *     daemon can realize spawns at all (a spawn it can't is failed on creation);
  *   - the teammate pool (`minTeammates`) and its reconciler.
  *
  * The Store delegates its member methods here one line each. What this needs
@@ -28,6 +29,7 @@ import {
   type WorkItemState,
 } from "../../shared/types.ts";
 import { normalizeDirectory } from "../../shared/directory.ts";
+import { capabilityError, harnessCapability, type SpawnCapability } from "../spawner.ts";
 import type { StoreDomainContext } from "./domain.ts";
 
 /** How long after hearing `dismissed` an agent is assumed to have exited. */
@@ -81,6 +83,12 @@ export interface TeammatePoolState {
   online: number;
   pending: number;
   leaderPresent: boolean;
+  /**
+   * Why the daemon can't spawn the pool's teammates (tmux unreachable, or the
+   * default harness isn't spawnable), or null when it can. While set, the
+   * reconciler queues nothing — a spawn nobody can realize would only pile up.
+   */
+  spawnBlocked: { reason: string; fix: string } | null;
 }
 
 /** What the member domain needs from the rest of the Store. */
@@ -118,6 +126,12 @@ export class MemberStore {
    * closes the window.
    */
   private dismissals = new Map<string, { toldAt: number | null; exited: boolean }>();
+  /**
+   * Can this daemon process reach tmux (daemon/spawner.ts probeTmuxCapability)?
+   * Probed once at startup, before the server listens (daemon/start.ts); a store
+   * nobody probed (tests, tools) assumes it can.
+   */
+  private tmuxCapability: SpawnCapability = { canSpawn: true };
 
   constructor(ctx: StoreDomainContext, deps: MemberStoreDeps) {
     this.db = ctx.db;
@@ -403,10 +417,31 @@ export class MemberStore {
     const now = Date.now();
     const params: Record<string, unknown> = { ...(opts?.params || {}) };
     if (action === "spawn" && !params.name) params.name = this.generateSpawnName();
+    // The daemon is the only thing that realizes a spawn (daemon/spawner.ts), so one
+    // it can't realize fails now, with the reason and fix, instead of sitting
+    // pending for a realizer that will never come.
+    const error = action === "spawn"
+      ? capabilityError(this.getSpawnCapability(typeof params.harness === "string" ? params.harness : undefined))
+      : null;
     this.db.prepare(
-      "INSERT INTO leader_directives (id, action, member_id, params, status, created_at, updated_at) VALUES (?, ?, ?, ?, 'pending', ?, ?)"
-    ).run(id, action, opts?.memberId || null, JSON.stringify(params), now, now);
+      "INSERT INTO leader_directives (id, action, member_id, params, status, error, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+    ).run(id, action, opts?.memberId || null, JSON.stringify(params), error ? "failed" : "pending", error, now, now);
     return this.rowToDirective(this.db.prepare("SELECT * FROM leader_directives WHERE id = ?").get(id) as Record<string, unknown>);
+  }
+
+  /** Record whether this process can reach tmux (the startup probe). */
+  setTmuxCapability(capability: SpawnCapability): void {
+    this.tmuxCapability = capability;
+  }
+
+  /**
+   * Can this daemon realize a spawn of `harness` (default: the team's default
+   * harness)? tmux reachability first, then the live config's harness checks —
+   * re-evaluated on every call, since the Config page changes the harness live.
+   */
+  getSpawnCapability(harness?: string): SpawnCapability {
+    if (!this.tmuxCapability.canSpawn) return this.tmuxCapability;
+    return harnessCapability(harness ? { ...this.config, defaultHarness: harness } : this.config);
   }
 
   /** Create a directive targeting an existing member. Null if the member is unknown. */
@@ -556,6 +591,7 @@ export class MemberStore {
       online,
       pending: this.countPendingTeammateSpawns(),
       leaderPresent: this.isLeaderOnline(),
+      spawnBlocked: blocked(this.getSpawnCapability()),
     };
   }
 
@@ -592,6 +628,10 @@ export class MemberStore {
    * see coming. `mpt lead` is the "start the team" step. An explicit one-off spawn
    * (the Spawn dialog) is a human asking now, and isn't held.
    *
+   * When the daemon can't spawn (`getSpawnCapability`), it queues nothing: the
+   * spawns would only fail (or, before, pile up pending), one batch per tick. The
+   * reason is on the pool's `spawnBlocked` instead, which the Team tab flags.
+   *
    * Called on the heartbeat timer (right after offline agents are reaped, so a
    * lost teammate is replaced within one tick) and whenever the number changes.
    */
@@ -605,10 +645,16 @@ export class MemberStore {
 
     // Waits for the leader even when the daemon can spawn (see above).
     if (!this.isLeaderOnline()) return 0;
+    if (!this.getSpawnCapability().canSpawn) return 0;
 
     for (let i = 0; i < deficit; i++) {
       this.createLeaderDirective("spawn", { params: { reason: "teammate" } });
     }
     return deficit;
   }
+}
+
+/** A capability as the pool reports it: null when spawning works, else its reason and fix. */
+function blocked(capability: SpawnCapability): TeammatePoolState["spawnBlocked"] {
+  return capability.canSpawn ? null : { reason: capability.reason, fix: capability.fix };
 }

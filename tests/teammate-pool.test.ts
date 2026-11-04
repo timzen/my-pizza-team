@@ -125,7 +125,7 @@ test("no leader online: the pool waits — even when the daemon could spawn", as
     assertEquals(store.getTeammatePool().leaderPresent, false);
     // Deliberate: the team starts when its leader does (reconcileTeammatePool),
     // so a daemon launched at login doesn't open agent windows on its own.
-    store.setSpawnCapability({ canSpawn: true });
+    store.setTmuxCapability({ canSpawn: true });
     store.setMinTeammates(2);
     store.reconcileTeammatePool();
     assertEquals((await pendingSpawns(app)).length, 0);
@@ -133,6 +133,36 @@ test("no leader online: the pool waits — even when the daemon could spawn", as
     // A leader arriving fills the pool immediately (no waiting for the tick).
     await registerLeader(app);
     assertEquals((await pendingSpawns(app)).length, 2);
+  });
+});
+
+test("a daemon that can't spawn queues no pool spawns — the pool says why instead", async () => {
+  await withTeam({ minTeammates: 0 }, async ({ app, store }) => {
+    await registerLeader(app);
+    store.setTmuxCapability({ canSpawn: false, reason: "tmux is not on this process's PATH", fix: "install tmux" });
+    store.setMinTeammates(2);
+    assertEquals(store.reconcileTeammatePool(), 0);
+    assertEquals(store.reconcileTeammatePool(), 0, "no pile-up across ticks");
+    assertEquals((await pendingSpawns(app)).length, 0);
+    const failed = (await (await app.request("/api/spawn-requests")).json()).failed as unknown[];
+    assertEquals(failed.length, 0, "nor a failure per tick");
+
+    const pool = await (await app.request("/api/teammate-pool")).json();
+    assertEquals(pool.spawnBlocked, { reason: "tmux is not on this process's PATH", fix: "install tmux" });
+
+    // Fixed (e.g. a restarted daemon that can reach tmux): the pool fills.
+    store.setTmuxCapability({ canSpawn: true });
+    assertEquals(store.getTeammatePool().spawnBlocked, null);
+    assertEquals(store.reconcileTeammatePool(), 2);
+  });
+});
+
+test("an experimental default harness without the opt-in blocks the pool too", async () => {
+  await withTeam({ minTeammates: 0, defaultHarness: "kiro" }, async ({ app, store }) => {
+    await registerLeader(app);
+    store.setMinTeammates(1);
+    assertEquals((await pendingSpawns(app)).length, 0);
+    assertEquals(store.getTeammatePool().spawnBlocked?.fix.includes("Experimental"), true);
   });
 });
 

@@ -18,7 +18,7 @@ import { personaRefOf } from "../personas/resolve.ts";
 import { DEFAULT_HARNESS, isExperimentalHarness, type ResolvedPersona, type TeamConfig, type TriageOutcome, type TriageProposal, type WorkDef, type WorkItemRef } from "../../shared/types.ts";
 import { MIN_PROTOCOL_VERSION, PROTOCOL_VERSION, type AgentListResponse } from "../../shared/protocol.ts";
 import { packageVersion } from "../../shared/paths.ts";
-import { dismissParams, dismissReady } from "../spawner.ts";
+import { dismissParams } from "../spawner.ts";
 
 export function registerAgentRoutes(ctx: RouteContext): void {
   const { app, store, config, isPaused } = ctx;
@@ -376,13 +376,12 @@ export function registerAgentRoutes(ctx: RouteContext): void {
   });
 
   app.get("/api/leader/directives", (c) => {
-    // A `dismiss` is the daemon's while it can drive tmux; otherwise it is held
-    // back from the leader until its agent has exited (or its deadline passed), so
-    // the fallback closes the window at the same moment the daemon would.
-    const daemonDrivesTmux = store.getSpawnCapability().canSpawn;
-    const directives = store.getLeaderDirectives().filter((d) =>
-      d.action !== "dismiss" || (!daemonDrivesTmux && dismissReady(d, store))
-    );
+    // `spawn` and `dismiss` are the daemon's alone (daemon/spawner.ts): it realizes
+    // them, or fails them with a reason. A leader is never handed one — there used
+    // to be a leader-realized fallback for when the daemon couldn't reach tmux, and
+    // it was a second copy of the tmux code. An older leader still polling simply
+    // never sees them.
+    const directives = store.getLeaderDirectives().filter((d) => !DAEMON_REALIZED_ACTIONS.has(d.action));
     return c.json({ directives });
   });
 
@@ -428,6 +427,9 @@ export function registerAgentRoutes(ctx: RouteContext): void {
     return c.json({ success: true });
   });
 }
+
+/** Directive actions only the daemon realizes (daemon/spawner.ts), never handed to a leader. */
+const DAEMON_REALIZED_ACTIONS = new Set(["spawn", "dismiss"]);
 
 /**
  * Assemble the canonical claim prompt for a WorkItem's ref: the daemon's base

@@ -17,7 +17,8 @@ import {
   type DaemonContext,
 } from "./lifecycle.ts";
 import { resolveToken, validateBindSafety } from "./auth.ts";
-import { harnessCapability, probeTmuxCapability, realizePending } from "./spawner.ts";
+import { probeTmuxCapability, realizePending } from "./spawner.ts";
+import { tmuxSocketPath } from "./tmux.ts";
 import { startReadinessLoop } from "./readiness.ts";
 import { mptInvocation } from "./self.ts";
 import { findPreCutoffLayout, formatPreCutoffMessage } from "./layout-check.ts";
@@ -107,6 +108,20 @@ export async function startDaemonInProcess(
     process.exit(1);
   }
 
+  // ─── tmux capability ───────────────────────────────────────────────
+  //
+  // Probed before the server listens, so /health never reports an unprobed answer
+  // and no spawn is created against one. Once: whether this process can reach tmux
+  // is a property of how it was launched (under launchd/systemd it may have no tmux
+  // on PATH). The socket is the tmux server the daemon's windows open on, which
+  // `mpt doctor` compares with the user's.
+  // `store` is null only in health-only mode, which has no team to spawn into.
+  const tmuxCapability = store ? probeTmuxCapability() : null;
+  if (store && tmuxCapability) {
+    store.setTmuxCapability(tmuxCapability);
+    store.setTmuxSocket(tmuxCapability.canSpawn ? tmuxSocketPath() : null);
+  }
+
   // Start the HTTP server, and wait until it is listening: a bind failure (port in
   // use, address unavailable) surfaces here as a thrown error, before the PID file
   // is written, rather than as an uncaught event later.
@@ -128,47 +143,38 @@ export async function startDaemonInProcess(
   //
   // The daemon turns `spawn`/`dismiss` directives into tmux windows itself, so a
   // harness is a config entry rather than extension code, and so a teammate can be
-  // started with no leader connected. Probed once: whether this process can reach tmux
-  // is a property of how it was launched, and under launchd/systemd it may have no
-  // tmux on PATH. When it can't, directives stay pending and the leader realizes them
-  // exactly as before — the path `mpt doctor` reports.
-  // `store` is null only in health-only mode, which has no team to spawn into.
-  // tmux reachability is probed once; whether the config's default harness is
-  // spawnable is re-checked every pass, since the Config page changes it live.
-  const tmuxCapability = store ? probeTmuxCapability() : { canSpawn: false as const, reason: "no team directory", fix: "run `mpt setup`" };
-  const spawnCapability = store && tmuxCapability.canSpawn ? harnessCapability(store.getConfig()) : tmuxCapability;
-  store?.setSpawnCapability(spawnCapability);
-
+  // started with no leader connected. It is the only realizer: when it can't reach
+  // tmux, the pass fails every spawn/dismiss with the reason and fix (shown in the
+  // Team tab), rather than leaving them pending for a leader as it once did.
+  // Whether the config's default harness is spawnable is re-checked on every use
+  // (Store.getSpawnCapability), since the Config page changes it live.
   let spawnTimer: ReturnType<typeof setInterval> | undefined;
-  if (store && tmuxCapability.canSpawn) {
-    if (spawnCapability.canSpawn) console.log("   Spawning: daemon-driven (tmux reachable)");
-    else console.log(`   Spawning: leader-driven until the config is fixed — ${spawnCapability.reason}\n     ${spawnCapability.fix}`);
+  if (store && tmuxCapability) {
+    const spawnCapability = store.getSpawnCapability();
+    if (spawnCapability.canSpawn) {
+      console.log(`   Spawning: daemon-driven (tmux server ${store.getTmuxSocket() ?? "unknown"})`);
+    } else {
+      console.error(`⚠️  Spawning: unavailable — ${spawnCapability.reason}`);
+      console.error(`     ${spawnCapability.fix}`);
+    }
     const realize = () => {
       try {
-        // A config-level problem (an experimental default harness without the
-        // opt-in) leaves directives pending for the leader, as at startup.
-        const capability = harnessCapability(store.getConfig());
-        store.setSpawnCapability(capability);
-        if (!capability.canSpawn) return;
         const { failed } = realizePending(store, {
           config: store.getConfig(),
           daemonUrl: `http://localhost:${port}`,
           fallbackCwd: path.dirname(teamDir),
           mpt: mptInvocation(),
+          tmux: tmuxCapability,
         });
-        for (const f of failed) console.error(`⚠️  Spawn ${f.id} failed: ${f.error}`);
+        for (const f of failed) console.error(`⚠️  Directive ${f.id} failed: ${f.error}`);
       } catch (e) {
         // Never let a spawn problem take the daemon down with it.
         console.error(`⚠️  Spawn pass failed: ${(e as Error).message}`);
       }
     };
-    // 2s: a directive is usually realized before anyone notices, and faster than the
-    // leader's 5s poll it replaces.
+    // 2s: a directive is usually realized before anyone notices.
     spawnTimer = setInterval(realize, 2000);
     realize();
-  } else if (!tmuxCapability.canSpawn) {
-    console.log(`   Spawning: leader-driven — ${tmuxCapability.reason}`);
-    console.log(`     ${tmuxCapability.fix}`);
   }
 
   // ─── Readiness probe (P3-2) ────────────────────────────────────────

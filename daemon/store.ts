@@ -55,6 +55,7 @@ import { normalizeDirectory } from "../shared/directory.ts";
 import { saveTeamConfig } from "../shared/team-config.ts";
 import type { PluginLoadStatus } from "../shared/protocol.ts";
 import type { TeamPersonaInput } from "./personas/library.ts";
+import type { SpawnCapability } from "./spawner.ts";
 import type { PackagePersonaFile, PackagePersonaResult, PackagePersonas } from "./personas/packages.ts";
 import { triageWorkDefId, type TriageSkipReason } from "./triage.ts";
 import { listWorkDefs, getWorkDef, saveWorkDef, someWorkDef, updateWorkDef, deleteWorkDef } from "./store/workdefs.ts";
@@ -971,20 +972,33 @@ export class Store {
   }
 
   /**
-   * Whether this daemon process realizes spawns itself, or leaves them to the leader.
+   * Whether this daemon process can reach tmux — probed once at startup
+   * (daemon/start.ts) and combined with the live config by `getSpawnCapability`.
    *
-   * Held in memory and reported via /health so `mpt doctor` can say which path is
-   * live. Otherwise "the daemon can't reach tmux" would present as spawns simply not
-   * happening — the class of silent failure this plan exists to remove.
+   * Reported via /health so `mpt doctor` and the Team tab can say why nothing
+   * spawns; a spawn the daemon can't realize is failed with the same reason
+   * (daemon/store/members.ts createLeaderDirective).
    */
-  private spawnCapability: { canSpawn: boolean; reason?: string; fix?: string } = { canSpawn: false, reason: "not probed" };
-
-  setSpawnCapability(capability: { canSpawn: boolean; reason?: string; fix?: string }): void {
-    this.spawnCapability = capability;
+  setTmuxCapability(capability: SpawnCapability): void {
+    this.members.setTmuxCapability(capability);
   }
 
-  getSpawnCapability(): { canSpawn: boolean; reason?: string; fix?: string } {
-    return this.spawnCapability;
+  /** Can this daemon realize a spawn of `harness` (default: the team's)? See MemberStore.getSpawnCapability. */
+  getSpawnCapability(harness?: string): SpawnCapability {
+    return this.members.getSpawnCapability(harness);
+  }
+
+  /** The tmux server socket the daemon talks to (daemon/tmux.ts tmuxSocketPath), or null when unknown. */
+  private tmuxSocket: string | null = null;
+
+  /** Record the tmux server socket path (found once at startup). */
+  setTmuxSocket(socket: string | null): void {
+    this.tmuxSocket = socket;
+  }
+
+  /** The tmux server socket the daemon talks to, for /health and `mpt doctor`'s same-server check. */
+  getTmuxSocket(): string | null {
+    return this.tmuxSocket;
   }
 
   // --- Team readiness (see TeamReadiness) ---

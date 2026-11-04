@@ -21,6 +21,7 @@ import {
   DISMISS_KILL_DELAY_MS,
   DISMISS_WAIT_MS,
   dismissParams,
+  capabilityError,
   harnessCapability,
   probeSpawnCapability,
   probeTmuxCapability,
@@ -76,13 +77,13 @@ const deps = (over: Partial<Parameters<typeof realizePending>[1]> = {}) => ({
 
 // ─── Capability probe ────────────────────────────────────────────────
 
-test("no tmux on PATH means leader-driven spawning, with the fix named", () => {
+test("no tmux on PATH means the daemon can't spawn, with the fix named", () => {
   const { exec } = fakeTmux(() => ({ ok: false, stderr: "command not found" }));
   const cap = probeSpawnCapability(config(), exec);
   assertEquals(cap.canSpawn, false);
   if (!cap.canSpawn) {
     assertStringIncludes(cap.reason, "PATH");
-    assertStringIncludes(cap.fix, "leader will spawn");
+    assertStringIncludes(cap.fix, "mpt stop && mpt start");
   }
 });
 
@@ -334,6 +335,25 @@ test("dismissParams falls back to the member's name and the configured session, 
   assertEquals(dismissParams({ id: "l", name: "leader", metadata: { tmuxWindow: LEADER_WINDOW } }, cfg), null);
 });
 
+test("tmux unreachable: every spawn and dismiss fails with the reason and fix, untouched by tmux", () => {
+  // No leader fallback: a directive left pending would never be realized.
+  const { store, updates } = fakeStore([spawn(), { id: "d", action: "dismiss", params: { name: "swift-ripley" } }]);
+  const { exec, calls } = fakeTmux();
+  const tmux = { canSpawn: false as const, reason: "tmux is not on this process's PATH", fix: "install tmux" };
+  const result = realizePending(store, deps({ exec, tmux, interrupts: new Map() }));
+  assertEquals(result.realized, []);
+  assertEquals(result.failed.map((f) => f.id), ["dir-1", "d"]);
+  assertEquals(updates.map((u) => u.status), ["failed", "failed"]);
+  assertStringIncludes(updates[0]!.error!, "could not spawn: tmux is not on this process's PATH — fix: install tmux");
+  assertStringIncludes(updates[1]!.error!, "the agent still exits");
+  assertEquals(calls, []);
+});
+
+test("capabilityError: null when spawning works, else the reason then the fix", () => {
+  assertEquals(capabilityError({ canSpawn: true }), null);
+  assertEquals(capabilityError({ canSpawn: false, reason: "r", fix: "f" }), "r — fix: f");
+});
+
 test("a dismiss with tmux gone away doesn't throw", () => {
   // tmux unreachable mid-run: list-windows fails, which reads as "already gone".
   const { store, updates } = fakeStore([{ id: "d", action: "dismiss", params: { name: "swift-ripley" } }]);
@@ -353,7 +373,7 @@ test("dismissing an already-gone window succeeds quietly", () => {
 });
 
 test("the harness check is separate from the tmux probe, so a fixed config needs no restart", () => {
-  // start.ts probes tmux once and re-runs harnessCapability every spawn pass.
+  // start.ts probes tmux once; Store.getSpawnCapability re-runs harnessCapability on every use.
   assertEquals(probeTmuxCapability(fakeTmux().exec).canSpawn, true);
   const cfg = config({ defaultHarness: "kiro" });
   assertEquals(harnessCapability(cfg).canSpawn, false);

@@ -1,7 +1,9 @@
 /**
  * tests/leader-directives.test.ts — Tests for the leader directive queue.
  *
- * A directive is an ask to the leader: "do X about an agent" (spawn, reset-session).
+ * A directive is an ask: "do X about an agent" (spawn, dismiss, reset-session).
+ * `spawn` and `dismiss` are the daemon's alone (daemon/spawner.ts), so GET never
+ * hands them to a leader; a spawn the daemon can't realize fails on creation.
  * Verifies GET/POST/PUT on /api/leader/directives.
  *
  * The queue lost its host key in P1c-1: there is exactly one leader
@@ -36,8 +38,8 @@ test("every spawn is a teammate: no reserved assistant identity", async () => {
     assertEquals(second.directive.id === first.directive.id, false);
     assertEquals(second.directive.params.name === first.directive.params.name, false);
 
-    const list = await (await app.request("/api/leader/directives")).json();
-    assertEquals(list.directives.length, 2);
+    const list = await (await app.request("/api/spawn-requests")).json();
+    assertEquals(list.requests.length, 2);
   });
 });
 
@@ -48,19 +50,46 @@ test("POST requires an action", async () => {
   });
 });
 
-test("GET returns every pending directive, oldest first", async () => {
+test("GET returns every pending leader directive, oldest first — never a spawn or dismiss", async () => {
   // This used to assert per-host isolation (directives for leader-1 excluded
   // leader-2's). With one leader there is nothing to isolate, so what's left to
   // guarantee is FIFO order — the leader must realize asks in the order made.
   await withTeam({}, async ({ app }) => {
-    await post(app, "/api/leader/directives", { action: "spawn", params: { reason: "first" } });
-    await post(app, "/api/leader/directives", { action: "spawn", params: { reason: "second" } });
-    await post(app, "/api/leader/directives", { action: "spawn", params: { reason: "third" } });
+    for (const id of ["a1", "a2", "a3"]) await post(app, "/api/agents/register", { id, name: id, metadata: {} });
+    await post(app, "/api/leader/directives", { action: "reset-session", memberId: "a1" });
+    await post(app, "/api/leader/directives", { action: "spawn", params: { reason: "daemon's" } });
+    await post(app, "/api/leader/directives", { action: "dismiss", params: { name: "a2" } });
+    await post(app, "/api/leader/directives", { action: "reset-session", memberId: "a2" });
+    await post(app, "/api/leader/directives", { action: "reset-session", memberId: "a3" });
 
     const res = await app.request("/api/leader/directives");
     const body = await res.json();
-    assertEquals(body.directives.length, 3);
-    assertEquals(body.directives.map((d: { params: { reason: string } }) => d.params.reason), ["first", "second", "third"]);
+    assertEquals(body.directives.map((d: { memberId: string }) => d.memberId), ["a1", "a2", "a3"]);
+  });
+});
+
+test("a spawn the daemon can't realize fails on creation, with the reason and fix", async () => {
+  // There is no leader fallback, so leaving it pending would be a silent no-op.
+  await withTeam({}, async ({ app, store }) => {
+    store.setTmuxCapability({ canSpawn: false, reason: "tmux is not on this process's PATH", fix: "install tmux" });
+    const res = await post(app, "/api/leader/directives", { action: "spawn", params: { name: "spock" } });
+    assertEquals(res.status, 201);
+    assertEquals((await res.json()).directive.status, "failed");
+
+    const body = await (await app.request("/api/spawn-requests")).json();
+    assertEquals(body.requests, []);
+    assertEquals(body.failed.length, 1);
+    assertEquals(body.failed[0].name, "spock");
+    assertEquals(body.failed[0].error, "tmux is not on this process's PATH — fix: install tmux");
+  });
+});
+
+test("an unconfigured harness fails its spawn on creation too; the default harness is unaffected", async () => {
+  await withTeam({ experimental: { harnesses: true } }, async ({ app }) => {
+    const bad = await (await post(app, "/api/leader/directives", { action: "spawn", params: { harness: "acme" } })).json();
+    assertEquals(bad.directive.status, "failed");
+    const ok = await (await post(app, "/api/leader/directives", { action: "spawn" })).json();
+    assertEquals(ok.directive.status, "pending");
   });
 });
 
@@ -90,8 +119,8 @@ test("PUT status=done removes a directive from the pending list", async () => {
     });
     assertEquals(put.status, 200);
 
-    const list = await (await app.request("/api/leader/directives")).json();
-    assertEquals(list.directives.length, 0);
+    const list = await (await app.request("/api/spawn-requests")).json();
+    assertEquals(list.requests.length, 0);
 
     // PUT unknown → 404
     const missing = await app.request("/api/leader/directives/nope", {
@@ -123,7 +152,7 @@ test("GET /api/spawn-requests lists pending spawns with name and cwd", async () 
 });
 
 test("DELETE /api/spawn-requests/:id cancels a pending spawn", async () => {
-  await withTeam({}, async ({ app }) => {
+  await withTeam({}, async ({ app, store }) => {
     const created = await (await post(app, "/api/leader/directives", { action: "spawn", params: { name: "spock" } })).json();
     const id = created.directive.id;
 
@@ -133,8 +162,7 @@ test("DELETE /api/spawn-requests/:id cancels a pending spawn", async () => {
     // No longer pending: gone from both the host queue and the spawn list.
     const list = await (await app.request("/api/spawn-requests")).json();
     assertEquals(list.requests.length, 0);
-    const hostList = await (await app.request("/api/leader/directives")).json();
-    assertEquals(hostList.directives.length, 0);
+    assertEquals(store.getLeaderDirectives().length, 0);
 
     // Cancelling an unknown request → 404.
     const missing = await app.request("/api/spawn-requests/nope", { method: "DELETE" });

@@ -74,9 +74,10 @@ export interface Sandbox extends AsyncDisposable {
   writeTeamConfig(config: Record<string, unknown>): void;
   /**
    * Start the daemon in the background and wait until it answers /health — via
-   * `mpt start` (default), or via daemon/main.ts directly.
+   * `mpt start` (default), or via daemon/main.ts directly. `env` overrides entries
+   * of the sandbox's environment for the daemon only (e.g. a PATH without tmux).
    */
-  startDaemon(entry?: "cli" | "source"): Promise<void>;
+  startDaemon(entry?: "cli" | "source", opts?: { env?: Record<string, string> }): Promise<void>;
   /** Poll until `check` is true or the timeout passes. Returns whether it became true. */
   waitFor(check: () => boolean | Promise<boolean>, timeoutMs?: number): Promise<boolean>;
 }
@@ -207,9 +208,9 @@ export async function sandbox(label = "e2e", opts: SandboxOptions = {}): Promise
       fs.writeFileSync(path.join(teamDir, "config.json"), JSON.stringify({ tmuxSession: session, ...config }, null, 2));
     },
 
-    async startDaemon(entry = "cli") {
+    async startDaemon(entry = "cli", opts = {}) {
       daemon = spawn(process.execPath, entry === "source" ? [DAEMON_MAIN] : [CLI, "start"], {
-        env,
+        env: { ...env, ...opts.env },
         cwd: projectDir,
         stdio: "ignore",
       });

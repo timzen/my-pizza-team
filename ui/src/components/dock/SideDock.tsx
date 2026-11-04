@@ -160,7 +160,7 @@ export function SideDock() {
 
   const pool = team.pool;
   const sizeTitle = pool
-    ? `Team size: ${pool.minTeammates}${pool.isDefault ? " (default)" : ""} · ${pool.online} online${team.poolBlocked ? " · no leader connected" : ""}`
+    ? `Team size: ${pool.minTeammates}${pool.isDefault ? " (default)" : ""} · ${pool.online} online${!team.poolBlocked ? "" : pool.spawnBlocked ? ` · can't spawn: ${pool.spawnBlocked.reason}` : " · no leader connected"}`
     : "Team size";
 
   const dialogs = (

@@ -99,28 +99,28 @@ test("listView: loading, empty, no matches, and the list are four different thin
   assertEquals(listView({ loaded: true, total: 5, shown: 2 }), "list");
 });
 
-test("spawnState: the daemon or a leader can realize a spawn", () => {
-  assertEquals(spawnState({ spawning: { canSpawn: true }, notReady: null }, false), { canSpawn: true });
-  assertEquals(spawnState({ spawning: { canSpawn: false, reason: "tmux not found" }, notReady: null }, true), { canSpawn: true });
+test("spawnState: the daemon realizes a spawn — a leader isn't needed", () => {
+  assertEquals(spawnState({ spawning: { canSpawn: true }, notReady: null }), { canSpawn: true });
   // Before /health answers, don't claim the daemon can't.
-  assertEquals(spawnState(null, false), { canSpawn: true });
+  assertEquals(spawnState(null), { canSpawn: true });
 });
 
-test("spawnState: with neither, it's blocked — and says why, with the daemon's fix", () => {
-  const s = spawnState({ spawning: { canSpawn: false, reason: "tmux not found", fix: "install tmux" } }, false);
+test("spawnState: when the daemon can't, it's blocked — and says why, with the daemon's fix", () => {
+  // There is no leader-realized fallback any more, so a connected leader doesn't help.
+  const s = spawnState({ spawning: { canSpawn: false, reason: "tmux not found", fix: "install tmux" } });
   assertEquals(s.canSpawn, false);
   assertEquals(s.blockedReason?.includes("tmux not found; install tmux"), true);
-  assertEquals(s.blockedReason?.includes("Start the leader"), true);
-  assertEquals(spawnState({ spawning: { canSpawn: false } }, false).blockedReason?.includes("()"), false);
+  assertEquals(s.blockedReason?.includes("leader"), false);
+  assertEquals(spawnState({ spawning: { canSpawn: false } }).blockedReason?.includes("()"), false);
 });
 
 test("spawnState: a failing readiness probe is reported, but doesn't block a spawn", () => {
   assertEquals(
-    spawnState({ spawning: { canSpawn: true }, notReady: { ready: false, reason: "credentials expired" } }, false),
+    spawnState({ spawning: { canSpawn: true }, notReady: { ready: false, reason: "credentials expired" } }),
     { canSpawn: true, notReadyReason: "credentials expired" },
   );
-  assertEquals(spawnState({ spawning: { canSpawn: true }, notReady: { ready: false } }, false).notReadyReason, "the readiness probe is failing");
-  assertEquals(spawnState({ spawning: { canSpawn: true }, notReady: { ready: true } }, false).notReadyReason, undefined);
+  assertEquals(spawnState({ spawning: { canSpawn: true }, notReady: { ready: false } }).notReadyReason, "the readiness probe is failing");
+  assertEquals(spawnState({ spawning: { canSpawn: true }, notReady: { ready: true } }).notReadyReason, undefined);
 });
 
 test("LEADER_COMMAND is the CLI's real command", () => {

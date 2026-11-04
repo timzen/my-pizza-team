@@ -38,8 +38,10 @@ export interface TeammatePool {
   maxTeammates: number;
   online: number;
   pending: number;
-  /** False when no leader is connected — nothing can realize a spawn. */
+  /** False when no leader is connected — the pool waits for one before it spawns. */
   leaderPresent: boolean;
+  /** Why the daemon can't spawn the pool's teammates, or null when it can (absent from an older daemon). */
+  spawnBlocked?: { reason: string; fix: string } | null;
 }
 
 export function TeamSizeDialog({
@@ -127,6 +129,11 @@ function TeamSizeForm({ pool, onDone }: { pool: TeammatePool | null; onDone: () 
         {pool && pool.minTeammates > 0 && !pool.leaderPresent && (
           <p className="flex items-center gap-1 text-xs text-amber-700 dark:text-amber-400">
             <AlertTriangle className="h-3.5 w-3.5 shrink-0" /> No leader connected — nothing can spawn until one is.
+          </p>
+        )}
+        {pool && pool.minTeammates > 0 && pool.spawnBlocked && (
+          <p className="flex items-start gap-1 text-xs text-amber-700 dark:text-amber-400">
+            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" /> The daemon can't spawn teammates: {pool.spawnBlocked.reason} ({pool.spawnBlocked.fix}).
           </p>
         )}
         <FormError id="team-size-error" className="text-xs">{error}</FormError>

@@ -146,7 +146,7 @@ export function listView(opts: { loaded: boolean; total: number; shown: number }
 
 /** What `/health` reports that bears on starting a teammate (both optional: an older daemon may omit them). */
 export interface SpawnHealth {
-  /** Can the daemon start a teammate's tmux window itself (daemon/spawner.ts)? */
+  /** Can the daemon start a teammate's tmux window (daemon/spawner.ts)? It is the only thing that does. */
   spawning?: { canSpawn: boolean; reason?: string; fix?: string };
   /** The readiness probe's last failure, or null while the team is ready. */
   notReady?: { ready: boolean; reason?: string } | null;
@@ -154,7 +154,7 @@ export interface SpawnHealth {
 
 /** Can "Spawn a teammate" do anything right now, and what should the Team tab say about it? */
 export interface SpawnState {
-  /** A spawn request would be realized: the daemon can start it, or a leader is connected to. */
+  /** A spawn request would be realized: the daemon can start it. */
   canSpawn: boolean;
   /** Why it can't (only when `canSpawn` is false), in words. */
   blockedReason?: string;
@@ -163,26 +163,25 @@ export interface SpawnState {
 }
 
 /**
- * Whether a spawn would happen, from `/health` and the teammate pool's
- * `leaderPresent`. A spawn request is realized by the daemon when it can reach
- * tmux and the harness is spawnable, else by the leader (docs/DESIGN.md "The
- * Daemon Is the Supervisor") — with neither, it would only sit as a pending
- * spawn. Before `/health` answers, the leader alone decides (no claim that the
- * daemon can't). A failing readiness probe doesn't stop a spawn; it's reported
- * so the user isn't surprised that the new teammate gets no work.
+ * Whether a spawn would happen, from `/health`. The daemon is the only thing that
+ * realizes a spawn (docs/DESIGN.md "The Daemon Is the Supervisor"): when it can't
+ * reach tmux, or the harness isn't spawnable, a request would only fail, so the
+ * button is disabled with the daemon's reason and fix. A one-off spawn doesn't
+ * need a leader. Before `/health` answers, nothing claims the daemon can't. A
+ * failing readiness probe doesn't stop a spawn; it's reported so the user isn't
+ * surprised that the new teammate gets no work.
  */
-export function spawnState(health: SpawnHealth | null | undefined, leaderPresent: boolean): SpawnState {
+export function spawnState(health: SpawnHealth | null | undefined): SpawnState {
   const daemon = health?.spawning;
   const notReadyReason = health?.notReady && health.notReady.ready === false
     ? (health.notReady.reason || "the readiness probe is failing")
     : undefined;
   const ready = notReadyReason ? { notReadyReason } : {};
-  if (daemon?.canSpawn || leaderPresent) return { canSpawn: true, ...ready };
-  if (!daemon) return { canSpawn: true, ...ready };
+  if (!daemon || daemon.canSpawn) return { canSpawn: true, ...ready };
   const why = [daemon.reason, daemon.fix].filter(Boolean).join("; ");
   return {
     canSpawn: false,
-    blockedReason: `No leader is connected, and the daemon can't start a teammate itself${why ? ` (${why})` : ""}. Start the leader first.`,
+    blockedReason: `The daemon can't start a teammate${why ? ` (${why})` : ""}.`,
     ...ready,
   };
 }

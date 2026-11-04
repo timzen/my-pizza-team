@@ -13,6 +13,9 @@
  * proves the commands are ones tmux accepts.
  */
 
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import { test } from "node:test";
 import { assertEquals, assertThrows } from "./_assert.ts";
 import {
@@ -27,6 +30,8 @@ import {
   shellQuote,
   spawnWindow,
   type TmuxExec,
+  defaultTmuxSocketPath,
+  tmuxSocketPath,
   unresolvedPlaceholders,
 } from "../daemon/tmux.ts";
 import { DEFAULT_HARNESS_TEMPLATES } from "../shared/types.ts";
@@ -212,3 +217,33 @@ test("a cwd placeholder is quoted so a spaced path survives the shell", () => {
   });
   assertEquals(rendered, "agent --dir='/Users/t/My Project'");
 });
+
+// ─── Which tmux server (mpt doctor's same-server check) ──────────────
+
+test("tmuxSocketPath: a running server answers with its socket", () => {
+  const { exec, calls } = fakeTmux([{ ok: true, stdout: "/tmp/tmux-501/default\n" }]);
+  assertEquals(tmuxSocketPath(exec, {}), "/tmp/tmux-501/default");
+  assertEquals(calls[0], ["display-message", "-p", "#{socket_path}"]);
+});
+
+test("tmuxSocketPath: with no server running, tmux's error names the socket", () => {
+  const none = fakeTmux([{ ok: false, stderr: "no server running on /private/tmp/tmux-501/default\n" }]);
+  assertEquals(tmuxSocketPath(none.exec, {}), "/private/tmp/tmux-501/default");
+  const absent = fakeTmux([{ ok: false, stderr: "error connecting to /sandbox/tmux-501/default (No such file or directory)\n" }]);
+  assertEquals(tmuxSocketPath(absent.exec, {}), "/sandbox/tmux-501/default");
+});
+
+test("tmuxSocketPath: null when tmux can't run at all", () => {
+  const { exec } = fakeTmux([{ ok: false, stderr: "spawnSync tmux ENOENT" }, { ok: false, stderr: "spawnSync tmux ENOENT" }]);
+  assertEquals(tmuxSocketPath(exec, {}), null);
+});
+
+test("defaultTmuxSocketPath: $TMUX wins, else TMUX_TMPDIR (resolved), else /tmp", () => {
+  assertEquals(defaultTmuxSocketPath({ TMUX: "/s/tmux-1/work,123,0" }), "/s/tmux-1/work");
+  const uid = process.getuid!();
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "mpt-tmuxdir-")));
+  assertEquals(defaultTmuxSocketPath({ TMUX_TMPDIR: dir }), path.join(dir, `tmux-${uid}`, "default"));
+  assertEquals(defaultTmuxSocketPath({}), path.join(fs.realpathSync("/tmp"), `tmux-${uid}`, "default"));
+  fs.rmSync(dir, { recursive: true });
+});
+

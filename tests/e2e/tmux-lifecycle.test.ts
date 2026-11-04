@@ -12,12 +12,19 @@
  *   - the daemon spawns a teammate with **no leader connected**, which was impossible
  *     before P3-1;
  *   - a spawn that cannot be realized is marked `failed` with its reason, rather than
- *     retried forever in silence.
+ *     retried forever in silence;
+ *   - a daemon that can't reach tmux fails spawns at once, with the reason and fix,
+ *     and never hands them (or dismisses) to a leader — it is the only realizer;
+ *   - a dismiss closes the teammate's window once it has exited;
+ *   - /health names the tmux server the daemon talks to — the sandbox's own,
+ *     resolved from TMUX_TMPDIR like the user's default server.
  *
  * Agent commands are stand-ins (`echo … ; sleep`), since there is no LLM here. These
  * test mpt's mechanics — windows, directives, statuses — not agent behaviour.
  */
 
+import * as fs from "node:fs";
+import * as path from "node:path";
 import { test } from "node:test";
 import { assertEquals, assertStringIncludes } from "../_assert.ts";
 import { hasTmux, sandbox, type Sandbox } from "./_sandbox.ts";
@@ -47,9 +54,9 @@ const windows = async (sb: Sandbox) =>
 const pane = async (sb: Sandbox, window: string) =>
   (await sb.tmux("capture-pane", "-p", "-J", "-t", `${sb.session}:${window}`)).stdout;
 
-async function api<T>(sb: Sandbox, path: string, body?: unknown): Promise<T> {
-  const res = await fetch(`http://127.0.0.1:${sb.port}${path}`, body === undefined ? {} : {
-    method: "POST",
+async function api<T>(sb: Sandbox, path: string, body?: unknown, method = "POST"): Promise<T> {
+  const res = await fetch(`http://127.0.0.1:${sb.port}${path}`, body === undefined && method === "POST" ? {} : {
+    method,
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
@@ -173,4 +180,78 @@ test("reset-session is left pending for the leader, not taken over by the daemon
   await new Promise((r) => setTimeout(r, 4500));
   const pending = await api<{ directives: Array<{ action: string }> }>(sb, "/api/leader/directives");
   assertEquals(pending.directives.some((d) => d.action === "reset-session"), true, "must still be pending for the leader");
+});
+
+test("/health names the daemon's tmux server: the user's default one, under TMUX_TMPDIR", { skip: !hasTmux() }, async () => {
+  // Plain `tmux`, no -L/-S: users attach with `tmux attach -t mpt`. The sandbox's
+  // TMUX_TMPDIR is what makes that server private here, so it must keep working.
+  await using sb = await sandbox("socket");
+  sb.writeTeamConfig({ minTeammates: 0, harnesses: HARNESSES });
+  await sb.startDaemon();
+  const health = await api<{ tmuxSocket: string | null }>(sb, "/health");
+  const uid = process.getuid!();
+  assertEquals(health.tmuxSocket, path.join(fs.realpathSync(sb.tmuxDir), `tmux-${uid}`, "default"));
+  // And it is the server the sandbox's own `tmux` reaches (what `mpt doctor` compares).
+  await sb.tmux("new-session", "-d", "-s", "probe");
+  assertEquals((await sb.tmux("display-message", "-p", "#{socket_path}")).stdout.trim(), health.tmuxSocket);
+});
+
+test("a dismiss closes the teammate's window once it has exited", { skip: !hasTmux() }, async () => {
+  await using sb = await sandbox("dismiss");
+  sb.writeTeamConfig({ minTeammates: 0, harnesses: HARNESSES });
+  await sb.startDaemon();
+
+  const created = await api<{ directive: { params: { name: string } } }>(
+    sb, "/api/leader/directives", { action: "spawn", params: { cwd: sb.projectDir } },
+  );
+  const name = created.directive.params.name;
+  assertEquals(await sb.waitFor(async () => (await windows(sb)).includes(name), 8000), true, `no window for ${name}`);
+
+  // Stand in for the teammate: register under the window's name, get dismissed,
+  // hear it on the next heartbeat, and deregister on the way out.
+  await api(sb, "/api/agents/register", { id: "t1", name, metadata: { tmuxSession: sb.session, tmuxWindow: name } });
+  await api(sb, "/api/agents/t1?dismiss=true", undefined, "DELETE");
+  const beat = await api<{ dismissed?: boolean }>(sb, "/api/agents/heartbeat", { id: "t1", status: "idle" });
+  assertEquals(beat.dismissed, true);
+  await api(sb, "/api/agents/t1", undefined, "DELETE");
+
+  // C-c on one pass, kill-window on a later one (≥1.5s on): well inside 10s.
+  const closed = await sb.waitFor(async () => !(await windows(sb)).includes(name), 10_000);
+  assertEquals(closed, true, `window ${name} still open: ${await windows(sb)}`);
+});
+
+test("a daemon that can't reach tmux fails a spawn at once, with the reason and fix — no leader fallback", { skip: !hasTmux() }, async () => {
+  // A PATH with everything the daemon needs but tmux: what a launchd/systemd daemon
+  // without the user's PATH looks like. The leader used to realize spawns then;
+  // now the daemon is the only realizer, so the failure is the answer.
+  await using sb = await sandbox("no-tmux");
+  sb.writeTeamConfig({ minTeammates: 0, harnesses: HARNESSES });
+  const noTmux = path.join(sb.root, "no-tmux-bin");
+  fs.mkdirSync(noTmux);
+  for (const tool of ["git", "sh"]) {
+    const found = sb.env["PATH"]!.split(":").map((d) => path.join(d, tool)).find((p) => fs.existsSync(p));
+    if (found) fs.symlinkSync(found, path.join(noTmux, tool));
+  }
+  await sb.startDaemon("cli", { env: { PATH: noTmux } });
+
+  const health = await api<{ spawning: { canSpawn: boolean; reason?: string; fix?: string }; tmuxSocket: string | null }>(sb, "/health");
+  assertEquals(health.spawning.canSpawn, false);
+  assertStringIncludes(health.spawning.reason!, "PATH");
+  assertEquals(health.tmuxSocket, null);
+
+  const created = await api<{ directive: { status: string } }>(sb, "/api/leader/directives", { action: "spawn", params: { cwd: sb.projectDir } });
+  assertEquals(created.directive.status, "failed", "failed on creation, not left pending");
+  const spawns = await api<{ requests: unknown[]; failed: Array<{ error: string }> }>(sb, "/api/spawn-requests", undefined, "GET");
+  assertEquals(spawns.requests, []);
+  assertStringIncludes(spawns.failed[0]!.error, "tmux is not on this process's PATH — fix:");
+
+  // A dismiss isn't handed to a leader either: the tombstone stops the agent, and
+  // the window close fails with the reason.
+  await api(sb, "/api/agents/register", { id: "t1", name: "swift-ripley", metadata: {} });
+  await api(sb, "/api/agents/t1?dismiss=true", undefined, "DELETE");
+  const forLeader = await api<{ directives: Array<{ action: string }> }>(sb, "/api/leader/directives", undefined, "GET");
+  assertEquals(forLeader.directives.filter((d) => d.action === "spawn" || d.action === "dismiss"), []);
+  const beat = await api<{ dismissed?: boolean }>(sb, "/api/agents/heartbeat", { id: "t1", status: "idle" });
+  assertEquals(beat.dismissed, true);
+  assertEquals(await windows(sb), [], "nothing reached tmux");
 });

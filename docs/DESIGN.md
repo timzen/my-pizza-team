@@ -1178,6 +1178,11 @@ without this, every login would start agents before anyone ran `mpt lead` — ag
 nobody can chat with, reset, or expected. `mpt lead` is the "start the team" step.
 A one-off spawn from the Spawn dialog is a human asking now, so it isn't held.
 
+**Nor does it queue spawns the daemon can't realize.** When the daemon can't reach
+tmux (or the default harness isn't spawnable), the pool queues nothing and says why
+(`spawnBlocked`, flagged in the Team tab) — the spawns would only fail, a fresh
+batch every tick ("The Daemon Is the Supervisor").
+
 **Default: half of `maxTeammates`** (rounded down), *derived* while unset rather
 than written to config, so raising the cap raises it too — until you declare a
 size (0 included), which always wins. "Use default" clears the declaration.
@@ -1905,11 +1910,21 @@ session control.
   `/Users/t/MyProject` and the teammate started in the wrong directory or none.
   Only the command typed by `send-keys` is a shell string, and it is quoted
   properly.
-- **The leader path is kept as a fallback.** Whether the daemon can reach tmux
-  depends on how it was launched — under launchd/systemd there may be no `tmux` on
-  PATH. It probes once at startup, reports the result on `/health`, and when it
-  can't spawn, directives stay pending for the leader exactly as before. `mpt
-  doctor` names which path is live.
+- **The daemon is the only terminal owner.** Whether it can reach tmux depends on
+  how it was launched — under launchd/systemd there may be no `tmux` on PATH (the
+  service copies the user's PATH for this reason). It probes once at startup and
+  reports the result on `/health`. There used to be a fallback — directives left
+  pending for the leader, which realized them with its own copy of the tmux code —
+  but two places touching the terminal multiplexer is one too many, and the groundwork
+  for a pluggable terminal backend needs exactly one. So a spawn the daemon can't
+  realize fails at once with the reason and a fix, the pool queues none while it
+  can't, and `mpt doctor` fails its Spawning check. A dismiss still stops the agent
+  (its tombstone needs no tmux); only the window close fails.
+- **One tmux server: the user's default.** The daemon never passes `-L`/`-S`, so
+  `tmux attach -t mpt` finds the team. But "default" depends on the environment
+  (`$TMUX`, `$TMUX_TMPDIR`), so `/health` names the socket the daemon resolved and
+  `mpt doctor` warns when the shell's differs — otherwise windows would open on a
+  server nobody attaches to, which looks exactly like nothing spawning.
 - **A directive that can't be realized is marked `failed` with its reason** rather
   than left pending (which would retry every 2s, saying nothing). Failures show in
   the Team tab beside pending spawns.
@@ -2027,9 +2042,9 @@ PUT  /api/leader/directives/:id  # { status }
 
 A directive has an `action` (`spawn`, `dismiss`, `reset-session`, `new-session`,
 `resume-session`), an optional `memberId`, `params` (e.g. spawn `name`/`cwd`), and a
-`status`. The daemon realizes `spawn` and `dismiss` itself when it can reach tmux;
-the leader realizes whatever is left (`reset-session` → `/new`, and spawns when the
-daemon can't). Three rules hold:
+`status`. The daemon realizes `spawn` and `dismiss` itself — always; one it can't is
+failed with the reason, never handed on — and the leader realizes whatever is left
+(`reset-session` → `/new`). Three rules hold:
 
 1. **Intent, not mechanism, crosses the channel.** A directive says *what*; its
    realizer decides *how*.

@@ -74,8 +74,21 @@ test("GET /health backward compat - still has status and service", async () => {
   assertEquals(body.service, "my-pizza-team");
 });
 
+test("GET /health reports the spawn capability and the daemon's tmux server", async () => {
+  // `mpt doctor` compares tmuxSocket with its own, so windows don't open on a
+  // server the user never attaches to.
+  store!.setTmuxCapability({ canSpawn: false, reason: "tmux is not on this process's PATH", fix: "install tmux" });
+  store!.setTmuxSocket("/tmp/tmux-501/default");
+  const body = await (await app.request("/health")).json();
+  assertEquals(body.spawning, { canSpawn: false, reason: "tmux is not on this process's PATH", fix: "install tmux" });
+  assertEquals(body.tmuxSocket, "/tmp/tmux-501/default");
+  store!.setTmuxCapability({ canSpawn: true });
+  assertEquals((await (await app.request("/health")).json()).spawning, { canSpawn: true });
+});
+
 // Cleanup
 test("cleanup health test", () => {
   store?.close();
   fs.rmSync(testDir, { recursive: true, force: true });
 });
+

@@ -22,6 +22,9 @@
  */
 
 import { spawnSync } from "node:child_process";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 
 /** Result of one tmux invocation. */
 export interface ExecResult {
@@ -60,6 +63,46 @@ export function tmuxUnavailableReason(exec: TmuxExec = realTmux): "none" | "not-
   const res = exec(["-V"]);
   if (res.ok) return "none";
   return /EACCES|EPERM|ERR_ACCESS_DENIED|Access to this API has been restricted/.test(res.stderr) ? "not-permitted" : "not-installed";
+}
+
+/**
+ * The socket of the tmux server this process talks to, or null when tmux can't run.
+ *
+ * Plain `tmux` (no `-L`/`-S`) means "the user's default server" — which is why
+ * `tmux attach -t mpt` finds the team — but *which* socket that is depends on the
+ * environment: `$TMUX` (inside tmux) names it, else `$TMUX_TMPDIR` (or /tmp) holds
+ * `tmux-<uid>/default`. A daemon started by launchd/systemd can resolve a different
+ * one than the user's shell, and then its windows open on a server nobody attaches
+ * to. Reported by /health so `mpt doctor` can compare it with its own
+ * (docs/DESIGN.md "The Daemon Is the Supervisor").
+ *
+ * Asks tmux first (`#{socket_path}`, exact when a server runs; with none running, its
+ * "no server running on <path>" error names the path), then resolves it the way tmux
+ * does. Never starts a server.
+ */
+export function tmuxSocketPath(exec: TmuxExec = realTmux, env: NodeJS.ProcessEnv = process.env): string | null {
+  const res = exec(["display-message", "-p", "#{socket_path}"]);
+  const asked = res.stdout.trim();
+  if (res.ok && asked) return asked;
+  const named = /(?:no server running on|error connecting to) (\S+)/.exec(res.stderr);
+  if (named) return named[1]!;
+  if (!tmuxAvailable(exec)) return null;
+  return defaultTmuxSocketPath(env);
+}
+
+/** tmux's own default-socket resolution: `$TMUX`'s socket, else `<TMUX_TMPDIR or /tmp>/tmux-<uid>/default`. */
+export function defaultTmuxSocketPath(env: NodeJS.ProcessEnv = process.env): string {
+  const inside = env["TMUX"]?.split(",")[0];
+  if (inside) return inside;
+  // tmux resolves the directory (on macOS /tmp is /private/tmp), and falls back to
+  // /tmp when TMUX_TMPDIR doesn't exist.
+  let real = "/tmp";
+  for (const dir of [env["TMUX_TMPDIR"], "/tmp"]) {
+    if (!dir) continue;
+    try { real = fs.realpathSync(dir); break; } catch { /* try the next */ }
+  }
+  const uid = typeof process.getuid === "function" ? process.getuid() : os.userInfo().uid;
+  return path.join(real, `tmux-${uid}`, "default");
 }
 
 /**

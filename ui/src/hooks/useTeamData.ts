@@ -10,7 +10,8 @@
  * **Teammates only — the leader is left out.** The leader is the agent behind
  * the Assistant tab (its presence is the status dot there), so listing and
  * counting it on the Team tab too was double-booking one agent. It still
- * matters to the team indirectly: `poolBlocked` is "no leader to spawn".
+ * matters to the team indirectly: `poolBlocked` is "no leader to spawn" (or the
+ * daemon can't spawn at all — the pool's `spawnBlocked`).
  */
 
 import { useApi, apiDelete, apiPost } from "@/hooks/useApi";
@@ -61,7 +62,8 @@ export function useTeamData(): TeamData {
   const { data: pool, refetch: refetchPool } = useApi<TeammatePool>("/api/teammate-pool", [], { pollInterval: 10_000 });
 
   const teammates = (data?.agents || []).filter((a) => roleOf(a) === "teammate");
-  const poolBlocked = !!pool && pool.minTeammates > 0 && !pool.leaderPresent;
+  // The pool queues nothing while either holds, so the team stays short until someone looks.
+  const poolBlocked = !!pool && pool.minTeammates > 0 && (!pool.leaderPresent || !!pool.spawnBlocked);
 
   // Skew covers *every* agent including the leader: the leader answers the chat,
   // so a stale leader is the most user-visible kind of drift.
