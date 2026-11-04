@@ -22,6 +22,7 @@ import {
   assertSafeName,
   ensureSession,
   type ExecResult,
+  focusClient,
   killWindow,
   listWindows,
   renderTemplate,
@@ -29,6 +30,7 @@ import {
   sendKeys,
   shellQuote,
   spawnWindow,
+  switchClient,
   type TmuxExec,
   defaultTmuxSocketPath,
   tmuxSocketPath,
@@ -178,6 +180,38 @@ test("sendKeys appends Enter, and a failure is reported", () => {
 test("killWindow reports whether the window was there", () => {
   assertEquals(killWindow("mpt", "w", fakeTmux([{ ok: true }]).exec), true);
   assertEquals(killWindow("mpt", "w", fakeTmux([{ ok: false }]).exec), false);
+});
+
+// ─── Moving the user's client (mpt lead inside tmux) ─────────────────
+
+test("switchClient moves the client to session:window, by argv", () => {
+  const { exec, calls } = fakeTmux();
+  assertEquals(switchClient("mpt", "leader", exec).ok, true);
+  assertEquals(calls, [["switch-client", "-t", "mpt:leader"]]);
+});
+
+test("switchClient refuses a name tmux would misread as a target", () => {
+  const { exec, calls } = fakeTmux();
+  assertThrows(() => switchClient("mpt:x", "leader", exec), Error, "target separators");
+  assertThrows(() => switchClient("mpt", "lead er", exec), Error, "target separators");
+  assertEquals(calls, [], "nothing reaches tmux");
+});
+
+test("focusClient selects the window and then switches the client to it", () => {
+  // select-window alone left a client in another session (e.g. mpt-services) where it was.
+  const { exec, calls } = fakeTmux();
+  assertEquals(focusClient("mpt", "leader", exec), null);
+  assertEquals(calls, [
+    ["select-window", "-t", "mpt:leader"],
+    ["switch-client", "-t", "mpt:leader"],
+  ]);
+});
+
+test("focusClient reports why the client could not be moved", () => {
+  const { exec } = fakeTmux([{ ok: true }, { ok: false, stderr: "no current client\n" }]);
+  assertEquals(focusClient("mpt", "leader", exec), "no current client");
+  const silent = fakeTmux([{ ok: true }, { ok: false }]);
+  assertEquals(focusClient("mpt", "leader", silent.exec), "switch-client failed");
 });
 
 // ─── Templates ───────────────────────────────────────────────────────

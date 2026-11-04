@@ -60,6 +60,11 @@ export interface Sandbox extends AsyncDisposable {
 
   /** Run the real `mpt` CLI with this sandbox's environment. */
   mpt(...args: string[]): Promise<RunResult>;
+  /**
+   * Run `mpt` with extra environment entries on top of the sandbox's — e.g. `$TMUX`,
+   * to run it "inside" a pane of the private server.
+   */
+  mptWithEnv(extra: Record<string, string>, ...args: string[]): Promise<RunResult>;
   /** Run `tmux` against this sandbox's private server. */
   tmux(...args: string[]): Promise<RunResult>;
   /**
@@ -185,6 +190,7 @@ export async function sandbox(label = "e2e", opts: SandboxOptions = {}): Promise
     env,
 
     mpt: (...args) => run(process.execPath, [CLI, ...args], env, projectDir),
+    mptWithEnv: (extra, ...args) => run(process.execPath, [CLI, ...args], { ...env, ...extra }, projectDir),
     tmux: (...args) => run("tmux", args, env, projectDir),
     tmuxExec: (args) => {
       try {

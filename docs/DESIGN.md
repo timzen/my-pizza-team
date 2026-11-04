@@ -1939,7 +1939,9 @@ session control.
   `new-session` (see "Leader Directives"), and the teammate rolls its own session.
 - **`mpt lead`** starts the leader in the project directory with the harness's
   `leader` template, and is idempotent — two leaders would both answer the chat —
-  so a re-run attaches instead of starting another.
+  so a re-run attaches instead of starting another. Inside tmux it moves the
+  calling client (`switch-client`) rather than nesting an attach; selecting the
+  window alone left a client in another session where it was.
 
 ## Harness Tiers, and Why Not MCP
 

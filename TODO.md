@@ -48,6 +48,12 @@ number. Delete an item when it's done.
   past 0.36.x, `preCutoffSchemaFindings` can refuse every version-0 database
   outright (migration 1 stays — shipped migrations aren't edited). The context-library notice
   (`Store.getNotices`) can go once no supported team can still carry one.
+- **tmux prefix-matches session targets:** `daemon/tmux.ts` passes `-t <session>`
+  (`hasSession`, `listWindows`, `session:window` targets). With no exact match tmux
+  accepts a unique *prefix*, so with `tmuxSession: "mpt"` not yet running and a
+  session `mpt-services` up, `mpt lead` (and a daemon spawn) would put its window in
+  `mpt-services`. Use exact targets (`=<session>`) throughout, updating the argv
+  assertions in `tests/tmux.test.ts` / `tests/spawner.test.ts`.
 
 ## Work Sources as plugins — package loading — built
 

@@ -18,10 +18,10 @@ import { configuredNode, extractNodeFlag, setNodeFlagOverride } from "../shared/
 import { isRunningFromSource, packageRoot, packageVersion } from "../shared/paths.ts";
 import { evaluate, gather, report } from "./doctor.ts";
 import {
+  focusClient,
   listWindows,
   realTmux,
   renderTemplate,
-  selectWindow,
   spawnWindow,
   tmuxAvailable,
   unresolvedPlaceholders,
@@ -423,14 +423,21 @@ async function cmdLead(args: string[]): Promise<void> {
   if (daemonUp) await printOnboardingHint(port, resolveToken(config.apiToken as string | undefined), "   ");
 
   if (args.includes("--no-attach")) {
-    console.log(`   Attach with: tmux attach -t ${session}`);
+    console.log(`   Attach with: tmux attach -t ${session}:${LEADER_WINDOW}`);
+    console.log(`   From inside tmux: tmux switch-client -t ${session}:${LEADER_WINDOW}`);
     return;
   }
 
-  // Inside tmux already, attaching would nest; switch the client instead.
+  // Inside tmux already, attaching would nest; move this client instead. Selecting
+  // the window alone isn't enough: a client showing another session (say
+  // `mpt-services`) wouldn't move.
   if (process.env["TMUX"]) {
-    selectWindow(session, LEADER_WINDOW);
-    console.log(`   Switched to ${session}:${LEADER_WINDOW}.`);
+    const failed = focusClient(session, LEADER_WINDOW);
+    if (failed) {
+      console.log(`   Could not switch automatically (${failed}). Run: tmux switch-client -t ${session}:${LEADER_WINDOW}`);
+    } else {
+      console.log(`   Switched to ${session}:${LEADER_WINDOW}.`);
+    }
     return;
   }
 

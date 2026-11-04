@@ -123,7 +123,9 @@ Work Source plugin"; using one from the web UI is in
 
 `mpt lead` opens a `leader` window in the project directory running the harness's
 `leader` command. Running it again attaches to the existing leader rather than
-starting a second one.
+starting a second one. Run from inside tmux, it doesn't nest an attach: it switches
+your client to `<session>:leader` (`tmux switch-client`), even from another session.
+`--no-attach` does neither and prints both commands.
 
 `mpt status` respects the [feature toggles](#feature-toggles): a switched-off kind's
 count is left out and a `Turned off: …` line names what's off. The CLI has no

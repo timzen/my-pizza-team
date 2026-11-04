@@ -221,6 +221,37 @@ export function selectWindow(session: string, window: string, exec: TmuxExec = r
   return exec(["select-window", "-t", `${session}:${window}`]).ok;
 }
 
+/**
+ * Move the calling tmux client to `session:window`.
+ *
+ * `select-window` only changes which window is current *in that session*; a user
+ * whose client is showing another session (say `mpt-services`) sees nothing happen.
+ * `switch-client` moves the client itself. With no `-c`, tmux picks the client from
+ * the caller's `$TMUX` — the terminal the command was typed in — so this is for
+ * commands run from inside tmux (`mpt lead`), not for the daemon, which has no
+ * client of its own.
+ */
+export function switchClient(session: string, window: string, exec: TmuxExec = realTmux): ExecResult {
+  assertSafeName("session", session);
+  assertSafeName("window", window);
+  return exec(["switch-client", "-t", `${session}:${window}`]);
+}
+
+/**
+ * Show `session:window` in the calling client: select it, then switch the client to it.
+ *
+ * Both, in that order. `select-window` makes it the session's current window
+ * (which is what a later plain `tmux attach -t <session>` lands on); `switch-client`
+ * moves the client, which matters when it is in another session. Returns the
+ * switch's error text when it failed (e.g. tmux found no client to move), null on
+ * success.
+ */
+export function focusClient(session: string, window: string, exec: TmuxExec = realTmux): string | null {
+  selectWindow(session, window, exec);
+  const switched = switchClient(session, window, exec);
+  return switched.ok ? null : (switched.stderr.trim() || "switch-client failed");
+}
+
 // ─── Harness command templates ───────────────────────────────────────
 
 /** Placeholders a harness spawn template may use. */

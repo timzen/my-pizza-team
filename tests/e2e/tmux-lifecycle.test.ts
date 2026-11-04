@@ -9,6 +9,9 @@
  *     `cmdLead` composed it wrongly;
  *   - a re-run attaches rather than starting a second leader (two leaders would both
  *     answer the chat);
+ *   - inside tmux, `mpt lead` moves the user's client to the leader even from another
+ *     session (`switch-client`, not just `select-window`) — with a real client,
+ *     attached from a pane of a second private server;
  *   - the daemon spawns a teammate with **no leader connected**, which was impossible
  *     before P3-1;
  *   - a spawn that cannot be realized is marked `failed` with its reason, rather than
@@ -101,6 +104,79 @@ test("a second mpt lead attaches instead of starting another leader", { skip: !h
   assertEquals(again.code, 0, again.output);
   assertStringIncludes(again.output, "already running");
   assertEquals(await windows(sb), ["leader"], "two leaders would both answer the chat");
+});
+
+/**
+ * A real tmux client attached to `target` on the sandbox's server, so `switch-client`
+ * has someone to move. A client needs a terminal; a pane of a *second* private tmux
+ * server is one (a pty, on every platform tmux runs on — no `script(1)` dialects).
+ * `$TMUX` is unset inside it, or tmux would refuse to nest. Disposing kills that
+ * second server, which the sandbox's teardown doesn't know about.
+ */
+async function attachedClient(sb: Sandbox, target: string): Promise<AsyncDisposable> {
+  const hostSocket = path.join(sb.tmuxDir, "host");
+  const started = await sb.tmux("-S", hostSocket, "new-session", "-d", "-x", "100", "-y", "30", `env -u TMUX tmux attach -t ${target}`);
+  assertEquals(started.code, 0, started.output);
+  const attached = await sb.waitFor(async () => (await clients(sb)).length > 0, 8000);
+  assertEquals(attached, true, "the simulated client never attached");
+  return { [Symbol.asyncDispose]: async () => { await sb.tmux("-S", hostSocket, "kill-server"); } };
+}
+
+/**
+ * A second session, as the user's "mpt-services". Not `${sb.session}-…`: tmux
+ * resolves `-t <name>` by unique *prefix* when there's no exact match, so before the
+ * leader session exists, mpt's `has-session -t <session>` would find this one.
+ */
+const otherSession = (sb: Sandbox) => `svc-${sb.session}`;
+
+/** Where each attached client is: `session:window`. */
+const clients = async (sb: Sandbox) =>
+  (await sb.tmux("list-clients", "-F", "#{client_session}:#{window_name}")).stdout.split("\n").filter(Boolean);
+
+/** The `$TMUX` a shell in `session`'s pane would have: `<socket>,<server pid>,<session id>`. */
+async function insideTmuxEnv(sb: Sandbox, session: string): Promise<Record<string, string>> {
+  const fmt = "#{socket_path},#{pid},#{session_id},#{pane_id}";
+  const [socket, pid, sessionId, pane] = (await sb.tmux("display-message", "-p", "-t", session, fmt)).stdout.trim().split(",");
+  return { TMUX: `${socket},${pid},${sessionId!.replace("$", "")}`, TMUX_PANE: pane! };
+}
+
+test("mpt lead inside tmux moves the client from another session to the leader", { skip: !hasTmux() }, async () => {
+  // select-window alone changed the leader session's current window but left a
+  // client in another session (the user's "mpt-services") where it was.
+  await using sb = await sandbox("lead-switch");
+  sb.writeTeamConfig({ harnesses: HARNESSES });
+  const other = otherSession(sb);
+  assertEquals((await sb.tmux("new-session", "-d", "-s", other)).code, 0);
+  await using _client = await attachedClient(sb, other);
+  assertEquals((await clients(sb)).map((c) => c.split(":")[0]), [other], "the client starts in the other session");
+  const inside = await insideTmuxEnv(sb, other);
+
+  const first = await sb.mptWithEnv(inside, "lead");
+  assertEquals(first.code, 0, first.output);
+  assertStringIncludes(first.output, `Switched to ${sb.session}:leader`);
+  assertEquals(await clients(sb), [`${sb.session}:leader`]);
+
+  // Back to the other session; a re-run reuses the leader and still moves the client.
+  assertEquals((await sb.tmux("switch-client", "-t", other)).code, 0);
+  const again = await sb.mptWithEnv(inside, "lead");
+  assertEquals(again.code, 0, again.output);
+  assertStringIncludes(again.output, "already running");
+  assertEquals(await windows(sb), ["leader"], "an existing leader is reused, never duplicated");
+  assertEquals(await clients(sb), [`${sb.session}:leader`]);
+});
+
+test("mpt lead --no-attach inside tmux moves nothing and prints both hints", { skip: !hasTmux() }, async () => {
+  await using sb = await sandbox("lead-noattach-tmux");
+  sb.writeTeamConfig({ harnesses: HARNESSES });
+  const other = otherSession(sb);
+  assertEquals((await sb.tmux("new-session", "-d", "-s", other)).code, 0);
+  await using _client = await attachedClient(sb, other);
+
+  const result = await sb.mptWithEnv(await insideTmuxEnv(sb, other), "lead", "--no-attach");
+  assertEquals(result.code, 0, result.output);
+  assertStringIncludes(result.output, `tmux attach -t ${sb.session}:leader`);
+  assertStringIncludes(result.output, `tmux switch-client -t ${sb.session}:leader`);
+  assertEquals((await clients(sb)).every((c) => c.startsWith(`${other}:`)), true, "the client stays put");
 });
 
 test("mpt lead refuses a harness that cannot lead, naming the config key", { skip: !hasTmux() }, async () => {

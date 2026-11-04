@@ -77,7 +77,8 @@ mpt lead
 The daemon runs in the background and serves the web UI at
 **http://localhost:7437/**. `mpt lead` opens the leader — the agent you chat with,
 here or in the web UI — in a tmux window and attaches you to it; detach with
-`Ctrl-b d`, and `mpt lead` again reattaches.
+`Ctrl-b d`, and `mpt lead` again reattaches. Already inside tmux, it switches your
+client to the leader window instead.
 
 Then open the web UI. A new team's home page has a **Welcome checklist** that walks
 you through the rest — a first teammate, a one-click sample task, watching it run,
