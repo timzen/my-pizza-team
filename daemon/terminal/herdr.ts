@@ -30,6 +30,9 @@
  *   - **A label is not a live agent.** A server restart restores tabs but not their
  *     processes, so an existing tab whose pane runs only its shell gets the command
  *     run into it rather than counted as running (docs/herdr.md "Restart").
+ *   - **mpt's restore, not herdr's.** Every command runs with `HERDR_ENV=0`
+ *     (`herdrLaunchLine`), so herdr's agent integrations never report an mpt pane's
+ *     session and herdr's native restore never relaunches it without mpt's flags.
  *
  * Version gate: herdr ≥ `MIN_HERDR_VERSION`, read from `herdr status --json` (works
  * with no server), and a running server must report itself compatible with the CLI.
@@ -263,6 +266,25 @@ export function herdrEnvArgs(env: Record<string, string> | undefined): string[] 
 }
 
 /**
+ * The line an agent's pane runs: `command`, after opting the pane out of herdr's
+ * native agent-session restore (docs/herdr.md "Restart"). herdr's official agent
+ * integrations (Pi's `herdr-agent-state.ts`, Claude's hook, …) report a pane's
+ * session only when `HERDR_ENV` is `1`, and on a server restart herdr types
+ * `pi --session <file>` into every pane that reported one — dropping mpt's flags,
+ * so the Pi comes back as a ghost (a bare Pi in the team directory is the leader).
+ * herdr has no per-pane opt-out, and keeps its own `HERDR_*` authoritative over
+ * `--env`, so the override goes on the command line: the agent then runs with
+ * `HERDR_ENV=0` and no integration reports for it, while mpt's own restore
+ * (`openWindow` re-running the command into an idle restored tab) stays in charge.
+ * `export …;` works in sh, bash, zsh and fish, and a shell without `export` still
+ * runs the command after the `;`. `cwd`, when given, is `cd`ed into first — a
+ * restored pane's cwd is herdr's best guess.
+ */
+export function herdrLaunchLine(command: string, cwd?: string): string {
+  return `export HERDR_ENV=0; ${cwd ? `cd ${shellQuote(cwd)} && ` : ""}${command}`;
+}
+
+/**
  * herdr as a `TerminalBackend`. Every method is a handful of `herdr --session <s> …`
  * calls; see the header for the mapping.
  */
@@ -481,7 +503,7 @@ export function createHerdrBackend(opts: HerdrBackendOptions = {}): TerminalBack
       const tabId = str(made, "result.tab.tab_id", "workspace create");
       const paneId = str(made, "result.root_pane.pane_id", "workspace create");
       call(["tab", "rename", tabId, o.window]);
-      run(paneId, o.command);
+      run(paneId, herdrLaunchLine(o.command));
       return { created: true, ref: ref(o.session, o.window, paneId) };
     }
 
@@ -491,15 +513,16 @@ export function createHerdrBackend(opts: HerdrBackendOptions = {}): TerminalBack
       const pane = paneOf(existing);
       if (!paneIdle(pane)) return { created: false, ref: ref(o.session, o.window, pane.id) };
       // Restored after a server restart: the tab is there, its agent isn't. The
-      // pane's cwd and env were restored with it; the cd makes the cwd certain.
-      run(pane, `cd ${shellQuote(o.cwd)} && ${o.command}`);
+      // pane's cwd was restored with it (the cd makes it certain); its `--env`
+      // variables were not (docs/herdr.md "Restart").
+      run(pane, herdrLaunchLine(o.command, o.cwd));
       return { created: true, ref: ref(o.session, o.window, pane.id) };
     }
 
     const made = call(["tab", "create", "--workspace", ws.id, "--label", o.window, "--cwd", o.cwd, ...herdrEnvArgs(o.env), "--no-focus"]);
     const paneId = str(made, "result.root_pane.pane_id", "tab create");
     // No command argument on `tab create`; `pane run` straight after works (verified).
-    run(paneId, o.command);
+    run(paneId, herdrLaunchLine(o.command));
     return { created: true, ref: ref(o.session, o.window, paneId) };
   };
 

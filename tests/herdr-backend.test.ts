@@ -9,7 +9,8 @@
  *   - a server is started (detached) only by operations that create windows, and
  *     waited for; reads never start one;
  *   - windows are tabs found by label — every id comes from a response;
- *   - `openWindow`: `--cwd`, `--label`, sorted `--env`, `--no-focus`, then `pane run`;
+ *   - `openWindow`: `--cwd`, `--label`, sorted `--env`, `--no-focus`, then `pane run`
+ *     of the command with `HERDR_ENV=0` (no herdr native restore of mpt's panes);
  *     a fresh workspace's first tab is reused; idempotent by label; a restored tab
  *     with only its shell gets the command again;
  *   - send line / Ctrl-C / close / focus; herdr errors become clear messages;
@@ -28,6 +29,7 @@ import {
   createHerdrBackend,
   defaultHerdrSocketPath,
   herdrEnv,
+  herdrLaunchLine,
   MIN_HERDR_VERSION,
 } from "../daemon/terminal/herdr.ts";
 import { createTerminalBackend, getTerminalBackend } from "../daemon/terminal/index.ts";
@@ -138,10 +140,10 @@ test("openWindow on a stopped server: starts it detached, creates the workspace,
     // --env in key order, values verbatim; no focus stolen.
     "workspace create --label team --cwd /p/has space --env ALPHA=a b'c --env ZED=z --no-focus",
     "tab rename w1:t1 leader",
-    "pane run w1:p1 pi --ppt-lead",
+    "pane run w1:p1 export HERDR_ENV=0; pi --ppt-lead", // opted out of herdr's native restore
   ]);
   assertEquals(opened, { created: true, ref: { session: "team", window: "leader", id: "w1:p1" } });
-  assertEquals(h.tab("team", "leader")?.pane.typed, ["pi --ppt-lead"]);
+  assertEquals(h.tab("team", "leader")?.pane.typed, ["export HERDR_ENV=0; pi --ppt-lead"]);
   assertEquals(t.listWindows("team"), ["leader"], "no stray first tab");
 });
 
@@ -158,7 +160,7 @@ test("openWindow in an existing workspace: tab create with cwd, label, env, no f
     "workspace list",
     "tab list --workspace w1",
     "tab create --workspace w1 --label swift-ripley --cwd /p/x --env K=v --no-focus",
-    "pane run w1:p2 pi --ppt-worker",
+    "pane run w1:p2 export HERDR_ENV=0; pi --ppt-worker",
   ]);
   assertEquals(opened.created, true);
   assertEquals(opened.ref.id, "w1:p2");
@@ -173,13 +175,20 @@ test("openWindow is idempotent by label, and revives a restored tab that has onl
   const again = t.openWindow({ session: "team", window: "neo", cwd: "/p", command: "run-neo" });
   assertEquals(again.created, false);
   assertEquals(h.workspaces[0]!.tabs.length, 1, "no duplicate label (herdr would allow one)");
-  assertEquals(h.tab("team", "neo")?.pane.typed, ["run-neo"], "nothing typed into a live agent");
+  assertEquals(h.tab("team", "neo")?.pane.typed, ["export HERDR_ENV=0; run-neo"], "nothing typed into a live agent");
 
   // A server restart: same tab, same label, a fresh shell and no agent.
   h.tab("team", "neo")!.pane.idle = true;
   const revived = t.openWindow({ session: "team", window: "neo", cwd: "/p q", command: "run-neo" });
   assertEquals(revived.created, true);
-  assertEquals(h.tab("team", "neo")?.pane.typed, ["run-neo", "cd '/p q' && run-neo"]);
+  assertEquals(h.tab("team", "neo")?.pane.typed, ["export HERDR_ENV=0; run-neo", "export HERDR_ENV=0; cd '/p q' && run-neo"]);
+});
+
+test("herdrLaunchLine opts the agent out of herdr's native restore (HERDR_ENV=0), then cds and runs", () => {
+  // herdr's agent integrations report a pane's session only when HERDR_ENV is 1;
+  // herdr keeps its own HERDR_* over --env, so the override is on the command line.
+  assertEquals(herdrLaunchLine("pi --ppt-worker"), "export HERDR_ENV=0; pi --ppt-worker");
+  assertEquals(herdrLaunchLine("pi -a", "/p/it's here"), "export HERDR_ENV=0; cd '/p/it'\\''s here' && pi -a");
 });
 
 test("reads never start a server: listWindows/findWindow are empty while it is down", () => {
@@ -205,7 +214,7 @@ test("send a line, Ctrl-C, focus and close, each resolved by label", () => {
   t.sendLine(ref, "-n looks like a flag");
   t.sendControl(ref, "C-c");
   const pane = h.tab("team", "neo")!.pane;
-  assertEquals(pane.typed, ["work", "echo hi", " -n looks like a flag"]);
+  assertEquals(pane.typed, ["export HERDR_ENV=0; work", "echo hi", " -n looks like a flag"]);
   assertEquals(pane.keys, ["ctrl+c"]);
 
   h.calls.length = 0;
@@ -407,7 +416,7 @@ test("the spawner opens a teammate in herdr (starting its server), and dismisses
   assertEquals(h.launched.length, 1, "the daemon started the herdr server");
   const tab = h.tab("team", "neo")!;
   assertEquals(tab.cwd, process.cwd());
-  assertEquals(tab.pane.typed, ["run neo on herdr at team:neo"]);
+  assertEquals(tab.pane.typed, ["export HERDR_ENV=0; run neo on herdr at team:neo"]);
 
   // Dismiss: C-c on one pass, close on a later one.
   let now = 10_000;

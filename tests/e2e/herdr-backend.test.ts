@@ -11,7 +11,8 @@
  *     for `/ppt-hop`; and on dismiss sends Ctrl-C and closes the tab;
  *   - the **backend** (daemon/terminal/herdr.ts, over a real herdr) is idempotent by
  *     label, and after a server restart — which restores the tab but not its
- *     process — runs the command into the restored tab again.
+ *     process — runs the command into the restored tab again; every command runs with
+ *     `HERDR_ENV=0`, so herdr's agent integrations never report an mpt pane.
  *
  * Isolation: every herdr here is the sandbox's (tests/e2e/_herdr.ts — its own
  * XDG config dir and a random session name, passed to the daemon as `herdrSession`);
@@ -138,12 +139,12 @@ test("the herdr backend is idempotent by label, and re-runs the command in a tab
 
   const dir = path.join(hs.root, "has space");
   fs.mkdirSync(dir);
-  const command = "echo RUN-$((40+2)) at=[$PWD] e=[$MPT_E2E_VAR]; sleep 300";
+  const command = "echo RUN-$((40+2)) at=[$PWD] e=[$MPT_E2E_VAR] h=[$HERDR_ENV]; sleep 300";
   const first = terminal.openWindow({ session: "team", window: "neo", cwd: dir, command, env: { MPT_E2E_VAR: "a b'c" } });
   assertEquals(first.created, true);
   assertStringIncludes(first.ref.id ?? "", ":p");
   const pane = first.ref.id!;
-  assert(await hs.waitFor(() => screen(hs, pane).includes(`RUN-42 at=[${dir}] e=[a b'c]`)), screen(hs, pane));
+  assert(await hs.waitFor(() => screen(hs, pane).includes(`RUN-42 at=[${dir}] e=[a b'c] h=[0]`)), screen(hs, pane));
 
   // Again, while it runs: nothing new, nothing typed.
   const again = terminal.openWindow({ session: "team", window: "neo", cwd: dir, command });
@@ -158,7 +159,9 @@ test("the herdr backend is idempotent by label, and re-runs the command in a tab
   const revived = terminal.openWindow({ session: "team", window: "neo", cwd: dir, command });
   assertEquals(revived.created, true);
   const restoredPane = revived.ref.id!;
-  assert(await hs.waitFor(() => (screen(hs, restoredPane).match(/RUN-42 at=/g) ?? []).length >= 1), screen(hs, restoredPane));
+  // Opted out of herdr's native restore there too (HERDR_ENV=0). The restored pane's
+  // --env variables are gone (docs/herdr.md "Restart").
+  assert(await hs.waitFor(() => screen(hs, restoredPane).includes(`RUN-42 at=[${dir}] e=[] h=[0]`)), screen(hs, restoredPane));
 
   // What runs there (the Team tab's unmanaged windows): `sleep`, until Ctrl-C leaves the shell.
   const ref = terminal.windowRef("team", "neo");

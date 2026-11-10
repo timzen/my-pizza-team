@@ -24,8 +24,10 @@
  * It also pins the behaviours the design leans on: pane env comes from the *server*
  * plus `--env` (not the CLI caller), duplicate labels are allowed (so mpt must keep
  * them unique), a command's exit closes its tab, closing the last tab closes the
- * workspace, a restart restores tabs (labels and ids) but not their processes, and an
- * attached client follows `tab focus`.
+ * workspace, a restart restores tabs (labels and ids) but not their processes nor
+ * their `--env`, herdr's native restore relaunches a pane that reported an agent
+ * session (and `HERDR_ENV`, the integrations' gate, can't be overridden by `--env`),
+ * and an attached client follows `tab focus`.
  *
  * Every JSON response is checked against a recorded fixture in tests/fixtures/herdr/
  * (the unit tests of later tasks build on those): the live response must still have
@@ -39,6 +41,7 @@
 
 import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
+import * as net from "node:net";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
@@ -330,6 +333,67 @@ test("a server restart restores tabs and their ids, but not their processes", { 
   // the agent is alive (docs/herdr.md "Restart").
   assert(pane.terminal_id !== terminalBefore, "expected a new terminal after restart");
   assertEquals(foreground().includes("sleep"), false);
+});
+
+test("native agent-session restore relaunches a pane that reported a session; HERDR_ENV is herdr's", { skip: !HERDR }, async () => {
+  // Why mpt runs every agent with HERDR_ENV=0 (daemon/terminal/herdr.ts
+  // herdrLaunchLine, docs/herdr.md "Restart"): herdr's official integrations report a
+  // pane's session only when HERDR_ENV is 1, and herdr types `pi --session <file>`
+  // into every restored pane that reported one — without mpt's flags.
+  await using hs = await herdrSandbox();
+  // A stand-in `pi` herdr detects as Pi by its process name: `sleep`, renamed.
+  const bin = path.join(hs.root, "bin");
+  fs.mkdirSync(bin);
+  fs.copyFileSync("/bin/sleep", path.join(bin, "pi"));
+  const serverEnv = { PATH: `${bin}:${hs.env["PATH"] ?? ""}` };
+  await hs.startServer(serverEnv);
+  const ws = ok(hs.herdr(["workspace", "create", "--cwd", hs.root, "--label", "mpt-team", "--no-focus"]), "ws").json as Any;
+  const wsId: string = ws.result.workspace.workspace_id;
+  const tab = ok(hs.herdr(["tab", "create", "--workspace", wsId, "--cwd", hs.root, "--label", "worker-one",
+    "--env", "HERDR_ENV=0", "--env", "MPT_E2E_VAR=kept", "--no-focus"]), "tab").json as Any;
+  const paneId: string = tab.result.root_pane.pane_id;
+
+  // herdr keeps its own HERDR_* over --env: the override has to be on the command line.
+  ok(hs.herdr(["pane", "run", paneId, `echo "$HERDR_ENV|$MPT_E2E_VAR" > env.txt; pi 300`]), "run");
+  const envFile = path.join(hs.root, "env.txt");
+  assert(await hs.waitFor(() => fs.existsSync(envFile) && fs.readFileSync(envFile, "utf8").endsWith("\n")), "command did not run");
+  assertEquals(fs.readFileSync(envFile, "utf8").trim(), "1|kept");
+
+  // herdr takes a session report only for a pane it sees running Pi.
+  const pane = () => (hs.herdr(["pane", "get", paneId]).json as Any)?.result?.pane;
+  assert(await hs.waitFor(() => pane()?.agent === "pi"), `pi not detected: ${JSON.stringify(pane())}`);
+
+  // What herdr's Pi integration sends (~/.pi/agent/extensions/herdr-agent-state.ts), on its socket.
+  const sessionFile = path.join(hs.root, "session.jsonl");
+  fs.writeFileSync(sessionFile, "{}\n");
+  const socket = path.join(hs.configDir, "sessions", hs.session, "herdr.sock");
+  const send = (request: unknown) => new Promise<string>((resolve) => {
+    const c = net.createConnection(socket);
+    c.on("connect", () => c.write(`${JSON.stringify(request)}\n`));
+    c.on("data", (d) => { resolve(String(d)); c.destroy(); });
+    c.on("error", (e) => resolve(String(e)));
+  });
+  const seq = Date.now() * 1000;
+  assertMatch(await send({ id: "s", method: "pane.report_agent_session", params: {
+    // session_start_source (Pi's session_start reason) is required: without it herdr ignores the report.
+    pane_id: paneId, source: "herdr:pi", agent: "pi", seq, session_start_source: "startup", agent_session_path: sessionFile,
+  } }), /"type":"ok"/);
+  assertMatch(await send({ id: "a", method: "pane.report_agent", params: {
+    pane_id: paneId, source: "herdr:pi", agent: "pi", state: "idle", seq: seq + 1, agent_session_path: sessionFile,
+  } }), /"type":"ok"/);
+  assert(await hs.waitFor(() => pane()?.agent_session?.value === sessionFile), `no session: ${JSON.stringify(pane())}`);
+
+  // Restart: herdr types the resume command into the restored pane by itself.
+  await hs.stopServer();
+  await hs.startServer(serverEnv);
+  const read = () => hs.herdr(["pane", "read", paneId, "--source", "recent", "--lines", "20"]).stdout;
+  assert(await hs.waitFor(() => read().includes(`pi --session ${sessionFile}`)), `no native restore:\n${read()}`);
+
+  // And the restored pane has the server's env, not the tab's --env.
+  fs.rmSync(envFile);
+  ok(hs.herdr(["pane", "run", paneId, `echo "$HERDR_ENV|$MPT_E2E_VAR" > env.txt`]), "run again");
+  assert(await hs.waitFor(() => fs.existsSync(envFile) && fs.readFileSync(envFile, "utf8").endsWith("\n")), "command did not run");
+  assertEquals(fs.readFileSync(envFile, "utf8").trim(), "1|");
 });
 
 test("an attached client follows `tab focus`", { skip: !HERDR || !hasTmux() }, async () => {

@@ -127,7 +127,9 @@ tmux `-e`, the agent env file's variables (and anything else an agent needs) mus
 `--env` on `workspace create` / `tab create`, never be assumed from the daemon. `--env`
 values are passed verbatim (spaces and quotes intact). herdr strips inherited tmux,
 screen and other terminals' session markers from new panes, and keeps its own
-`HERDR_*` variables authoritative.
+`HERDR_*` variables authoritative (verified: `--env HERDR_ENV=0` still gives the pane
+`HERDR_ENV=1`). `--env` lasts only for the pane's first life: a pane a server restart
+restores has the server's environment, not its tab's `--env` (verified; see "Restart").
 
 ### Version gating
 
@@ -149,9 +151,49 @@ its agent (or the shell it exited to). So for herdr, "window exists" is not enou
 `startLeader`'s `already-running` or `spawnWindow`'s idempotency: also check
 `pane process-info` — a pane whose only foreground process is its shell
 (`foreground_process_group_id == shell_pid`) has no agent, and mpt should `pane run` the
-command into it rather than report it running. herdr's own "native agent session
-restore" resumes only panes that reported a session via herdr's official integration;
-mpt neither installs nor relies on it.
+command into it rather than report it running. The restored pane's `--env` variables
+are gone (verified), so a command mpt re-runs there has the server's environment
+without the agent env file's variables.
+
+**herdr's native agent-session restore is kept off mpt's panes.** herdr's official
+agent integrations — Pi's `~/.pi/agent/extensions/herdr-agent-state.ts`, Claude's,
+Copilot's hooks, installed with `herdr integration install` — report the pane's agent
+session (`pane.report_agent_session`, with the Pi session file). herdr saves it in
+`session.json`, and on restart, with `[session] resume_agents_on_restore` (default
+true), types the agent's resume command into the restored pane itself: for Pi,
+`pi --session <file>` (verified). That drops mpt's flags (`--ppt-worker`,
+`--ppt-name`, …), and a bare Pi in the team directory comes up as the *leader*. After
+a reboot that once gave a team three ghost leaders answering every chat message,
+while the real teammates never came back. herdr 0.9.5 has no per-pane opt-out (the
+API has only `report_agent_session`, `release_agent` and `clear_agent_authority`; no
+"don't resume" flag), and clearing a report after the fact loses a race, because the
+integration reports again on every agent turn. But every integration reports only when
+`HERDR_ENV` is `1` (with `HERDR_SOCKET_PATH` and `HERDR_PANE_ID`). So mpt runs each
+command it opens (teammates and the leader, fresh and restored tabs alike) as
+`export HERDR_ENV=0; [cd <cwd> && ]<command>` (`herdrLaunchLine`). It goes on the
+command line because herdr overrides `--env HERDR_ENV`. `export …;` works in sh, bash,
+zsh and fish, and a shell without `export` still runs the command. The agent's
+integrations then stay silent, herdr records no session for the pane, and mpt's
+own restore (above) is the only one. The integration doesn't have to be installed;
+with it, the cost is that herdr's sidebar falls back to its own process-based
+detection for mpt's agents rather than their reported working/idle state. tmux is
+unaffected. A pane that reported a session *before* this, saved in an existing
+`session.json`, can still be resumed natively once; after that the agent runs with
+`HERDR_ENV=0` and the report isn't renewed.
+
+Safety nets for whatever still slips through: a pane mpt didn't open, a session saved
+before the opt-out, or a user-run `pi` in the team's workspace:
+
+- **One live leader** (ARCHITECTURE.md "Only one live leader"). A second Pi that
+  comes up as leader while another is live is refused registration (409
+  `leader_already_connected`), sets up nothing, and doesn't mirror or answer the chat.
+- **Inbound spawns count toward the pool** (DESIGN.md "Team Size: Declared, not
+  Clicked"). A spawn realized in the last 60s whose teammate hasn't registered yet
+  counts, so the reconciler doesn't queue a second batch while the first is starting.
+- **Unmanaged windows** (DESIGN.md "Unmanaged Windows Are Shown, Never Reaped"). A
+  tab in the team's workspace that no online member, the leader or a starting spawn
+  accounts for is listed in the Team tab with what runs in it, and closed only when
+  the user asks.
 
 ## What doesn't map cleanly
 
@@ -163,6 +205,8 @@ mpt neither installs nor relies on it.
 | Duplicate labels allowed | List before create; the daemon serialises creation. |
 | IDs server-assigned, may change (`pane move`) | Resolve by label each time (above). |
 | Restart keeps tabs, not processes | Check `pane process-info` (above). |
+| Restart drops a tab's `--env` | Accept; a re-run command has the server's env (above). |
+| Native agent-session restore relaunches panes without mpt's flags | Run every command with `HERDR_ENV=0`, so integrations don't report (above). |
 | A command's exit closes its tab | Same as tmux; `pane run` into the shell keeps the shell, so dismiss still sends Ctrl-C then closes the tab. |
 | `herdr server` doesn't daemonize | Spawn it detached (above). |
 | Multiple attached clients can each view a different tab | `tab focus` moved the one attached client in the test; with several clients herdr decides which follow. Accept; document. |
@@ -178,7 +222,9 @@ its first tab reused by rename; a labelled tab with cwd and env, running a comma
 the env precedence; listing tabs and panes by label; duplicate labels; send-text +
 Enter; Ctrl-C; wait-output and read; focus; the error shapes; a command's exit closing its
 tab; the last tab closing the workspace; stopping the server; a restart restoring layout
-but not processes; and a real client (in a private tmux window) following `tab focus`.
+but not processes nor `--env`; herdr's native restore typing `pi --session <file>` into
+a restored pane that reported a session, and `--env HERDR_ENV=0` not overriding
+herdr's own; and a real client (in a private tmux window) following `tab focus`.
 
 Isolation (`tests/e2e/_herdr.ts`): `HOME`, `XDG_CONFIG_HOME`, `XDG_STATE_HOME` and
 `HERDR_CONFIG_PATH` all point into a temp dir, every call passes a random
