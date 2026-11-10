@@ -14,7 +14,7 @@ import { assertEquals } from "./_assert.ts";
 import { makeTeam, withTeam, post, put } from "./_team.ts";
 import { TEST_CONFIG } from "./_config.ts";
 import { buildApp } from "../daemon/server.ts";
-import { Store } from "../daemon/store.ts";
+import { Store, SPAWN_REGISTER_GRACE_MS } from "../daemon/store.ts";
 import { resolveMinTeammates, type TeamConfig } from "../shared/types.ts";
 import * as path from "node:path";
 
@@ -94,6 +94,61 @@ test("pending spawns count toward the minimum (no duplicate batches)", async () 
     // Nothing has been realized yet — reconciling again must not double up.
     assertEquals(store.reconcileTeammatePool(), 0);
     assertEquals((await pendingSpawns(app)).length, 2);
+  });
+});
+
+/** Mark every pending spawn `done` (as the spawner does once its window is open); returns their names. */
+async function realizeAll(app: ReturnType<typeof buildApp>, store: Store): Promise<string[]> {
+  const pending = (await pendingSpawns(app)) as Array<{ id: string; name: string }>;
+  for (const p of pending) store.updateLeaderDirective(p.id, "done");
+  return pending.map((p) => p.name);
+}
+
+/** Backdate every realized spawn past the register grace. */
+function ageRealizedSpawns(store: Store, ms: number) {
+  (store as unknown as { db: { prepare: (s: string) => { run: (...a: unknown[]) => void } } })
+    .db.prepare("UPDATE leader_directives SET updated_at = ? WHERE action = 'spawn' AND status = 'done'")
+    .run(Date.now() - ms);
+}
+
+test("realized-but-unregistered spawns within the grace still count (no second batch)", async () => {
+  await withTeam({ minTeammates: 0, maxTeammates: 6 }, async ({ app, store }) => {
+    await registerLeader(app);
+    store.setTmuxCapability({ canSpawn: true });
+    store.setMinTeammates(3);
+    assertEquals((await realizeAll(app, store)).length, 3);
+    // Windows open, agents still starting: nothing pending, nothing online.
+    assertEquals((await pendingSpawns(app)).length, 0);
+    assertEquals(store.getTeammatePool().pending, 3, "reported as starting");
+    assertEquals(store.reconcileTeammatePool(), 0, "no second batch");
+  });
+});
+
+test("a realized spawn that never registers stops counting after the grace", async () => {
+  await withTeam({ minTeammates: 0, maxTeammates: 6 }, async ({ app, store }) => {
+    await registerLeader(app);
+    store.setTmuxCapability({ canSpawn: true });
+    store.setMinTeammates(2);
+    await realizeAll(app, store);
+    ageRealizedSpawns(store, SPAWN_REGISTER_GRACE_MS + 1_000);
+    assertEquals(store.getTeammatePool().pending, 0);
+    assertEquals(store.reconcileTeammatePool(), 2, "failed starts are replaced");
+  });
+});
+
+test("registration clears a realized spawn from the inbound count", async () => {
+  await withTeam({ minTeammates: 0, maxTeammates: 6 }, async ({ app, store }) => {
+    await registerLeader(app);
+    store.setTmuxCapability({ canSpawn: true });
+    store.setMinTeammates(2);
+    const [first, second] = await realizeAll(app, store);
+    await post(app, "/api/agents/register", { id: "t1", name: first });
+    let pool = store.getTeammatePool();
+    assertEquals([pool.online, pool.pending], [1, 1], "counted once, as online");
+    await post(app, "/api/agents/register", { id: "t2", name: second });
+    pool = store.getTeammatePool();
+    assertEquals([pool.online, pool.pending], [2, 0]);
+    assertEquals(store.reconcileTeammatePool(), 0);
   });
 });
 

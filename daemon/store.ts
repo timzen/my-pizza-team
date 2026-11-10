@@ -105,7 +105,7 @@ import * as path from "node:path";
 
 // Domain constants and types live with their domain stores; re-exported so importers
 // of the Store keep their imports.
-export { DISMISS_EXIT_GRACE_MS, SELF_HANDLED_ACTIONS, LEADER_MEMBER_NAME, isPoolTeammate, type LeaderDirective, type TeammatePoolState } from "./store/members.ts";
+export { DISMISS_EXIT_GRACE_MS, SPAWN_REGISTER_GRACE_MS, SELF_HANDLED_ACTIONS, LEADER_MEMBER_NAME, isPoolTeammate, type LeaderDirective, type TeammatePoolState } from "./store/members.ts";
 export type { WorkDefExecutionStats } from "./store/queue.ts";
 export type { Task, TaskWithMeta } from "./store/board.ts";
 export type { AcceptProposalOptions, ProposalResult, TriageProposalOverrides, TriageThread } from "./store/triage.ts";

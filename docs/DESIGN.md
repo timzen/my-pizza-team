@@ -1163,10 +1163,14 @@ reaping honest and puts the recovery decision with the human.
 ## Team Size: Declared, not Clicked
 
 The team's size is a **number you declare** (`minTeammates`), not a button you
-press per teammate. The daemon counts online pool teammates plus not-yet-realized
-`spawn` directives and queues spawns for the shortfall — on the heartbeat tick
-right after the reaper (so a lost teammate is replaced on the same tick), when the
-number changes, and when a leader registers.
+press per teammate. The daemon counts online pool teammates plus *inbound* spawns —
+`spawn` directives still pending, or realized within the last 60s
+(`SPAWN_REGISTER_GRACE_MS`) whose teammate hasn't registered yet. A window opens
+seconds before its agent registers, and counting only pending spawns read that gap
+as a shortfall and queued a second batch; past the grace an unregistered spawn stops
+counting, so one that never started is still replaced. It queues spawns for the
+shortfall on the heartbeat tick right after the reaper (so a lost teammate is
+replaced on the same tick), when the number changes, and when a leader registers.
 
 It is **one-directional**: the daemon spawns up to the floor but never dismisses
 anyone. Ending a teammate stays a human act, so a reconciler can never kill work in

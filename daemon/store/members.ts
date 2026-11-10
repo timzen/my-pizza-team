@@ -47,6 +47,15 @@ import type { StoreDomainContext } from "./domain.ts";
 export const DISMISS_EXIT_GRACE_MS = 3_000;
 
 /**
+ * How long a realized (`done`) spawn still counts as inbound to the teammate pool
+ * while its teammate hasn't registered yet. A window opens well before the agent
+ * in it registers; without this the reconciler saw the gap as a shortfall and
+ * queued a second batch. Past the grace an unregistered spawn stops counting, so a
+ * teammate that never started is still replaced. See docs/DESIGN.md "Team Size".
+ */
+export const SPAWN_REGISTER_GRACE_MS = 60_000;
+
+/**
  * Directive actions an agent realizes itself rather than via its host leader.
  * These need in-process Pi APIs (session replacement), which tmux keystrokes
  * cannot express. See docs/DESIGN.md "Assistant Chat Model".
@@ -679,12 +688,30 @@ export class MemberStore {
   // *down*: the daemon never dismisses a teammate (that stays a human act), so
   // lowering the number just stops replacements.
 
-  /** Pending `spawn` directives for pool teammates. */
+  /**
+   * Inbound pool teammates: `spawn` directives still `pending`, plus ones realized
+   * (`done`) within SPAWN_REGISTER_GRACE_MS whose teammate (`params.name`) hasn't
+   * registered yet. Counting the second kind keeps the reconciler from queueing a
+   * second batch while freshly opened windows are still starting up.
+   */
   private countPendingTeammateSpawns(): number {
     // Every pending spawn is a teammate: retired assistant spawns are cancelled at
     // boot (store/schema.ts cleanRetiredData).
     const row = this.db.prepare("SELECT COUNT(*) AS n FROM leader_directives WHERE action = 'spawn' AND status = 'pending'").get() as { n: number };
-    return row.n;
+    // Any member row with the spawn's name (online or not) means it registered:
+    // names are generated unique, and a teammate that registered and then dropped
+    // is the reaper's to report and the pool's to replace, not still "inbound".
+    const registered = new Set(this.getMembers().map((m) => m.name));
+    const realized = this.db.prepare(
+      "SELECT params FROM leader_directives WHERE action = 'spawn' AND status = 'done' AND updated_at > ?",
+    ).all(Date.now() - SPAWN_REGISTER_GRACE_MS) as Array<Record<string, unknown>>;
+    let inbound = 0;
+    for (const r of realized) {
+      let name: unknown;
+      try { name = JSON.parse((r.params as string) || "{}").name; } catch { /* ignore */ }
+      if (typeof name === "string" && isPoolTeammate(name) && !registered.has(name)) inbound++;
+    }
+    return row.n + inbound;
   }
 
   /**
@@ -740,8 +767,9 @@ export class MemberStore {
 
   /**
    * Top the teammate pool back up to `minTeammates`. Counts online teammates
-   * plus not-yet-realized spawn requests (so a slow leader doesn't get a second
-   * batch), caps the target at `maxTeammates`, and waits for an online leader.
+   * plus inbound spawns — pending, or realized but not yet registered within
+   * SPAWN_REGISTER_GRACE_MS (so a slow-starting batch doesn't get a second
+   * one), caps the target at `maxTeammates`, and waits for an online leader.
    * Returns how many spawn directives were queued.
    *
    * **The team starts when its leader does**, even when the daemon could realize
