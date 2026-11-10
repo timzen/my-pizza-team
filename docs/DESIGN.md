@@ -2107,6 +2107,17 @@ had to *designate* one of several leaders as the chat agent. It was removed: the
 leader-directive channel is singular (`/api/leader/directives`), readiness is a
 team-level fact, and the chat simply goes to the leader.
 
+**One leader is enforced, not assumed.** Role detection makes any bare `pi` in the
+team directory a leader, and every leader polls the chat, so a second one answers
+every message too. That happened: after a desktop reboot herdr's session restore
+relaunched three teammate panes as plain `pi --session …`, and each message got
+four replies. So the daemon refuses a leader registration while another leader is
+live (409 `leader_already_connected`), and the refused Pi stays inactive with one
+warning. "Live" is the reaper's own threshold, so a crashed leader blocks a
+replacement no longer than it would stay on the Team tab; "the same leader" is the
+same process, told by a per-process instance id sent at registration, because all
+Pi leaders share the member id `leader`.
+
 ## Readiness Gating
 
 Credentials, VPN, and network are properties of the machine, so readiness is one

@@ -44,6 +44,7 @@
 
 import {
   FEATURE_NAMES,
+  LEADER_ALREADY_CONNECTED,
   PROTOCOL_VERSION,
   featureDisabledMessage,
   type AgentClaimResponse,
@@ -71,13 +72,38 @@ export class DaemonError extends Error {
    * the message is then `featureDisabledMessage(feature)`.
    */
   public feature?: FeatureName;
+  /**
+   * The daemon's typed refusal reason, when its error body carries one (e.g.
+   * `LEADER_ALREADY_CONNECTED` on a 409 from register).
+   */
+  public code?: string;
 
-  constructor(message: string, statusCode: number, feature?: FeatureName) {
+  constructor(message: string, statusCode: number, feature?: FeatureName, code?: string) {
     super(message);
     this.name = "DaemonError";
     this.statusCode = statusCode;
     if (feature) this.feature = feature;
+    if (code) this.code = code;
   }
+}
+
+/** Is `err` the daemon refusing a leader registration because another leader is live? */
+export function isLeaderAlreadyConnected(err: unknown): boolean {
+  return err instanceof DaemonError && err.statusCode === 409 && err.code === LEADER_ALREADY_CONNECTED;
+}
+
+/**
+ * This process's instance id: random, made once per OS process and kept on
+ * `globalThis`, so it survives the extension being re-imported (a Pi session
+ * roll) but differs between two Pi processes. Sent at registration so the
+ * daemon tells "this process re-registering" from "another process claiming
+ * the same member id" (the one-leader guard, LEADER_ALREADY_CONNECTED).
+ */
+export function processInstanceId(): string {
+  const key = Symbol.for("my-pizza-team.instanceId");
+  const holder = globalThis as unknown as Record<symbol, string | undefined>;
+  if (!holder[key]) holder[key] = globalThis.crypto.randomUUID();
+  return holder[key] as string;
 }
 
 // ─── Other response types ────────────────────────────────────────────
@@ -243,9 +269,11 @@ export class DaemonClient {
     if (!res.ok) {
       let errorMsg = `HTTP ${res.status}`;
       let feature: FeatureName | undefined;
+      let code: string | undefined;
       try {
         const body = await res.json() as any;
         if (body.error) errorMsg = body.error;
+        if (typeof body.code === "string") code = body.code;
         // A feature-toggle refusal: replace the terse "feature 'x' is disabled"
         // with the actionable wording, so a tool error tells the model (and the
         // user) how to turn the kind back on.
@@ -257,7 +285,7 @@ export class DaemonClient {
         // If body isn't JSON, use status text
         errorMsg = res.statusText || errorMsg;
       }
-      throw new DaemonError(errorMsg, res.status, feature);
+      throw new DaemonError(errorMsg, res.status, feature, code);
     }
 
     return res;
@@ -336,7 +364,9 @@ export class DaemonClient {
    * Called once at startup. Provides the agent's name and working directory
    * (which drives directory-affinity matching), plus the version handshake.
    *
-   * Returns workflow config and host-specific settings.
+   * Returns workflow config and host-specific settings. A leader refused because
+   * another leader is live throws a DaemonError with `code`
+   * `LEADER_ALREADY_CONNECTED` (`isLeaderAlreadyConnected`).
    */
   async register(opts: {
     name: string;
@@ -355,6 +385,9 @@ export class DaemonClient {
       protocolVersion: PROTOCOL_VERSION,
       harness: this.harness,
       harnessVersion: this.harnessVersion,
+      // Per-process, so a reconnect of this process is accepted where another
+      // process registering as the same live leader is refused.
+      instanceId: processInstanceId(),
     });
   }
 

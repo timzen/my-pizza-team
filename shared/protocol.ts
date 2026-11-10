@@ -23,7 +23,7 @@ import type {
   StatusResponse as AgentStatusResponse,
 } from "./agent-protocol.ts";
 
-export { PROTOCOL_VERSION } from "./agent-protocol.ts";
+export { LEADER_ALREADY_CONNECTED, PROTOCOL_VERSION } from "./agent-protocol.ts";
 export type {
   AgentClaimResponse, AgentNextWorkResponse, AgentSetWorkItemStateResponse, AssistantDelivery, AssistantInboxItem,
   AssistantInboxResponse, AssistantOrigin, CreateLeaderDirectiveResponse, LeaderDirective, LeaderDirectivesResponse,

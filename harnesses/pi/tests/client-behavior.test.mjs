@@ -18,8 +18,8 @@ import { test } from "node:test";
 import * as assert from "node:assert";
 import * as http from "node:http";
 
-const { DaemonClient, DaemonError } = await import("../src/runtime/client.ts");
-const { PROTOCOL_VERSION } = await import("../src/shared/agent-protocol.ts");
+const { DaemonClient, DaemonError, isLeaderAlreadyConnected, processInstanceId } = await import("../src/runtime/client.ts");
+const { LEADER_ALREADY_CONNECTED, PROTOCOL_VERSION } = await import("../src/shared/agent-protocol.ts");
 
 /**
  * Start a throwaway server on an ephemeral port. `handler(req, body)` returns
@@ -183,7 +183,40 @@ test("register posts identity, host, directory, and the version handshake", asyn
       protocolVersion: PROTOCOL_VERSION,
       harness: "pi",
       harnessVersion: "9.9.9",
+      // Per process: how the daemon tells this process re-registering from
+      // another one claiming the same live leader.
+      instanceId: processInstanceId(),
     });
+  });
+});
+
+test("the instance id is stable within a process, so a reconnect sends the same one", async () => {
+  await withServer(null, async (url, calls) => {
+    await client(url).register({ name: "leader" });
+    await new DaemonClient(url, "agent-1").register({ name: "leader" });
+    assert.equal(typeof calls[0].body.instanceId, "string");
+    assert.ok(calls[0].body.instanceId.length > 0);
+    assert.equal(calls[1].body.instanceId, calls[0].body.instanceId);
+  });
+});
+
+test("a second-leader refusal surfaces its code, and isLeaderAlreadyConnected recognises it", async () => {
+  const body = { success: false, error: "already a leader", code: LEADER_ALREADY_CONNECTED };
+  await withServer(() => ({ status: 409, json: body }), async (url) => {
+    await assert.rejects(
+      () => client(url).register({ name: "leader" }),
+      (e) => {
+        assert.ok(e instanceof DaemonError);
+        assert.equal(e.statusCode, 409);
+        assert.equal(e.code, LEADER_ALREADY_CONNECTED);
+        assert.equal(isLeaderAlreadyConnected(e), true);
+        return true;
+      },
+    );
+  });
+  // Any other 409 (e.g. a protocol mismatch) is not that refusal.
+  await withServer(() => ({ status: 409, json: { error: "protocol" } }), async (url) => {
+    await assert.rejects(() => client(url).register({ name: "leader" }), (e) => isLeaderAlreadyConnected(e) === false);
   });
 });
 

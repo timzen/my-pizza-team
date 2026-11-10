@@ -16,7 +16,7 @@ import { readBody, fail } from "./http.ts";
 import { buildWorkDefPrompt } from "../prompt.ts";
 import { personaRefOf } from "../personas/resolve.ts";
 import { DEFAULT_HARNESS, isExperimentalHarness, type ResolvedPersona, type TeamConfig, type TriageOutcome, type TriageProposal, type WorkDef, type WorkItemRef } from "../../shared/types.ts";
-import { MIN_PROTOCOL_VERSION, PROTOCOL_VERSION, type AgentListResponse } from "../../shared/protocol.ts";
+import { LEADER_ALREADY_CONNECTED, MIN_PROTOCOL_VERSION, PROTOCOL_VERSION, type AgentListResponse } from "../../shared/protocol.ts";
 import { packageVersion } from "../../shared/paths.ts";
 import { dismissParams, focusMember } from "../spawner.ts";
 
@@ -33,6 +33,8 @@ export function registerAgentRoutes(ctx: RouteContext): void {
       protocolVersion?: number;
       harness?: string;
       harnessVersion?: string;
+      /** Per-process id (e.g. one per Pi process), so a process re-registering is told from another. */
+      instanceId?: string;
     };
     if (!body.id || !body.name) {
       return fail(c, 400, "Fields 'id' and 'name' are required");
@@ -70,12 +72,25 @@ export function registerAgentRoutes(ctx: RouteContext): void {
     const gate = experimentalGate(config, body.harness);
     if (gate) return fail(c, 409, gate);
 
+    // ── One live leader ──────────────────────────────────────────────
+    // A second leader would answer every chat message too (a terminal's session
+    // restore relaunching teammate panes as bare `pi` in the team directory made
+    // three). Refused, typed, so that harness stays inactive; once the live one
+    // goes offline or is reaped, a new leader takes over (MemberStore
+    // leaderRegistrationConflict; docs/DESIGN.md "One Host, One Leader").
+    const instanceId = typeof body.instanceId === "string" && body.instanceId.trim() ? body.instanceId.trim() : undefined;
+    if (store.leaderRegistrationConflict(body.id, body.name, instanceId)) {
+      return fail(c, 409, "This team already has a leader connected (another process). This one stays inactive.",
+        { code: LEADER_ALREADY_CONNECTED, protocolVersion: PROTOCOL_VERSION, daemonVersion: packageVersion() });
+    }
+
     // The harness may attach opaque metadata (e.g. its tmux window) it later
     // uses to realize control intents. The daemon stores it verbatim.
     store.registerMember(body.id, body.name, body.directory, body.metadata || {}, {
       protocolVersion: body.protocolVersion,
       harness: body.harness,
       harnessVersion: body.harnessVersion,
+      instanceId,
     });
 
     return c.json({

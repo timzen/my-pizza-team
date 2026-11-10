@@ -129,6 +129,13 @@ export class MemberStore {
    */
   private sessionStats = new Map<string, MemberSessionStats>();
   /**
+   * Each registered agent's per-process instance id (`instanceId` at
+   * registration), when its harness sends one. In memory only, like the members
+   * it describes: it tells "this Pi process re-registering" from "another Pi
+   * claiming the same member id" (`leaderRegistrationConflict`).
+   */
+  private instanceIds = new Map<string, string>();
+  /**
    * Ids explicitly dismissed by a human (tombstones). A dismissed id's next
    * heartbeat is told to shut down; an unknown-but-not-dismissed id is told to
    * re-register. In-memory only — a daemon restart clears it (and also wipes
@@ -173,13 +180,15 @@ export class MemberStore {
     name: string,
     directory?: string,
     metadata: Record<string, unknown> = {},
-    handshake?: { protocolVersion?: number; harness?: string; harnessVersion?: string },
+    handshake?: { protocolVersion?: number; harness?: string; harnessVersion?: string; instanceId?: string },
   ): void {
     // (Re)registering clears any dismiss tombstone for this id.
     this.dismissedIds.delete(id);
     this.dismissals.delete(id);
     // …and any session stats: a registration is a fresh harness session.
     this.sessionStats.delete(id);
+    if (handshake?.instanceId) this.instanceIds.set(id, handshake.instanceId);
+    else this.instanceIds.delete(id);
     this.db.prepare(
       `INSERT OR REPLACE INTO members (id, name, directory, metadata, protocol_version, harness, harness_version, status, last_heartbeat)
        VALUES (?, ?, ?, ?, ?, ?, ?, 'idle', ?)`
@@ -198,6 +207,34 @@ export class MemberStore {
     // pool spawn can actually be realized — fill the pool now instead of waiting
     // for the next heartbeat tick.
     if (name.toLowerCase().includes(LEADER_MEMBER_NAME)) this.reconcileTeammatePool();
+  }
+
+  /**
+   * Would registering this agent make a second live leader? Returns the live
+   * leader it would collide with, or null when the registration may go ahead.
+   *
+   * Only one leader may be live (docs/DESIGN.md "One Host, One Leader"): every
+   * leader polls the chat, so two would answer every message. A Pi restored by a
+   * terminal's session restore as a bare `pi` in the team directory becomes a
+   * leader by role detection, and every Pi leader registers under the same id, so
+   * the id alone can't tell them apart — the per-process `instanceId` does.
+   *
+   * Allowed: a non-leader; no live leader (none, offline, or past the reaper's
+   * threshold — a takeover); the same process re-registering (same id, and the
+   * same instance id, or either side has none — a harness from before instance
+   * ids, which can't be told apart and keeps the old behavior).
+   */
+  leaderRegistrationConflict(id: string, name: string, instanceId?: string): Member | null {
+    if (!name.toLowerCase().includes(LEADER_MEMBER_NAME)) return null;
+    const cutoff = Date.now() - this.offlineThresholdMs();
+    const live = this.getMembers().find((m) =>
+      m.name.toLowerCase().includes(LEADER_MEMBER_NAME) && m.status !== "offline" && m.lastHeartbeat >= cutoff
+    );
+    if (!live) return null;
+    if (live.id !== id) return live;
+    const known = this.instanceIds.get(id);
+    if (!known || !instanceId || known === instanceId) return null;
+    return live;
   }
 
   /** Set a member's status (and refresh its heartbeat time). */
@@ -259,6 +296,7 @@ export class MemberStore {
     this.db.prepare("DELETE FROM members WHERE id = ?").run(id);
     this.deps.forgetLiveState(id);
     this.sessionStats.delete(id);
+    this.instanceIds.delete(id);
   }
 
   /** Record an agent's session stats (context fill, session cost); stamps `at`. */
@@ -331,8 +369,7 @@ export class MemberStore {
    * Returns the list of agent IDs that were marked offline.
    */
   reapOfflineAgents(): string[] {
-    const timeoutMs = (this.config.agentTimeoutSeconds ?? 90) * 1000;
-    const cutoff = Date.now() - timeoutMs;
+    const cutoff = Date.now() - this.offlineThresholdMs();
     const reaped: string[] = [];
 
     const rows = this.db.prepare(
@@ -367,6 +404,14 @@ export class MemberStore {
     }
 
     return reaped;
+  }
+
+  /**
+   * How long without a heartbeat before an agent counts as gone: the reaper's
+   * threshold, which is also what "live" means for the one-leader guard.
+   */
+  private offlineThresholdMs(): number {
+    return (this.config.agentTimeoutSeconds ?? 90) * 1000;
   }
 
   /**

@@ -6,6 +6,10 @@
 //    also the agent you chat with (see chat.ts; there is no separate assistant)
 // 3. Otherwise → Inactive (only /ppt-help available)
 //
+// A would-be leader the daemon refuses because another leader is live
+// (LEADER_ALREADY_CONNECTED — e.g. a pane a terminal's session restore relaunched
+// as a bare `pi` here) is inactive too: one warning, and only /ppt-help.
+//
 // --ppt-assistant is retired: it named a dedicated chat process that the leader
 // now subsumes. The flag is still accepted so an old spawn command doesn't hard
 // fail — it just explains itself and stays inactive.
@@ -148,31 +152,41 @@ export default function (pi: ExtensionAPI) {
     if (isLead || hasConfig) {
       const client = new DaemonClient(daemonUrl, "leader", { harnessVersion: HARNESS_VERSION });
       const { setupLeader } = await import("./leader.js");
-      await setupLeader(pi, ctx, client, cwd);
+      const result = await setupLeader(pi, ctx, client, cwd);
+      if (result === "rejected") {
+        registerHelp(pi, "Why this Pi is inactive", [
+          "🍕 This team already has a leader: another Pi in this directory is connected",
+          "to the daemon as the team's assistant, so this one stays inactive (two would",
+          "both answer the chat).",
+          "",
+          "Chat with the team from the web UI or the leader's own window. To make this",
+          "Pi the leader, close the other one and restart this Pi.",
+        ]);
+      }
       return;
     }
 
     // ─── INACTIVE — register /ppt-help only ────────────────────────
 
-    pi.registerCommand("ppt-help", {
-      description: "How to set up my-pizza-team in this directory",
-      handler: async (_args, cmdCtx) => {
-        cmdCtx.ui.notify(
-          [
-            "🍕 my-pizza-team is not set up in this directory.",
-            "",
-            "To get started:",
-            "  1. Install mpt: https://github.com/timzen/my-pizza-team/releases",
-            "  2. Run `mpt start` in this directory (creates .my-pizza-team/)",
-            "  3. Restart Pi — it will run as the team's assistant automatically.",
-            "",
-            "Or point Pi at an existing team:",
-            "  cd /path/to/project-with-.my-pizza-team && pi",
-          ].join("\n"),
-          "info"
-        );
-      },
-    });
+    registerHelp(pi, "How to set up my-pizza-team in this directory", [
+      "🍕 my-pizza-team is not set up in this directory.",
+      "",
+      "To get started:",
+      "  1. Install mpt: https://github.com/timzen/my-pizza-team/releases",
+      "  2. Run `mpt start` in this directory (creates .my-pizza-team/)",
+      "  3. Restart Pi — it will run as the team's assistant automatically.",
+      "",
+      "Or point Pi at an existing team:",
+      "  cd /path/to/project-with-.my-pizza-team && pi",
+    ]);
+  });
+}
+
+/** Register /ppt-help for an inactive Pi: a single command that shows `lines`. */
+function registerHelp(pi: ExtensionAPI, description: string, lines: string[]): void {
+  pi.registerCommand("ppt-help", {
+    description,
+    handler: async (_args, cmdCtx) => { cmdCtx.ui.notify(lines.join("\n"), "info"); },
   });
 }
 

@@ -177,9 +177,20 @@ export function terminalMetadata(values: {
 
 // ─── Agents API (WorkItem-centric; see docs/DESIGN.md "The WorkItem") ─
 
+/**
+ * The `code` of a leader registration refused because another leader is live
+ * (409). Only one leader may be connected — two would both answer the chat
+ * (docs/DESIGN.md "One Host, One Leader") — so a second Pi that would be the
+ * leader stays inactive instead. Telling "this process" from "another one" uses
+ * the registration's optional `instanceId`: additive, so not a protocol bump.
+ */
+export const LEADER_ALREADY_CONNECTED = "leader_already_connected";
+
 /** POST /api/agents/register */
 export interface AgentRegisterResponse<W = unknown> {
   success: boolean;
+  /** A typed refusal reason, e.g. `LEADER_ALREADY_CONNECTED` (with a 409). */
+  code?: string;
   /** Present when registered; absent on a refusal (e.g. a 409 protocol mismatch). */
   config?: {
     defaultWorkflow: string;

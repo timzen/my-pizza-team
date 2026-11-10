@@ -540,7 +540,8 @@ region, silent on load; the chat a quiet `role="log"`; a story's Make pending an
 ## Agent Lifecycle
 
 ```
-1. POST /api/agents/register          → {protocolVersion, harness, harnessVersion, directory, metadata}
+1. POST /api/agents/register          → {protocolVersion, harness, harnessVersion, instanceId, directory, metadata}
+                                         (409 leader_already_connected for a second live leader)
 2. GET  /api/agents/next-work?agentId → { workItem: {id, title} | null }   (null while paused)
 3. POST /api/agents/claim/:id         → lease (→ IN_PROGRESS) + { workItem: {id}, prompt }
                                          (409 if its directory is leased meanwhile)
@@ -558,6 +559,24 @@ agent the daemon no longer knows gets `reregister` (a restart forgot it); one th
 was explicitly dismissed (`DELETE /api/agents/:id?dismiss=true`) gets `dismissed`
 and shuts down. A plain `DELETE` is a clean self-deregister and leaves no
 tombstone. This keeps restarts and upgrades from silently killing teammates.
+
+**Only one live leader.** Every Pi leader registers under the id `leader`, so a
+second Pi that role detection made a leader (a pane a terminal's session restore
+relaunched as a bare `pi` in the team directory) would otherwise share the row and
+answer every chat message too. Registration carries an optional per-process
+`instanceId` (`runtime/client.ts processInstanceId`, kept on `globalThis` so a session
+roll keeps it), held in memory beside the member (`MemberStore.instanceIds`). A
+leader registration is refused with 409 `{ code: "leader_already_connected" }`
+(`LEADER_ALREADY_CONNECTED`, shared/agent-protocol.ts) while another leader is live —
+not offline, and heartbeating within the reaper's `agentTimeoutSeconds` — under a
+different member id, or the same id with a different instance id
+(`MemberStore.leaderRegistrationConflict`). A missing instance id on either side
+(an older harness) keeps the old accept. Once the live leader deregisters, is
+reaped, or falls past the threshold, the next leader takes over. The refused Pi
+sets up nothing — no tools, chat or transcript mirror, heartbeat, or deregister on
+shutdown — shows one warning and keeps only `/ppt-help`; a leader refused on a later
+re-register stops its chat, transcript, heartbeat and widget the same way. The
+field is additive, so the protocol version is unchanged.
 Removing a member (either `DELETE`) moves its `IN_PROGRESS` items to `MORIBUND`
 first — the reaper's transition, since the reaper only walks members — and clears
 their `member_id`; a human force-fails them from the Queue page. A Pi teammate
@@ -1023,7 +1042,7 @@ Every route reads its JSON body with `readBody` and answers errors with `fail`
 
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | `/api/agents/register` | Register (`id`, `name`, `directory`, `metadata`, handshake fields); 409 on an unservable `protocolVersion`, or an experimental `harness` without `experimental.harnesses` |
+| POST | `/api/agents/register` | Register (`id`, `name`, `directory`, `metadata`, handshake fields, optional per-process `instanceId`); 409 on an unservable `protocolVersion`, an experimental `harness` without `experimental.harnesses`, or a second live leader (`code: "leader_already_connected"`) |
 | POST | `/api/agents/heartbeat` | Keep-alive; `{reregister:true}` or `{dismissed:true}` when unknown |
 | GET | `/api/agents/next-work?agentId=` | Next READY item by directory affinity, skipping items whose directory is leased |
 | POST | `/api/agents/claim/:workItemId` | Lease + prompt (409 if not claimable, including "directory busy" when an overlapping item is in flight); records the resolved persona on the WorkItem |

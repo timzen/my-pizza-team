@@ -65,7 +65,27 @@ test("registration is a retryable function", () => {
 
 test("heartbeat retries registration and re-registers when dismissed or unknown", () => {
   assert.ok(src.includes("if (res.dismissed || res.reregister)"));
-  assert.ok(/if \(!registered\) \{\s*\n\s*try \{ await registerWithDaemon\(\); \}/.test(src));
+  assert.ok(/if \(!registered\) \{\s*\n\s*await tryRegister\(\);/.test(src));
+});
+
+// Regression: after a herdr restart, panes relaunched as bare `pi` in the team dir
+// all registered as the leader and answered every chat message. Refused by the
+// daemon, a would-be leader must set up nothing and never deregister the live one.
+test("a second-leader refusal sets up nothing and returns 'rejected'", () => {
+  assert.ok(src.includes("isLeaderAlreadyConnected(err)"));
+  const start = src.indexOf("await registerWithDaemon();\n  } catch (err)");
+  const tools = src.indexOf("registerLeaderTools(pi, client)");
+  assert.ok(start > 0 && tools > start, "refusal is handled before any tool is registered");
+  const branch = src.slice(start, tools);
+  assert.ok(branch.includes("LEADER_REJECTED_MESSAGE"));
+  assert.ok(branch.includes('return "rejected"'));
+});
+
+test("a later refusal stops chat, transcript, heartbeat and widget, and skips deregistering", () => {
+  assert.ok(src.includes("chat.stop(); transcript.stop();"));
+  assert.ok(src.includes("onDeactivate(() => clearInterval(heartbeatTimer))"));
+  assert.ok(src.includes("onDeactivate(() => clearInterval(widgetInterval))"));
+  assert.ok(/the live leader's\.\s*\n\s*if \(rejected\) return;/.test(src), "shutdown skips deregister when refused");
 });
 
 // ─── The daemon is the only terminal owner ───────────────────────

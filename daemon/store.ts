@@ -867,9 +867,14 @@ export class Store {
     name: string,
     directory?: string,
     metadata: Record<string, unknown> = {},
-    handshake?: { protocolVersion?: number; harness?: string; harnessVersion?: string },
+    handshake?: { protocolVersion?: number; harness?: string; harnessVersion?: string; instanceId?: string },
   ): void {
     this.members.registerMember(id, name, directory, metadata, handshake);
+  }
+
+  /** The live leader a leader registration would collide with, or null; see `MemberStore.leaderRegistrationConflict`. */
+  leaderRegistrationConflict(id: string, name: string, instanceId?: string): Member | null {
+    return this.members.leaderRegistrationConflict(id, name, instanceId);
   }
 
   /** Set a member's status (and refresh its heartbeat time). */

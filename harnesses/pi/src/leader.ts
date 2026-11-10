@@ -23,7 +23,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import type { DaemonClient } from "./runtime/client.js";
+import { isLeaderAlreadyConnected, type DaemonClient } from "./runtime/client.js";
 import { ALL_FEATURES_ON, type Features, featuresFromStatus } from "./shared/agent-protocol.js";
 import { registerLeaderTools } from "./tools.js";
 import { applyFeatureTools, featurePromptNote } from "./features.js";
@@ -37,20 +37,31 @@ const WIDGET_UPDATE_INTERVAL_MS = 10000;
 // SETUP
 // ═══════════════════════════════════════════════════════════════════════
 
+/** What `setupLeader` did: connected as the leader, or stayed inactive because another is live. */
+export type LeaderSetupResult = "active" | "rejected";
+
+/** The one warning a Pi refused as a second leader shows (LEADER_ALREADY_CONNECTED). */
+export const LEADER_REJECTED_MESSAGE =
+  "🍕 This team already has a leader (another Pi is connected). This Pi stays inactive.";
+
 export async function setupLeader(
   pi: ExtensionAPI,
   ctx: any,
   client: DaemonClient,
   cwd: string
-): Promise<void> {
+): Promise<LeaderSetupResult> {
   // Registration is retryable, not a one-shot at startup: the leader may start
   // while the daemon is down, or the daemon may restart and forget us, so the
   // heartbeat re-registers until it succeeds (registered).
   let registered = false;
+  // Set once the daemon refuses us because another leader is live: everything
+  // stops, and shutdown must not deregister — the member row is the other one's.
+  let rejected = false;
 
   /**
    * Register with the daemon. Safe to call repeatedly; throws if the daemon is
-   * unreachable so callers can retry later.
+   * unreachable so callers can retry later, or refuses us
+   * (`isLeaderAlreadyConnected`).
    */
   async function registerWithDaemon(): Promise<void> {
     // Report where this leader lives in tmux, as opaque metadata: the daemon relays
@@ -66,14 +77,37 @@ export async function setupLeader(
     registered = true;
   }
 
-  // Register with daemon
+  // Register with daemon. Refused as a second leader (e.g. a pane a terminal's
+  // session restore relaunched as a bare `pi` here): set up nothing at all — no
+  // tools, no chat, no heartbeat — or this Pi would answer the chat too
+  // (docs/DESIGN.md "One Host, One Leader"). The caller leaves /ppt-help.
   try {
     await registerWithDaemon();
-  } catch {
+  } catch (err) {
+    if (isLeaderAlreadyConnected(err)) {
+      if (ctx.hasUI) ctx.ui.notify(LEADER_REJECTED_MESSAGE, "warning");
+      return "rejected";
+    }
     if (ctx.hasUI) {
       ctx.ui.notify(`🍕 Failed to register with daemon — will retry via heartbeat`, "warning");
     }
   }
+
+  // A later registration (the daemon came up, or restarted and forgot us) can be
+  // refused too, if another leader got in first. Stop everything that talks to
+  // the daemon as the leader; each part adds its stop as it is set up
+  // (`onDeactivate` runs it at once if the refusal came first).
+  const stoppers: Array<() => void> = [];
+  const onDeactivate = (stop: () => void) => { if (rejected) stop(); else stoppers.push(stop); };
+  const deactivate = () => {
+    if (rejected) return;
+    rejected = true;
+    for (const stop of stoppers) stop();
+    if (ctx.hasUI) ctx.ui.notify(LEADER_REJECTED_MESSAGE, "warning");
+  };
+  const tryRegister = async () => {
+    try { await registerWithDaemon(); } catch (err) { if (isLeaderAlreadyConnected(err)) deactivate(); }
+  };
 
   // Register LLM tools (stories, tasks, queue, search)
   registerLeaderTools(pi, client);
@@ -107,17 +141,20 @@ export async function setupLeader(
   // whenever it matters and answers with no agents connected.
   const HEARTBEAT_INTERVAL_MS = 30_000;
   const heartbeatTick = async () => {
+    if (rejected) return;
     if (!registered) {
-      try { await registerWithDaemon(); } catch { /* daemon still unreachable */ }
+      await tryRegister(); // a failure is retried next beat
+      if (rejected || !registered) return;
     }
     const res = await client.heartbeat("idle");
     if (res.dismissed || res.reregister) {
       // The daemon doesn't know us (it restarted, or forgot us) — re-register.
       registered = false;
-      try { await registerWithDaemon(); } catch { /* retry next beat */ }
+      await tryRegister(); // retry next beat
     }
   };
   const heartbeatTimer = setInterval(() => { heartbeatTick().catch(() => {}); }, HEARTBEAT_INTERVAL_MS);
+  onDeactivate(() => clearInterval(heartbeatTimer));
   // Send an initial heartbeat immediately
   heartbeatTick().catch(() => {});
 
@@ -377,6 +414,8 @@ export async function setupLeader(
   const transcript = attachTranscriptMirror(pi, new TranscriptMirror(client));
   chat.onDeliver = (text, mode) => { deliverWebMessage(pi, transcript, text, mode, chat.isAgentRunning); };
 
+  onDeactivate(() => { chat.stop(); transcript.stop(); });
+  if (rejected) return "rejected";
   await chat.start();
 
   // ─── Widget (and the idle feature-toggle refresh) ───────────────────
@@ -398,6 +437,7 @@ export async function setupLeader(
 
   updateWidget();
   const widgetInterval = setInterval(updateWidget, WIDGET_UPDATE_INTERVAL_MS);
+  onDeactivate(() => clearInterval(widgetInterval));
 
   // ─── Cleanup ───────────────────────────────────────────────────────
 
@@ -405,6 +445,8 @@ export async function setupLeader(
     clearInterval(heartbeatTimer);
     clearInterval(widgetInterval);
     chat.stop();
+    // Refused as a second leader: the registered member is the live leader's.
+    if (rejected) return;
     // A chat-driven session roll (New chat / Resume) shuts this session down and
     // immediately starts another that re-registers under the same name. Skipping
     // deregistration keeps the leader from flickering offline — and keeps the
@@ -413,9 +455,10 @@ export async function setupLeader(
     await client.deregister().catch(() => {});
   });
 
-  if (ctx.hasUI) {
+  if (ctx.hasUI && !rejected) {
     ctx.ui.notify(`🍕 pi-pizza-team assistant connected to daemon at ${client.url}`, "info");
   }
+  return rejected ? "rejected" : "active";
 }
 
 // ═══════════════════════════════════════════════════════════════════════

@@ -31,6 +31,12 @@ and how to fix it. **Or from a terminal** shows the same start as a command,
 `mpt assistant` (or its alias `mpt lead`), which also attaches you to the window. The same button is on the Welcome
 checklist, the empty Team tab and the team-size dialog.
 
+There is only ever one assistant. If you open a second Pi in the project directory
+while the assistant is connected (or a terminal's session restore reopens one), it
+shows *"This team already has a leader (another Pi is connected). This Pi stays
+inactive."* and does nothing else, so the chat isn't answered twice; `/ppt-help` in it
+explains why. Once the assistant exits or goes offline, a newly started Pi takes over.
+
 ## Assistant style: chat or terminal
 
 **Config → General → Assistant** picks how you talk to the assistant. **Chat

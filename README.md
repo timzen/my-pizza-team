@@ -694,7 +694,11 @@ advances a board task; FAILED leaves it for a human). See
 signal), and the version handshake (`protocolVersion`, `harness`,
 `harnessVersion`). A protocol version the daemon can't serve is refused with 409
 and the fix named; build-version differences are only reported, and shown in the
-Team tab.
+Team tab. Only one leader may be live: a second Pi that would be the leader (say, a
+pane a terminal's session restore relaunched as a bare `pi` in the team directory)
+is refused with 409 `leader_already_connected` and stays inactive with one warning,
+until the live leader exits or goes offline. An optional per-process `instanceId`
+lets the live leader itself reconnect.
 
 **Matching is directory affinity** — there are no capabilities or skills; every
 teammate is a generalist. `getNextWorkItem()` offers, oldest first:
