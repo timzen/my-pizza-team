@@ -10,13 +10,16 @@
  * impossible (docs/DESIGN.md "A Phone Is a Peek").
  * Ctrl+G, the Edit button, or `/editor` + Enter open the big editor
  * (ui/full-editor.tsx); ⌘↵ there sends.
+ * It mounts with the cursor after any carried-over draft (the assistant's draft
+ * is shared with the terminal's composer — lib/assistant-draft.ts).
  */
 
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import { Textarea } from "@/components/ui/textarea";
 import { FullEditorButton, useFullEditor } from "@/components/ui/full-editor";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { editorCommandSeed } from "@/lib/editorPrefs";
+import { placeCursorAtEnd } from "@/lib/assistant-draft";
 import { QuotedMessage } from "./QuotedMessage";
 import { Eraser, Send } from "lucide-react";
 import type { AssistantMessage } from "@/lib/assistant-types";
@@ -38,6 +41,11 @@ export function Composer({ draft, onDraftChange, onSend, replyTo, onClearReply, 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const editor = useFullEditor({ value: draft, onChange: onDraftChange, title: "Message", onSubmit: onSend, enabled });
   const touch = useMediaQuery("(pointer: coarse)");
+
+  // A draft typed in the other size's composer continues where it left off.
+  useLayoutEffect(() => {
+    if (textareaRef.current) placeCursorAtEnd(textareaRef.current);
+  }, []);
 
   // Starting a reply should put the cursor in the box immediately.
   useEffect(() => {

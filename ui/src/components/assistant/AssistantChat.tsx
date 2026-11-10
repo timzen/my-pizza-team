@@ -3,8 +3,9 @@
  *
  * Presentational on purpose: the live stream is owned by whatever mounts this
  * (the dock), so collapsing the chat can't drop the SSE connection or lose the
- * unread count. This component owns only *composing* state — the draft and the
- * bubble being quoted.
+ * unread count. This component owns only *composing* state — the bubble being
+ * quoted. The draft is the assistant's shared one (hooks/useAssistantDraft), so
+ * it carries over to the Full page terminal's composer and back.
  *
  * Renders as the SideDock's Assistant tab (~300–560px), so it stays vertical
  * and tight: persona chips that scroll, 90%-width bubbles, and the composer
@@ -28,6 +29,7 @@ import { DEFAULT_ASSISTANT_PERSONA_ID, PersonaChips } from "./PersonaChips";
 import type { AssistantStreamState } from "@/hooks/useAssistantStream";
 import type { AssistantMessage } from "@/lib/assistant-types";
 import { usePersonas } from "@/hooks/usePersonas";
+import { useAssistantDraft } from "@/hooks/useAssistantDraft";
 import { scrollBehavior } from "@/lib/motion";
 
 interface AssistantChatProps {
@@ -53,7 +55,7 @@ export function AssistantChat({ stream, viewingId, onViewSession, active = true,
   const { data: personaData, refetch: refetchPersona } = useApi<{ personaId: string | null }>("/api/assistant/persona", [], { pollInterval: 10_000 });
   const library = usePersonas();
 
-  const [draft, setDraft] = useState("");
+  const [draft, setDraft] = useAssistantDraft();
   const [replyTo, setReplyTo] = useState<AssistantMessage | null>(null);
   const [swapping, setSwapping] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);

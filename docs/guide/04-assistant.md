@@ -50,6 +50,11 @@ back. It's the same conversation either way, and there's no setting for it. (The
 **Config → General → Assistant** chat/terminal choice is gone; a config.json that
 still has `assistant.chatMode` loads fine and the field is ignored.)
 
+A message you've typed but not sent comes along when you switch: type in the chat,
+go Full page, and it's waiting in the terminal's box (and back again). Sending from
+either one clears it. **Esc** doesn't leave Full page — in Pi, Esc stops the agent,
+so the dock leaves it alone; use **Restore**.
+
 In the terminal the composer is always open — there's no **Pair** step, since the
 assistant has no queue of work to pause. As with a paired teammate, **Enter** queues
 your message after the current run and **⌘/Ctrl+Enter** steers it in at the next

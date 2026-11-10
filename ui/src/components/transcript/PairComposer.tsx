@@ -16,26 +16,43 @@
  *
  * Ctrl+G, the Edit button, or `/editor` + Enter open the big editor
  * (ui/full-editor.tsx); its ⌘↵ queues (the Enter action here).
+ *
+ * The text is its own state for a teammate. The assistant's terminal passes
+ * `draft` instead — the assistant's shared draft (lib/assistant-draft.ts), so
+ * what was typed in the docked chat is here at Full page and back again. It
+ * mounts with the cursor after any carried-over text.
  */
 
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { apiPost } from "@/hooks/useApi";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { FullEditorButton, useFullEditor } from "@/components/ui/full-editor";
 import { editorCommandSeed } from "@/lib/editorPrefs";
+import { placeCursorAtEnd } from "@/lib/assistant-draft";
 import { Send, Zap } from "lucide-react";
 import { Tooltip } from "@/components/ui/tooltip";
 import { FormError } from "@/components/ui/form-error";
 import { useAnnounce } from "@/hooks/useAnnounce";
 
-export function PairComposer({ memberId, running, recipient = "the teammate" }: {
+/** A draft held outside the composer, `[text, setText]` (the assistant's shared one). */
+export type ComposerDraft = [string, (value: string) => void];
+
+export function PairComposer({ memberId, running, recipient = "the teammate", draft }: {
   memberId: string;
   running: boolean;
   /** Who's on the other end, for the placeholder and editor title. */
   recipient?: string;
+  /** Keep the text here instead of in local state (the assistant's shared draft). */
+  draft?: ComposerDraft;
 }) {
-  const [text, setText] = useState("");
+  const local = useState("");
+  const [text, setText] = draft ?? local;
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // A carried-over draft continues where it left off.
+  useLayoutEffect(() => {
+    if (textareaRef.current) placeCursorAtEnd(textareaRef.current);
+  }, []);
   const [error, setError] = useState("");
   const [sending, setSending] = useState(false);
   const announce = useAnnounce();
@@ -75,6 +92,7 @@ export function PairComposer({ memberId, running, recipient = "the teammate" }: 
     <div className="shrink-0 border-t border-border bg-muted/30 p-3">
       <div className="flex items-end gap-2">
         <Textarea
+          ref={textareaRef}
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={onKeyDown}

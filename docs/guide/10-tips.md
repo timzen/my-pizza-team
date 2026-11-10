@@ -33,8 +33,9 @@ browser.
 dock's header lets the dock fill the whole area below the nav bar. The Assistant tab
 turns into the terminal view of the assistant's session, tool calls included; docked
 it's the chat ([Assistant](04-assistant.md#chat-in-the-dock-terminal-at-full-page)). The page you were
-on is still there, just hidden. **Restore** (the same button), **Esc** in the dock, or
-going to any page (a nav link, a teammate) puts the dock back beside the page.
+on is still there, just hidden. **Restore** (the same button) or going to any page
+(a nav link, a teammate) puts the dock back beside the page. Esc doesn't — at Full
+page the assistant is a Pi terminal, and in Pi Esc stops the agent.
 
 **Help where you are.** Every page has a **?** beside its title. It opens the part of
 this guide about that page in the dock's **Help** tab, next to the page, so you can

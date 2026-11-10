@@ -632,7 +632,7 @@ It lives in the **side dock** on every page, as the **Assistant** tab beside
 **Dock position** menu, remembered per browser), collapses to an icon rail with an
 unread badge (a thin bar at the bottom), resizes by dragging its inner
 edge (at the bottom: its height, by the top edge), or goes **Full page** — filling the center
-below the nav bar, until you press Restore or Esc or go to another page; in a narrow desktop window it becomes a floating button. On a
+below the nav bar, until you press Restore or go to another page (Esc doesn't: in Pi it stops the agent), an unsent message carrying over between the two; in a narrow desktop window it becomes a floating button. On a
 phone, the chat is a tab of the [phone view](#phone-view).
 
 - **Send whenever you like.** The composer never locks; a message sent while the

@@ -13,12 +13,12 @@
  */
 
 import { TranscriptView } from "./TranscriptView";
-import { PairComposer } from "./PairComposer";
+import { PairComposer, type ComposerDraft } from "./PairComposer";
 import { isRunning } from "@/lib/transcript-types";
 import type { TranscriptStreamState } from "@/hooks/useTranscriptStream";
 
 export function AgentTerminal({
-  memberId, stream, canSend, empty, recipient,
+  memberId, stream, canSend, empty, recipient, draft,
 }: {
   /** The agent watched and messaged (its member id). */
   memberId: string;
@@ -29,13 +29,15 @@ export function AgentTerminal({
   empty?: React.ReactNode;
   /** Who the composer talks to, for its placeholder ("the teammate"). */
   recipient?: string;
+  /** The composer's text, held by the caller (the assistant's shared draft); else the composer's own. */
+  draft?: ComposerDraft;
 }) {
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="min-h-0 flex-1">
         <TranscriptView entries={stream.entries} empty={empty} />
       </div>
-      {canSend && <PairComposer memberId={memberId} running={isRunning(stream.entries)} recipient={recipient} />}
+      {canSend && <PairComposer memberId={memberId} running={isRunning(stream.entries)} recipient={recipient} draft={draft} />}
     </div>
   );
 }

@@ -72,8 +72,8 @@ browser. See [Getting around](10-tips.md#getting-around).
 
 The [dock](#dock)'s biggest mode: it fills the area below the nav bar, which stays.
 The Assistant tab shows its terminal view there instead of the chat. The page you
-were on is hidden, not closed. **Restore**, **Esc** in the dock, or going
-to another page puts the dock back. See [Getting around](10-tips.md#getting-around).
+were on is hidden, not closed. **Restore** or going to another page puts
+the dock back (not Esc). See [Getting around](10-tips.md#getting-around).
 
 ## Harness
 

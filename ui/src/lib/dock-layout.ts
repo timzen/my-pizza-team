@@ -122,29 +122,6 @@ export function dockModeAfterNavigate(mode: DockMode, prevPath: string | null, n
   return "expanded";
 }
 
-/** What `dockModeAfterEscape` needs to know about one Esc keypress. */
-export interface DockEscape {
-  mode: DockMode;
-  /**
-   * Something else already handled it (`defaultPrevented`): a dialog, menu,
-   * popover or tooltip closing, the composer dropping a quote, the Help panel
-   * closing.
-   */
-  handled: boolean;
-  /** Focus is inside the dock. */
-  focusInDock: boolean;
-}
-
-/**
- * The mode an Esc asks for, or null when the dock should ignore it: only Full
- * page reacts (back to the column), only with focus in the dock, and only when
- * nothing else took the key first — Esc closes the innermost thing.
- */
-export function dockModeAfterEscape(e: DockEscape): DockMode | null {
-  if (e.mode !== "full" || e.handled || !e.focusInDock) return null;
-  return "expanded";
-}
-
 /** A width kept within the column's limits. */
 export function clampDockWidth(px: number): number {
   return Math.min(MAX_DOCK_WIDTH, Math.max(MIN_DOCK_WIDTH, px));

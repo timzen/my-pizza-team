@@ -2304,7 +2304,12 @@ resume an old conversation with its context intact.
    the key, so the next save leaves it out. Since one session is now seen both
    ways, switched per browser at any moment, there's one framing — the chat's
    (short paragraphs read fine in a transcript); the terminal-only framing went
-   with the setting.
+   with the setting. The two views' composers share **one unsent draft**
+   (ui/src/lib/assistant-draft.ts, a module-level store read through
+   `useAssistantDraft`): switching size swaps one composer for the other, and
+   text typed but not sent must not vanish with it. Sending from either clears it.
+   It's text only (neither composer takes attachments; a chat quote stays the
+   chat's), and the assistant's only — a teammate's pair composer keeps its own.
 9. **Terminal view is the teammate pipeline, not a copy of it.** The leader wires
    its session with the same `attachTranscriptMirror` a teammate uses
    (harnesses/pi/src/session-transcript.ts), the daemon stores and streams it
@@ -2384,10 +2389,11 @@ app — one click on a section is still the way back to the work, and the queue 
 stay in sight. *Why the page stays mounted* (`hidden`, not unmounted): a half-filled
 form or a scrolled board survives a look at the chat, the same promise the tabs make.
 And the element tree doesn't change between modes — only classes do — so the dock's
-chat stream and team polling never reconnect. It's left by **Restore**, by **Esc**
-with focus in the dock when nothing in it (a menu, a dialog, the composer's quote)
-wants the Esc first, and by **going to another page** — a NavBar link or a teammate
-in the dock — because you went there to see it. The skip link's target is the page,
+chat stream and team polling never reconnect. It's left by **Restore** and by
+**going to another page** — a NavBar link or a teammate in the dock — because you
+went there to see it. *Why not Esc:* at Full page the assistant is its Pi terminal,
+and in Pi Esc aborts the agent — a user reaching for that must not have the view
+shrink out from under them instead (the terminal itself adds no Esc behavior). The skip link's target is the page,
 so in full page it restores the dock and then skips to the page's heading. The resize
 handle hides; the saved width waits for the column's return.
 

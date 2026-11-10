@@ -4,7 +4,7 @@
  * reading stored position/mode (and migrating the old open flag), width
  * limits, the Bottom panel's height limits, the resize drag on either side
  * and at the bottom, and which way the inner edge and tooltips face, and Full
- * page's transitions (the toggle, Esc, navigation). Plus structural checks
+ * page's transitions (the toggle, navigation; Esc no longer leaves it). Plus structural checks
  * that a Right, Bottom and Full page dock are laid out with CSS, not moved in
  * the DOM.
  */
@@ -15,7 +15,7 @@ import { assert, assertEquals } from "./_assert.ts";
 import {
   DEFAULT_DOCK_HEIGHT, DEFAULT_DOCK_WIDTH, DOCK_HEIGHT_KEY, DOCK_MODE_KEY, DOCK_POSITION_KEY, DOCK_POSITIONS, DOCK_WIDTH_KEY,
   LEGACY_DOCK_OPEN_KEY, MAX_DOCK_WIDTH, MIN_DOCK_HEIGHT, MIN_DOCK_WIDTH,
-  clampDockHeight, clampDockWidth, dockFillsCenter, dockHeightFromPointer, dockInnerEdge, dockModeAfterEscape, dockModeAfterNavigate,
+  clampDockHeight, clampDockWidth, dockFillsCenter, dockHeightFromPointer, dockInnerEdge, dockModeAfterNavigate,
   dockTooltipSide, dockWidthFromPointer, isDockOpen, isHorizontalDock, maxDockHeight, modeForOpen, parseDockHeight, parseDockMode,
   parseDockPosition, parseDockWidth, toggleFullPage,
 } from "../ui/src/lib/dock-layout.ts";
@@ -153,13 +153,11 @@ test("a new page leaves Full page; the first render, a query change, and other m
   assertEquals(dockModeAfterNavigate("collapsed", "/", "/config"), "collapsed");
 });
 
-test("Esc leaves Full page only from inside the dock, and only when nothing else took it", () => {
-  assertEquals(dockModeAfterEscape({ mode: "full", handled: false, focusInDock: true }), "expanded");
-  // A dialog, menu, popover or the composer closed something first.
-  assertEquals(dockModeAfterEscape({ mode: "full", handled: true, focusInDock: true }), null);
-  assertEquals(dockModeAfterEscape({ mode: "full", handled: false, focusInDock: false }), null);
-  assertEquals(dockModeAfterEscape({ mode: "expanded", handled: false, focusInDock: true }), null);
-  assertEquals(dockModeAfterEscape({ mode: "collapsed", handled: false, focusInDock: true }), null);
+test("Esc doesn't leave Full page (in Pi, Esc aborts the agent): Restore or a new page does", () => {
+  const dock = read("components/dock/SideDock.tsx");
+  assert(!/["']Escape["']/.test(dock), "the dock has no Esc handler");
+  assert(!/dockModeAfterEscape/.test(read("lib/dock-layout.ts")), "no Esc transition in the layout rules");
+  assert(dock.includes('"Restore the dock"'), "Restore is the way back");
 });
 
 test("Full page is laid out with CSS: the page stays mounted but hidden, no resize handle", () => {

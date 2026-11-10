@@ -38,8 +38,8 @@
  *    by its top edge (200px to 70% of the window, its own saved height); the
  *    header and tab rows stay as they are, and the chat keeps a readable
  *    width in the middle (AssistantPane `readable`).
- *  - `lg+` Full page — the header's Full page button (Esc, the Restore
- *    button, or going to another page puts it back) makes the dock fill the
+ *  - `lg+` Full page — the header's Full page button (the Restore button,
+ *    or going to another page, puts it back) makes the dock fill the
  *    center below the NavBar, whichever side it sits on; the page stays
  *    mounted but hidden (App.tsx `ShellFrame`). Same element as the column, so
  *    nothing remounts; no resize handle, and the saved width is kept for later.
@@ -82,7 +82,7 @@
  * message survives a peek at the team.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useState } from "react";
 import { Link, useMatch } from "react-router-dom";
 import { IconButton, IconLink } from "@/components/ui/icon-button";
 import { Tooltip } from "@/components/ui/tooltip";
@@ -104,10 +104,10 @@ import { SpawnDialog } from "@/components/SpawnDialog";
 import { useAssistantStream } from "@/hooks/useAssistantStream";
 import { useTeamData } from "@/hooks/useTeamData";
 import { useAnnounceOffline, useAnnounceQueue, useAnnounceReplies } from "@/hooks/useLiveAnnouncements";
-import { useSideDock, type DockMode, type DockPosition, type SideDockTab } from "@/hooks/useSideDock";
+import { useSideDock, type DockPosition, type SideDockTab } from "@/hooks/useSideDock";
 import {
   DOCK_HEIGHT_KEY, DOCK_POSITIONS, DOCK_WIDTH_KEY, MAX_DOCK_HEIGHT_RATIO, dockFillsCenter, dockHeightFromPointer, dockInnerEdge,
-  dockModeAfterEscape, dockTooltipSide, dockWidthFromPointer, isHorizontalDock, parseDockHeight, parseDockPosition, parseDockWidth,
+  dockTooltipSide, dockWidthFromPointer, isHorizontalDock, parseDockHeight, parseDockPosition, parseDockWidth,
   toggleFullPage,
 } from "@/lib/dock-layout";
 import { LG_QUERY, useMediaQuery } from "@/hooks/useMediaQuery";
@@ -145,8 +145,6 @@ export function SideDock() {
   const [height, startResizeHeight] = useDockHeight();
   const isDesktop = useMediaQuery(LG_QUERY);
   const full = dockFillsCenter(mode, isDesktop);
-  const navRef = useRef<HTMLElement>(null);
-  useEscapeLeavesFullPage(navRef, full, setMode);
   const [sizeOpen, setSizeOpen] = useState(false);
   const [spawnOpen, setSpawnOpen] = useState(false);
   const viewingTeammate = useMatch("/teammates/:id")?.params.id ?? null;
@@ -347,7 +345,6 @@ export function SideDock() {
   // center below the NavBar (the shell lays that out), with no handle.
   return (
     <nav
-      ref={navRef}
       aria-label="Side dock" {...KEEP_FOCUS} data-tour="dock"
       className={full
         ? "relative flex min-h-0 flex-1 flex-col bg-muted/30"
@@ -509,34 +506,6 @@ function DockPositionMenu() {
       </DropdownMenuContent>
     </DropdownMenu>
   );
-}
-
-/**
- * Esc with focus in a Full page dock puts it back to the column
- * (lib/dock-layout.ts `dockModeAfterEscape`). Listened for on `window`, after
- * every document-level and React handler has had its turn, so a dialog, menu,
- * popover or tooltip closing — or the composer, or the Help panel — takes the
- * key first (they `preventDefault` it). Portaled popups aren't inside the
- * dock's element, so their keys never count as "in the dock".
- */
-function useEscapeLeavesFullPage(navRef: React.RefObject<HTMLElement | null>, full: boolean, setMode: (mode: DockMode) => void) {
-  useEffect(() => {
-    if (!full) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
-      const active = document.activeElement;
-      const next = dockModeAfterEscape({
-        mode: "full",
-        handled: e.defaultPrevented,
-        focusInDock: !!active && !!navRef.current?.contains(active),
-      });
-      if (!next) return;
-      e.preventDefault();
-      setMode(next);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [full, navRef, setMode]);
 }
 
 /**
