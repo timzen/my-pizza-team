@@ -1060,6 +1060,26 @@ export function isExperimentalHarness(harness: string | undefined): boolean {
 /** The tmux window name the leader runs in. Fixed, since there is exactly one. */
 export const LEADER_WINDOW = "leader";
 
+/**
+ * A window in the team's terminal container that MPT doesn't account for
+ * (`GET /api/teammate-pool` `unmanagedWindows`; daemon/unmanaged-windows.ts): not an
+ * online member's window, not the leader's, and not a spawn still starting up —
+ * e.g. a tab a terminal's own session restore relaunched, or one the user opened.
+ * Shown in the Team tab, closed only when a human asks.
+ */
+export interface UnmanagedWindow {
+  /** The window's label (tmux window; herdr tab). */
+  window: string;
+  /** The container it is in (tmux session; herdr workspace). */
+  session: string;
+  /** The backend it is in. */
+  terminal: TerminalKind;
+  /** True when a process other than its shell runs in it (an agent, likely); null when unknown. */
+  running: boolean | null;
+  /** That foreground process's name (`pi`, `node`, `bash`), or null when unknown. */
+  command: string | null;
+}
+
 /** The harness spawned when nothing says otherwise. */
 export const DEFAULT_HARNESS = "pi";
 

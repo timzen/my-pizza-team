@@ -766,6 +766,32 @@ export class MemberStore {
   }
 
   /**
+   * Window labels a not-yet-registered (or departing) agent will own, which the
+   * Team tab's "Unmanaged windows" must not report (daemon/unmanaged-windows.ts):
+   * every pending `spawn`'s name; a `done` spawn within SPAWN_REGISTER_GRACE_MS whose
+   * teammate hasn't registered yet (its window is open, its agent still starting —
+   * the same inbound spawns `countPendingTeammateSpawns` counts, of any name); and a
+   * pending `dismiss`'s window, which the spawner is already closing.
+   */
+  getReservedWindows(): string[] {
+    const registered = new Set(this.getMembers().map((m) => m.name));
+    const rows = this.db.prepare(
+      `SELECT action, status, params FROM leader_directives
+       WHERE (action IN ('spawn', 'dismiss') AND status = 'pending')
+          OR (action = 'spawn' AND status = 'done' AND updated_at > ?)`,
+    ).all(Date.now() - SPAWN_REGISTER_GRACE_MS) as Array<Record<string, unknown>>;
+    const names: string[] = [];
+    for (const r of rows) {
+      let name: unknown;
+      try { name = JSON.parse((r.params as string) || "{}").name; } catch { /* ignore */ }
+      if (typeof name !== "string" || !name) continue;
+      if (r.action === "spawn" && r.status === "done" && registered.has(name)) continue;
+      names.push(name);
+    }
+    return names;
+  }
+
+  /**
    * Top the teammate pool back up to `minTeammates`. Counts online teammates
    * plus inbound spawns — pending, or realized but not yet registered within
    * SPAWN_REGISTER_GRACE_MS (so a slow-starting batch doesn't get a second

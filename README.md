@@ -700,6 +700,11 @@ is refused with 409 `leader_already_connected` and stays inactive with one warni
 until the live leader exits or goes offline. An optional per-process `instanceId`
 lets the live leader itself reconnect.
 
+Windows in the team's terminal that no registered teammate, the leader or a
+starting spawn accounts for (such as panes a terminal's session restore relaunched)
+are listed in the Team tab as **Unmanaged windows**, with whether an agent appears
+to run in each and a **Close** button. MPT never closes them on its own.
+
 **Matching is directory affinity** — there are no capabilities or skills; every
 teammate is a generalist. `getNextWorkItem()` offers, oldest first:
 
@@ -826,7 +831,7 @@ The current protocol version is `PROTOCOL_VERSION` in `shared/agent-protocol.ts`
 |-------|-----------|---------|
 | Health | `GET /health` | Uptime, agents, queue depth, assistant (leader) presence and startability, readiness, spawn capability (unauthenticated) |
 | Status / control | `GET /api/status`, `POST /api/control/pause\|resume` | Summary; pause/resume work distribution |
-| Config | `GET/PUT /api/config`, `GET/PUT /api/teammate-pool` | Config and workflows; the declared team size |
+| Config | `GET/PUT /api/config`, `GET/PUT /api/teammate-pool`, `POST /api/unmanaged-windows/close` | Config and workflows; the declared team size, and the team terminal's unmanaged windows (listed, closed only on request) |
 | Readiness | `GET/POST /api/readiness` | Team readiness (the daemon probes; a harness may report) |
 | Stories | `/api/stories/*` (incl. `POST /:id/pending\|activate`), `/api/archived` | CRUD, pending ⇄ active, archive |
 | Board tasks | `/api/stories/:id/tasks[/reorder]`, `/api/tasks/:id/move`, `DELETE /api/tasks/:id` | Story-parent operations |

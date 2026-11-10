@@ -1893,6 +1893,25 @@ skipped 0.36.
   by hand (README "Upgrading from before 0.36.0"), and `mpt doctor` still flags
   a service that launches a program with no entry script.
 
+## Unmanaged Windows Are Shown, Never Reaped
+
+The Team tab lists the windows in the team's terminal container that nothing MPT
+knows accounts for: not an online member's window, not the leader's, and not one a
+spawn is starting up in or a dismiss is closing (`GET /api/teammate-pool`
+`unmanagedWindows`, daemon/unmanaged-windows.ts). Each says whether an agent appears
+to run in it (the backend's `windowActivity`: tmux `#{pane_current_command}`, herdr
+`pane process-info`). Closing one is a button, and the close route acts only on a
+label a fresh scan still lists, so a window that has since become a teammate's is
+refused rather than killed.
+
+*Why:* after a reboot, herdr's own session restore relaunched teammate panes MPT
+never saw again; they ran agents, used the machine, and nothing said they existed.
+Showing them answers "why are 9 agents running when MPT has 6?". Reaping them
+automatically would be wrong: a window MPT can't account for may be one the user
+opened on purpose, and — as with dismissing a teammate ("Team Size") — ending a
+process stays a human act. The scan is cached for a few seconds (the Team tab polls
+every 10), so polling never becomes a terminal scan per request.
+
 ## The Daemon Is the Supervisor
 
 The daemon owns tmux: it creates the session, opens a window per teammate, types

@@ -65,6 +65,20 @@ doesn't need the assistant for that; otherwise it's greyed out and says why, wit
 It also warns when the [readiness probe](08-configuration.md#readiness-probe)
 is failing — a new teammate would start but get no work until it passes.
 
+### Unmanaged windows
+
+When the team's terminal (its tmux session, or herdr workspace) holds a window that
+isn't a registered teammate, the assistant's, or a teammate still starting up, the
+Team tab lists it under **Unmanaged windows** — say, a tab herdr's own session restore
+relaunched after a reboot, or one you opened yourself. Each row shows the window's name
+and what's running in it (**Running: pi**, an **idle shell**, or not known). Those
+windows count toward the agents running on your machine, but not toward MPT's
+teammates or the team size.
+
+MPT never closes them by itself — you may have opened that tab on purpose. **Close**
+closes one (after you confirm), ending whatever runs in it. The list refreshes every
+few seconds, so a window you just opened can take a moment to appear.
+
 On the Assistant tab you can still see the team at a glance: the Team tab shows how
 many are online, and an amber dot when a team size can't be met (at-risk work shows
 in the queue strip instead). The collapsed dock shows everyone as avatars.

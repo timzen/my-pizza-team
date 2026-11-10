@@ -45,6 +45,7 @@ import {
   type TriageBadge,
   type TriageOutcome,
   type TriageProposal,
+  type UnmanagedWindow,
   type WorkDef,
   type WorkDefOrigin,
   type WorkDefParent,
@@ -58,7 +59,8 @@ import { saveTeamConfig } from "../shared/team-config.ts";
 import type { PluginLoadStatus } from "../shared/protocol.ts";
 import type { TeamPersonaInput } from "./personas/library.ts";
 import { cachedTerminalStatus, type SpawnCapability } from "./spawner.ts";
-import type { TerminalStatus } from "./terminal/backend.ts";
+import type { TerminalBackend, TerminalStatus } from "./terminal/backend.ts";
+import { UnmanagedWindowTracker, type CloseUnmanagedResult } from "./unmanaged-windows.ts";
 import type { AssistantStartability } from "./leader-start.ts";
 import type { PackagePersonaFile, PackagePersonaResult, PackagePersonas } from "./personas/packages.ts";
 import { triageWorkDefId, type TriageSkipReason } from "./triage.ts";
@@ -1070,6 +1072,50 @@ export class Store {
    */
   getTerminalStatus(): TerminalStatus | null {
     return resolveTerminal(this.config) === "tmux" ? this.tmuxStatus : this.terminalStatusProbe(this.config);
+  }
+
+  // --- Unmanaged windows (daemon/unmanaged-windows.ts) ---
+
+  /**
+   * Builds the configured terminal's backend for the unmanaged-window scan. Null
+   * until the daemon enables it at startup (daemon/start.ts), so a Store in tests or
+   * tools never reads the host's real tmux or herdr; tests inject a fake.
+   */
+  private windowBackend: ((config: TeamConfig) => TerminalBackend) | null = null;
+
+  /** The scan's cache and the close action (reads the live members, config and directives). */
+  private unmanagedWindows = new UnmanagedWindowTracker({
+    backend: () => {
+      if (!this.windowBackend || !this.getTerminalCapability().canSpawn) return null;
+      try {
+        return this.windowBackend(this.config);
+      } catch {
+        return null; // an unknown `terminal` value, say
+      }
+    },
+    members: () => this.getMembers(),
+    config: () => this.config,
+    reserved: () => this.members.getReservedWindows(),
+  });
+
+  /** Enable the unmanaged-window scan with a backend factory (startup; tests pass a fake). */
+  setWindowBackend(make: ((config: TeamConfig) => TerminalBackend) | null): void {
+    this.windowBackend = make;
+    this.unmanagedWindows.invalidate();
+  }
+
+  /**
+   * Windows in the team's terminal container that MPT doesn't account for (no online
+   * member, not the leader's, not a starting spawn). Cached for a few seconds
+   * (UNMANAGED_SCAN_TTL_MS), so `GET /api/teammate-pool` polling never scans per request.
+   */
+  getUnmanagedWindows(): UnmanagedWindow[] {
+    return this.unmanagedWindows.list();
+  }
+
+  /** Close one unmanaged window a human picked; refused unless a fresh scan still lists it. */
+  closeUnmanagedWindow(window: string): CloseUnmanagedResult {
+    return this.unmanagedWindows.close(window);
   }
 
   // --- Team readiness (see TeamReadiness) ---

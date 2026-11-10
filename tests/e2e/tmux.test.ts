@@ -22,6 +22,7 @@ import {
   listWindows,
   spawnWindow,
   tmuxUnavailableReason,
+  windowActivity,
   windowExists,
 } from "../../daemon/terminal/tmux.ts";
 import { shellQuote } from "../../daemon/terminal/template.ts";
@@ -85,4 +86,15 @@ test("a fresh session reuses its initial window rather than stranding it", { ski
 
 test("a name tmux would misread never reaches tmux", () => {
   assertThrows(() => hasSession("bad:name"), Error, "target separators");
+});
+
+test("windowActivity tells a running program from an idle shell", { skip: !hasTmux() }, async () => {
+  await using sb = await sandbox("tmux");
+  const exec = sb.tmuxExec;
+  spawnWindow({ session: sb.session, window: "busy", cwd: sb.root, command: "sleep 300" }, exec);
+  assertEquals(await sb.waitFor(() => windowActivity(sb.session, "busy", exec).command === "sleep"), true);
+  assertEquals(windowActivity(sb.session, "busy", exec).running, true);
+  exec(["send-keys", "-t", `${sb.session}:busy`, "C-c"]);
+  assertEquals(await sb.waitFor(() => windowActivity(sb.session, "busy", exec).running === false), true);
+  assertEquals(windowActivity(sb.session, "gone", exec), { running: null, command: null });
 });

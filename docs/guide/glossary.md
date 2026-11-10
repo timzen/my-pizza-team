@@ -176,6 +176,13 @@ A group of related [board tasks](#board-task) with an order, a [workflow](#workf
 an optional directory, and dependencies on other stories. See
 [Stories and workflows](02-stories-and-workflows.md).
 
+## Unmanaged window
+
+A window (tmux) or tab (herdr) in the team's terminal that isn't a registered
+[teammate](#teammate), the [leader](#leader), or a teammate still starting. Listed in
+the Team tab, and closed only when you click its **Close**. See
+[Unmanaged windows](03-teammates.md#unmanaged-windows).
+
 ## Teammate
 
 One of the AI agents in the team's pool that do the work. See

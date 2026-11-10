@@ -326,7 +326,12 @@ export function registerSharedRoutes(ctx: RouteContext): void {
   // routes back the sidebar's team-size box; the same value also lives in
   // config.json, so it is applied at startup.
 
-  app.get("/api/teammate-pool", (c) => c.json(store.getTeammatePool()));
+  // `unmanagedWindows`: windows in the team's terminal container no member, leader
+  // or starting spawn accounts for (daemon/unmanaged-windows.ts) — shown in the Team
+  // tab, never closed automatically. Cached for a few seconds, not scanned per poll.
+  const poolView = () => ({ ...store.getTeammatePool(), unmanagedWindows: store.getUnmanagedWindows() });
+
+  app.get("/api/teammate-pool", (c) => c.json(poolView()));
 
   // `{ minTeammates: null }` clears the declaration → back to the default
   // (half of maxTeammates).
@@ -342,7 +347,19 @@ export function registerSharedRoutes(ctx: RouteContext): void {
     if (stored === null) {
       return fail(c, 400, "Field 'minTeammates' must be a non-negative integer");
     }
-    return c.json({ success: true, ...store.getTeammatePool() });
+    return c.json({ success: true, ...poolView() });
+  });
+
+  // Close one unmanaged window (the Team tab's Close button). Only a label a fresh
+  // scan still lists as unmanaged: 404 for anything else — a member's window, the
+  // leader's, a starting spawn's, or one that isn't there — and 409 when the
+  // terminal couldn't close it. Nothing calls this but a human.
+  app.post("/api/unmanaged-windows/close", async (c) => {
+    const body = await readBody(c) as { window?: unknown };
+    if (typeof body.window !== "string" || !body.window) return fail(c, 400, "Field 'window' (string) is required");
+    const result = store.closeUnmanagedWindow(body.window);
+    if (!result.ok) return fail(c, result.status, result.error);
+    return c.json({ success: true, unmanagedWindows: store.getUnmanagedWindows() });
   });
 
   // ─── Readiness ─────────────────────────────────────────────────────

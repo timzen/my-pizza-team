@@ -75,6 +75,19 @@ export interface OpenedWindow {
  */
 export type TerminalUnavailableReason = "none" | "not-installed" | "not-permitted" | "unsupported-version" | "misconfigured";
 
+/**
+ * What runs in a window's foreground (`TerminalBackend.windowActivity`): whether
+ * anything other than its shell does (an agent, or any other program), and that
+ * process's name. For the Team tab's "Unmanaged windows", which says whether an
+ * agent appears to be running in a tab mpt doesn't account for.
+ */
+export interface WindowActivity {
+  /** True when a process other than the window's shell is in the foreground; null when unknown. */
+  running: boolean | null;
+  /** The foreground process's name (`pi`, `node`, `bash`), or null when unknown. */
+  command: string | null;
+}
+
 /** A control key that must be sent as a key, not typed as text. */
 export type ControlKey = "C-c";
 
@@ -152,6 +165,12 @@ export interface TerminalBackend {
   sendControl(ref: WindowRef, key: ControlKey): void;
   /** Close the window; false when it couldn't (e.g. already gone). */
   closeWindow(ref: WindowRef): boolean;
+  /**
+   * What runs in the window's foreground (tmux: `#{pane_current_command}`; herdr:
+   * `pane process-info`). Read-only and best effort: `{ running: null, command: null }`
+   * when it can't be told (no such window, server down).
+   */
+  windowActivity(ref: WindowRef): WindowActivity;
   /** Make the window its container's current one (the daemon's `/ppt-hop`); false when it couldn't. */
   focusWindow(ref: WindowRef): boolean;
 

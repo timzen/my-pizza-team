@@ -16,6 +16,7 @@
 
 import { useApi, apiDelete, apiPost } from "@/hooks/useApi";
 import type { TeammatePool } from "@/components/TeamSizeDialog";
+import type { UnmanagedWindow } from "@shared/types";
 import { harnessSkew, roleOf, type FailedSpawn, type SpawnRequest, type Teammate } from "@/lib/team";
 
 export interface TeamData {
@@ -52,6 +53,14 @@ export interface TeamData {
    */
   restartSkewed: () => Promise<number>;
   cancelSpawn: (id: string) => Promise<void>;
+  /**
+   * Windows in the team's terminal container that aren't a registered teammate,
+   * the leader, or a spawn starting up (the pool's `unmanagedWindows`). Shown,
+   * never closed automatically.
+   */
+  unmanagedWindows: UnmanagedWindow[];
+  /** Close one unmanaged window (a human's Close). Resolves to the daemon's error, or null when it closed. */
+  closeUnmanagedWindow: (window: string) => Promise<string | null>;
   refetchPool: () => void;
   refetchSpawns: () => void;
 }
@@ -112,6 +121,12 @@ export function useTeamData(): TeamData {
     cancelSpawn: async (id) => {
       await apiDelete(`/api/spawn-requests/${encodeURIComponent(id)}`);
       refetchSpawns();
+    },
+    unmanagedWindows: pool?.unmanagedWindows ?? [],
+    closeUnmanagedWindow: async (window) => {
+      const res = await apiPost<{ success: boolean; error?: string }>("/api/unmanaged-windows/close", { window });
+      refetchPool();
+      return res.success ? null : (res.error ?? "Couldn't close the window");
     },
     refetchPool,
     refetchSpawns,

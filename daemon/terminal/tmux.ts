@@ -27,7 +27,7 @@ import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { ControlKey, OpenWindowOptions, TerminalBackend, TerminalStatus, WindowRef } from "./backend.ts";
+import type { ControlKey, OpenWindowOptions, TerminalBackend, TerminalStatus, WindowActivity, WindowRef } from "./backend.ts";
 import { shellQuote } from "./template.ts";
 
 /** Result of one tmux invocation. */
@@ -233,6 +233,37 @@ export function killWindow(session: string, window: string, exec: TmuxExec = rea
   return exec(["kill-window", "-t", `${session}:${window}`]).ok;
 }
 
+/**
+ * Shells a window's pane may be sitting at: when `#{pane_current_command}` names
+ * one, nothing else runs in the foreground. tmux reports the program's name, so a
+ * login shell's leading `-` is stripped before comparing.
+ */
+const SHELLS = new Set(["sh", "bash", "zsh", "fish", "dash", "ksh", "mksh", "tcsh", "csh", "ash", "nu", "elvish", "xonsh"]);
+
+/**
+ * What runs in a window's foreground: tmux's `#{pane_current_command}` for its
+ * active pane (the first window with that name), and whether that is anything but a shell. Unknown when tmux can't
+ * say (no such window, no server).
+ */
+export function windowActivity(session: string, window: string, exec: TmuxExec = realTmux): WindowActivity {
+  assertSafeName("session", session);
+  // Read from `list-windows` and matched by exact name — `display-message -t s:w`
+  // resolves a missing window to some other one rather than failing — so `window`
+  // needn't be a name tmux can target (a user's own tab may hold a space). The
+  // command comes first, split at the first ':': a window name may hold one, a
+  // program name doesn't. (Not a tab: tmux prints control characters as `_` to a
+  // client without a UTF-8 locale.)
+  const res = exec(["list-windows", "-t", session, "-F", "#{pane_current_command}:#{window_name}"]);
+  if (!res.ok) return { running: null, command: null };
+  for (const line of res.stdout.split("\n")) {
+    const at = line.indexOf(":");
+    if (at < 0 || line.slice(at + 1) !== window) continue;
+    const command = line.slice(0, at).trim().replace(/^-/, "");
+    return command ? { running: !SHELLS.has(path.basename(command)), command } : { running: null, command: null };
+  }
+  return { running: null, command: null };
+}
+
 export function selectWindow(session: string, window: string, exec: TmuxExec = realTmux): boolean {
   assertSafeName("session", session);
   assertSafeName("window", window);
@@ -331,6 +362,7 @@ export function createTmuxBackend(exec: TmuxExec = realTmux, env: NodeJS.Process
     sendLine: (w, line) => sendKeys(w.session, w.window, line, exec),
     sendControl: (w, key: ControlKey) => sendControl(w.session, w.window, key, exec),
     closeWindow: (w) => killWindow(w.session, w.window, exec),
+    windowActivity: (w) => windowActivity(w.session, w.window, exec),
     focusWindow: (w) => selectWindow(w.session, w.window, exec),
     insideClient: (e = env) => Boolean(e["TMUX"]),
     focusClient: (w) => focusClient(w.session, w.window, exec),

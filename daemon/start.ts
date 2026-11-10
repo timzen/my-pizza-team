@@ -18,7 +18,7 @@ import {
 } from "./lifecycle.ts";
 import { resolveToken, validateBindSafety } from "./auth.ts";
 import { probeTerminalCapability, realizePending } from "./spawner.ts";
-import { createTerminalBackend, formatTerminalStatus } from "./terminal/index.ts";
+import { createTerminalBackend, formatTerminalStatus, terminalOptions } from "./terminal/index.ts";
 import { startReadinessLoop } from "./readiness.ts";
 import { mptInvocation } from "./self.ts";
 import { findPreCutoffLayout, formatPreCutoffMessage } from "./layout-check.ts";
@@ -129,6 +129,9 @@ export async function startDaemonInProcess(
     store.setTmuxSocket(tmuxCapability.canSpawn ? tmuxStatus.identity : null);
     // The `{url}` a leader started from the web UI is given (POST /api/assistant/start).
     store.setDaemonUrl(`http://localhost:${port}`);
+    // The Team tab's "Unmanaged windows" reads the configured terminal's team
+    // container (daemon/unmanaged-windows.ts); off in a Store nobody started.
+    store.setWindowBackend((config) => createTerminalBackend(resolveTerminal(config), terminalOptions(config)));
   }
 
   // Start the HTTP server, and wait until it is listening: a bind failure (port in

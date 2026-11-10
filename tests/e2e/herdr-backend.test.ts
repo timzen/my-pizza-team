@@ -160,8 +160,15 @@ test("the herdr backend is idempotent by label, and re-runs the command in a tab
   const restoredPane = revived.ref.id!;
   assert(await hs.waitFor(() => (screen(hs, restoredPane).match(/RUN-42 at=/g) ?? []).length >= 1), screen(hs, restoredPane));
 
+  // What runs there (the Team tab's unmanaged windows): `sleep`, until Ctrl-C leaves the shell.
+  const ref = terminal.windowRef("team", "neo");
+  assert(await hs.waitFor(() => terminal.windowActivity(ref).command === "sleep"), JSON.stringify(terminal.windowActivity(ref)));
+  assertEquals(terminal.windowActivity(ref).running, true);
+  assertEquals(terminal.windowActivity(terminal.windowRef("team", "nope")), { running: null, command: null });
+
   // Ctrl-C, then close: the workspace goes with its last tab.
   terminal.sendControl(terminal.windowRef("team", "neo"), "C-c");
+  assert(await hs.waitFor(() => terminal.windowActivity(ref).running === false), JSON.stringify(terminal.windowActivity(ref)));
   assertEquals(terminal.closeWindow(terminal.windowRef("team", "neo")), true);
   assertEquals(terminal.listWindows("team"), []);
   assertEquals(terminal.closeWindow(terminal.windowRef("team", "neo")), false);

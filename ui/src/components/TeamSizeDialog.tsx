@@ -31,6 +31,7 @@ import { useAnnounce } from "@/hooks/useAnnounce";
 import { FieldHint } from "@/components/ui/field-hint";
 import { describedBy } from "@/lib/field-help";
 import { StartAssistant } from "@/components/assistant/StartAssistant";
+import type { UnmanagedWindow } from "@shared/types";
 
 /** Live pool state from GET /api/teammate-pool. */
 export interface TeammatePool {
@@ -45,6 +46,12 @@ export interface TeammatePool {
   leaderPresent: boolean;
   /** Why the daemon can't spawn the pool's teammates, or null when it can (absent from an older daemon). */
   spawnBlocked?: { reason: string; fix: string } | null;
+  /**
+   * Windows in the team's terminal container MPT doesn't account for (no online
+   * member, not the leader's, not a starting spawn) — the Team tab's "Unmanaged
+   * windows". Absent from an older daemon.
+   */
+  unmanagedWindows?: UnmanagedWindow[];
 }
 
 export function TeamSizeDialog({

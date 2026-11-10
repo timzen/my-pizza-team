@@ -4,6 +4,9 @@
  * What used to be the right-hand TeammateSidebar, now a tab beside the
  * assistant in the left SideDock (DESIGN.md "The Shell: a Dock and a Center"):
  *
+ *  - unmanaged windows — tabs in the team's terminal container that no
+ *    teammate, leader or starting spawn accounts for (UnmanagedWindows); shown
+ *    only when there are any, each with a Close button.
  *  - the teammates — the teammates (not the leader: it's the Assistant tab), each
  *    with status, current work, and working directory. Teammates open their live
  *    view in the center (`/teammates/:id`) and stay highlighted while it's
@@ -27,6 +30,7 @@ import { useMatch } from "react-router-dom";
 import type { TeamData } from "@/hooks/useTeamData";
 import { FailedSpawnRow, SpawnRequestRow, TeammateRow } from "./TeamParts";
 import { TeamEmpty } from "./TeamEmpty";
+import { UnmanagedWindows } from "./UnmanagedWindows";
 
 export function TeamPanel({ team, onSpawn }: { team: TeamData; onSpawn: () => void }) {
   // Which teammate's view (if any) is in the center.
@@ -90,6 +94,9 @@ export function TeamPanel({ team, onSpawn }: { team: TeamData; onSpawn: () => vo
         {online.map((t) => (
           <TeammateRow key={t.id} teammate={t} selected={t.id === viewingId} onDismiss={team.dismiss} onReset={team.reset} skewReason={skewReasonFor(t.id)} />
         ))}
+
+        {/* Windows in the team's terminal no teammate accounts for: shown, closed only on request. */}
+        <UnmanagedWindows windows={team.unmanagedWindows} onClose={team.closeUnmanagedWindow} />
 
         {offline.length > 0 && (
           <div className="pt-2">

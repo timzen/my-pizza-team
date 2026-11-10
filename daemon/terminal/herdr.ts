@@ -45,6 +45,7 @@ import type {
   TerminalBackend,
   TerminalStatus,
   TerminalUnavailableReason,
+  WindowActivity,
   WindowRef,
 } from "./backend.ts";
 import { shellQuote } from "./template.ts";
@@ -428,6 +429,23 @@ export function createHerdrBackend(opts: HerdrBackendOptions = {}): TerminalBack
   };
 
   /**
+   * What runs in the pane's foreground (`TerminalBackend.windowActivity`), from the
+   * same `pane process-info` `paneIdle` reads: running when the foreground process
+   * group isn't the shell's, and the first foreground process's name. Unknown when
+   * herdr can't say.
+   */
+  const paneActivity = (pane: HerdrPane): WindowActivity => {
+    const info = call(["pane", "process-info", "--pane", pane.id]);
+    const fg = at(info, "result.process_info.foreground_process_group_id");
+    const shell = at(info, "result.process_info.shell_pid");
+    const procs = at(info, "result.process_info.foreground_processes");
+    const first = Array.isArray(procs) ? (procs[0] as unknown) : undefined;
+    const name = at(first, "name");
+    const running = typeof fg === "number" && typeof shell === "number" ? fg !== shell : null;
+    return { running, command: typeof name === "string" && name ? name : null };
+  };
+
+  /**
    * Type `line` into the pane and press Enter (`pane run`: text + Enter at once).
    * herdr joins `pane run`'s arguments and would read a leading `-` as a flag, so
    * such a line gets a leading space — harmless to a shell.
@@ -563,6 +581,13 @@ export function createHerdrBackend(opts: HerdrBackendOptions = {}): TerminalBack
     // herdr's key name; it accepts tmux's `C-c` too, but say what we mean.
     sendControl: (w, key: ControlKey) => { attempt(() => { call(["pane", "send-keys", locate(w).pane.id, key === "C-c" ? "ctrl+c" : key]); }); },
     closeWindow: (w) => attempt(() => { call(["tab", "close", locate(w).tab.id]); }),
+    windowActivity: (w) => {
+      try {
+        return paneActivity(locate(w).pane);
+      } catch {
+        return { running: null, command: null };
+      }
+    },
     focusWindow,
     // Inside one of *this* server's panes: herdr marks them, and names the socket.
     insideClient: (e = env) => e["HERDR_ENV"] === "1" && Boolean(e["HERDR_SOCKET_PATH"]) && e["HERDR_SOCKET_PATH"] === identity(),
