@@ -411,7 +411,7 @@ export async function setupLeader(
   // are tagged `web` and keep the composer's queue/steer choice.
   const { TranscriptMirror } = await import("./runtime/transcript.js");
   const { attachTranscriptMirror, deliverWebMessage } = await import("./session-transcript.js");
-  const transcript = attachTranscriptMirror(pi, new TranscriptMirror(client));
+  const transcript = attachTranscriptMirror(pi, new TranscriptMirror(client), ctx.sessionManager);
   chat.onDeliver = (text, mode) => { deliverWebMessage(pi, transcript, text, mode, chat.isAgentRunning); };
 
   onDeactivate(() => { chat.stop(); transcript.stop(); });

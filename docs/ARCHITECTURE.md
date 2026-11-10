@@ -165,7 +165,7 @@ Activating re-runs admission; its waiting READY items become eligible again.
   - `store/thoughts.ts` — Thought notes and `groups.json`: the file IO (`listThoughts`, `writeThought`, `listThoughtGroups`, …), and `ThoughtStore`, the Store's domain class on top of it — id minting, free-position placement for a coordinate-less note, partial updates (only a content change bumps `updatedAt`), batch moves, groups, and archive/restore/delete cascading to the note's triage WorkDef (a queued run is canceled). A group is a spatial rectangle; membership lives on each note's `groupId`. Deps (`ThoughtStoreDeps`): the queue's `getActiveWorkItem` and bare `setWorkItemStateRow`.
   - `store/assistant-chat.ts` — `AssistantChat`, the chat: sessions, messages, receipts, the agent inbox (each item's `mode`: `queue`/`steer` from the terminal-mode composer, `send_mode` column; null from the chat composer), the ephemeral reasoning buffer, and SSE fan-out. At most one session is `active`. The Store's delegations are one line each, tagging messages with the assistant's persona (`getAssistantPersonaId`) and turning a new/resumed session into a leader directive (`new-session`/`resume-session`).
   - `store/assistant-snapshots.ts` — Session markdown transcripts (reasoning excluded).
-  - `store/transcripts.ts` — Live agent transcripts (teammates, and the leader for the assistant's terminal mode — keyed by agent id, no role branch): in-memory per-member ring buffers (500 entries) of keyed upserts, viewer tracking with a 30s grace, `watch` markers.
+  - `store/transcripts.ts` — Live agent transcripts (teammates, and the leader for the assistant's terminal mode — keyed by agent id, no role branch): in-memory per-member ring buffers (500 entries) of keyed upserts, viewer tracking with a 30s grace, `watch` markers, and `backfill` (the agent's session so far replaces the buffer, with a `backfill` marker when capped; viewers get a fresh `hello`).
   - `store/pairing.ts` — Web pairing intent: paired flag, message outbox, pending release; drained exactly-once by the agent's poll.
   - `store/usage.ts` — The usage ledger: append to `usage/YYYY-MM.jsonl`, rebuild the `token_usage` cache on boot (`syncUsageLedger`), `dailyUsage` / `runsOnDay` rollups in the client's timezone.
   - `store/source-kv.ts` — `fileSourceKv`: a Work Source's string key/value store in `sources/<sourceId>.json` (sorted keys, read through on every get).
@@ -456,7 +456,7 @@ import it from here; `npm run sync-shared` copies each module verbatim under a b
 with no root source).
 
 - `client.ts` — DaemonClient: every HTTP call; a 403 `{ feature }` → `DaemonError.feature` + `featureDisabledMessage`
-- `transcript.ts` — TranscriptMirror: streams the session while watched
+- `transcript.ts` — TranscriptMirror: streams the session while watched, opening each watching period with a capped backfill of the session so far (from a history source the harness sets; the same entry builders as live events)
 - `bubbles.ts` — Splits prose into chat bubbles (fence/list aware)
 - `pairing.ts` — WebPairing: pause/message/release from the browser
 - `usage.ts` — Summarises a run's token usage
@@ -479,7 +479,8 @@ src/
 ├── chat.ts         — ChatMirror: daemon inbox → Pi (via `onDeliver`: steer, or the message's queue/steer mode), Pi prose → bubbles, terminal input → chat
 ├── session-transcript.ts — The ONE wiring of a TranscriptMirror to Pi events (`attachTranscriptMirror`) and of a web
 │                     message into Pi (`deliverWebMessage`: tagged `web`, queue → followUp / steer mid-run), used by
-│                     both the teammate (index.ts) and the leader (leader.ts) — tests/session-transcript.test.mjs
+│                     both the teammate (index.ts) and the leader (leader.ts); also gives the mirror the session's
+│                     current branch (`ctx.sessionManager.getBranch()`) for its backfill — tests/session-transcript.test.mjs
 ├── tools.ts        — LLM tools (role-specific): fail, stories/tasks/schedules (each with an optional `pending`), get/edit/activate a pending task, thoughts, workflows, context, team status, attachments
 ├── features.ts     — Feature toggles: the leader tools each kind owns, `applyFeatureTools` (keeps a switched-off kind's tools out of `pi.setActiveTools`), `featurePromptNote`
 ├── permissions.ts  — Autonomous permission handling via @gotgenes/pi-permission-system (optional; warns when absent)
@@ -1064,9 +1065,9 @@ Every route reads its JSON body with `readBody` and answers errors with `fail`
 | PUT | `/api/leader/directives/:id` | Update status |
 | GET | `/api/spawn-requests` | `{ requests (pending spawns), failed (failed spawns with reasons) }` |
 | DELETE | `/api/spawn-requests/:id` | Mark a spawn directive `cancelled` (stops a pending one; clears a failed one from the list) |
-| GET | `/api/agents/:id/transcript/stream` | SSE; subscribing is watching. `hello {entries}` then `entry` upserts |
-| GET | `/api/agents/:id/transcript/watch` | Agent: `{ watched }` |
-| POST | `/api/agents/:id/transcript` | Agent: batched `{ entries }`; recorded only while watched |
+| GET | `/api/agents/:id/transcript/stream` | SSE; subscribing is watching. `hello {entries}` then `entry` upserts; another `hello` when the agent backfills |
+| GET | `/api/agents/:id/transcript/watch` | Agent: `{ watched, backfill: true }` (`backfill`: this daemon takes a backfill batch) |
+| POST | `/api/agents/:id/transcript` | Agent: batched `{ entries }`; recorded only while watched. With `backfill: { omitted }`, the entries are the session so far and replace the buffer |
 | GET | `/api/agents/:id/transcript` | Snapshot `{ entries, watched }` |
 | POST | `/api/agents/:id/pair` | Start pairing (404 unknown, 400 leader) |
 | POST | `/api/agents/:id/messages` | `{ text, mode: "queue"\|"steer" }` (409 unless paired). For the leader (assistant terminal mode): no pairing — always accepted (even offline) and appended to the assistant inbox as a `web` message carrying `mode`; pair/release stay teammate-only |

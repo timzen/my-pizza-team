@@ -2308,7 +2308,8 @@ resume an old conversation with its context intact.
    through the same transcript store and routes keyed by agent id, and the dock
    renders the same `AgentTerminal` (TranscriptView + PairComposer) as a
    teammate's page — so entry kinds, clipping, collapse, watch semantics (only
-   while watched, no backfill) and live streaming are the same by construction;
+   while watched, opening with a backfill of the current session) and live
+   streaming are the same by construction;
    a difference is a bug. The leader's mirror runs in both modes (unwatched it
    costs nothing), which is why switching needs no restart. **The one
    deliberate difference is input.** A teammate's composer opens only after
@@ -2825,12 +2826,31 @@ not chat bubbles — you're looking over its shoulder, not texting it.
 
 **Live, and only while watched.** The SSE subscription registers a viewer; the
 extension polls the resulting "watched" bit (with a 30s grace so page hops don't
-flap) and an unwatched teammate sends nothing. Hence **no backfill**: the view
-starts at a "watching from …" marker, and the work item's page has the prompt and
-thread. Entries are keyed upserts (Pi's message updates are cumulative), so opening
-mid-reply still renders coherently. The buffer is in-memory, per member, and
-survives viewer disconnects (each watching period gets its own marker): a live
-view, not a record — the WorkItem thread is the record.
+flap) and an unwatched teammate sends nothing. Entries are keyed upserts (Pi's
+message updates are cumulative), so opening mid-reply still renders coherently. The
+buffer is in-memory, per member, and survives viewer disconnects: a live view, not a
+record — the WorkItem thread is the record.
+
+**Backfilled from the session, when watching starts.** Pi already holds the whole
+session (messages, tool calls and results, thinking) in its session manager, so
+when a watching period starts the mirror reads the current branch — then, and
+never while unwatched — and sends it as one backfill batch before resuming live.
+Two rules keep the seam clean. *One mapping:* past messages go through the same
+entry builders as live events, so a backfilled entry is indistinguishable from a
+live one. *Same keys:* an assistant message is keyed by its timestamp (set when
+its request starts, stable while it streams) and a tool call by its id, so the
+live update that follows a backfilled entry merges into it rather than repeating
+it; and because Pi fires an event before the message lands in the session, the
+mirror remembers the last few entries it built while unwatched and adds those the
+session doesn't hold yet. The backfill is the session so far, so it **replaces**
+the buffer (stale fragments of earlier watching periods included). It's capped
+(`MAX_BACKFILL_ENTRIES`, `MAX_BACKFILL_CHARS` in runtime/transcript.ts) — a capped
+one opens with an "N earlier entries not shown" note — so a long session is still
+one sane request. It's additive, not a protocol bump: the daemon advertises
+`backfill: true` in the watch poll and the harness sends one only then, while an
+older harness sends none and its view keeps the "watching from …" marker. Only the
+current session is backfilled; an earlier one is the work item's thread (or, for
+the assistant, the chat record).
 
 The assistant's terminal mode (`assistant.chatMode: "terminal"`) is this very
 view pointed at the leader — see "Assistant Chat Model" item 9 for the one

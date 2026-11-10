@@ -96,8 +96,11 @@ like looking over its shoulder at the terminal. Its row stays highlighted while 
 watching.
 
 - It's **watch-only**: nothing you do there reaches the teammate.
-- It starts **when you start watching** (a "watching from …" line) — there's no
-  history from before. The work item link in the header has the full prompt and
+- It opens with **the teammate's current session so far** — earlier tool calls and
+  reasoning included — then carries on live. A very long session shows only its
+  latest part (a "… earlier entries not shown" line at the top). A teammate on an
+  older extension can't do this: its view starts when you start watching (a
+  "watching from …" line). The work item link in the header has the full prompt and
   thread.
 - A teammate nobody is watching doesn't stream anything, so leaving the page costs
   nothing.

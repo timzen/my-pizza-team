@@ -14,7 +14,9 @@
  * back — keep working on its item (Resume), or Complete / Fail the item. A
  * release waits out a run in flight, so the teammate is never cut off mid-step.
  *
- * There's no backfill: the transcript starts at a "watching from …" marker.
+ * Opening the page backfills the teammate's current session so far (earlier
+ * tool calls included), then streams live; a teammate on an extension too old
+ * to backfill starts at a "watching from …" marker instead.
  * The sidebar highlights this teammate's row while the page is open.
  */
 

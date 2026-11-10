@@ -14,7 +14,7 @@ import * as assert from "node:assert";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { TranscriptMirror } from "../src/runtime/transcript.ts";
-import { attachTranscriptMirror, deliverWebMessage } from "../src/session-transcript.ts";
+import { attachTranscriptMirror, deliverWebMessage, sessionMessages } from "../src/session-transcript.ts";
 
 let passed = 0;
 let failed = 0;
@@ -51,22 +51,38 @@ function fakePi() {
   return { pi, sent, handlers };
 }
 
-/** A fake daemon for one agent id: always watched, records posted batches. */
+/** A fake daemon for one agent id: always watched, records posted batches (and backfills). */
 function fakeClient(id) {
   const c = {
     id,
     entries: [],
-    async isTranscriptWatched() { return true; },
-    async postTranscript(entries) { c.entries.push(...entries.map((e) => ({ ...e }))); return { watched: true }; },
+    backfills: [],
+    async getTranscriptWatch() { return { watched: true, backfill: true }; },
+    async postTranscript(entries, backfill) {
+      const copy = entries.map((e) => ({ ...e }));
+      if (backfill) c.backfills.push({ entries: copy, omitted: backfill.omitted });
+      else c.entries.push(...copy);
+      return { watched: true };
+    },
   };
   return c;
 }
 
+/** A fake `ctx.sessionManager`: a branch of session entries (non-message kinds included, as in Pi). */
+function fakeSession(messages) {
+  return {
+    getBranch: () => [
+      { type: "model_change", id: "m0", parentId: null, provider: "x", modelId: "y" },
+      ...messages.map((message, i) => ({ type: "message", id: `e${i}`, parentId: null, message })),
+    ],
+  };
+}
+
 /** One agent wired the way its role wires it in production. */
-async function agent(id) {
+async function agent(id, session = fakeSession([])) {
   const { pi, sent, handlers } = fakePi();
   const client = fakeClient(id);
-  const transcript = attachTranscriptMirror(pi, new TranscriptMirror(client, { pollMs: 10_000, flushMs: 5, instance: "i1" }));
+  const transcript = attachTranscriptMirror(pi, new TranscriptMirror(client, { pollMs: 10_000, flushMs: 5, instance: "i1" }), session);
   await sleep(1); // start() polls the watch bit, then opens with a session divider
   return { pi, sent, handlers, client, transcript };
 }
@@ -124,6 +140,34 @@ await test("the same session events produce identical transcript entries", async
   assert.strictEqual(err.result, "ENOENT");
 });
 
+await test("a watch that finds history backfills it — identically for both roles", async () => {
+  const history = [
+    { role: "system", content: "", timestamp: 1 },
+    { role: "user", content: "do the thing", timestamp: 2 },
+    { role: "assistant", timestamp: 3, content: [{ type: "text", text: "on it" }, { type: "toolCall", id: "c1", name: "bash", arguments: { command: "ls" } }] },
+    { role: "toolResult", toolCallId: "c1", toolName: "bash", content: [{ type: "text", text: "a.txt" }], isError: false, timestamp: 4 },
+  ];
+  const teammate = await agent("t1", fakeSession(history));
+  const leader = await agent("leader", fakeSession(history));
+  await sleep(5);
+  teammate.pi.emit("session_shutdown");
+  leader.pi.emit("session_shutdown");
+  assert.strictEqual(teammate.client.backfills.length, 1);
+  assert.deepStrictEqual(leader.client.backfills, teammate.client.backfills);
+  const { entries, omitted } = teammate.client.backfills[0];
+  assert.strictEqual(omitted, 0);
+  assert.deepStrictEqual(entries.map((e) => e.kind), ["user", "message", "tool"]);
+  assert.strictEqual(entries[2].state, "done");
+  assert.deepStrictEqual(entries[2].args, { command: "ls" });
+  // A backfill replaces the divider a fresh session would open with.
+  assert.ok(!teammate.client.entries.some((e) => e.kind === "session"));
+});
+
+await test("sessionMessages reads only message entries, in branch order", () => {
+  const msgs = sessionMessages(fakeSession([{ role: "user", content: "a" }, { role: "assistant", content: [] }]));
+  assert.deepStrictEqual(msgs.map((m) => m.role), ["user", "assistant"]);
+});
+
 await test("both register the same Pi events", async () => {
   const teammate = await agent("t1");
   const leader = await agent("leader");
@@ -150,7 +194,7 @@ const chatSrc = read("chat.ts");
 
 await test("teammate and leader both wire the mirror through attachTranscriptMirror", () => {
   for (const [name, src] of [["index.ts", indexSrc], ["leader.ts", leaderSrc]]) {
-    assert.match(src, /attachTranscriptMirror\(pi, new TranscriptMirror\(client\)\)/, name);
+    assert.match(src, /attachTranscriptMirror\(pi, new TranscriptMirror\(client\), ctx\.sessionManager\)/, name);
     // No hand-rolled wiring: the mirror's event methods are only called from session-transcript.ts.
     assert.doesNotMatch(src, /transcript\.on(Input|AgentStart|AgentEnd|Message|Tool)/, name);
     assert.doesNotMatch(src, /expectWebInput/, name);

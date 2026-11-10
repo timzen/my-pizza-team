@@ -27,7 +27,7 @@ export { LEADER_ALREADY_CONNECTED, PROTOCOL_VERSION } from "./agent-protocol.ts"
 export type {
   AgentClaimResponse, AgentNextWorkResponse, AgentSetWorkItemStateResponse, AssistantDelivery, AssistantInboxItem,
   AssistantInboxResponse, AssistantOrigin, CreateLeaderDirectiveResponse, LeaderDirective, LeaderDirectivesResponse,
-  PairingPoll, PairingReleaseAction,
+  PairingPoll, PairingReleaseAction, TranscriptBackfill, TranscriptWatchResponse,
 } from "./agent-protocol.ts";
 
 // ─── Protocol version ────────────────────────────────────────────────
@@ -263,8 +263,13 @@ export type TranscriptEntryBody =
    * watching (the view labels it "already running").
    */
   | { kind: "tool"; name: string; args?: unknown; state: "running" | "done" | "error"; result?: string }
-  /** Daemon-inserted: a watching period began here. */
-  | { kind: "watch" };
+  /** Daemon-inserted: a watching period began here (an agent that backfills replaces it). */
+  | { kind: "watch" }
+  /**
+   * Daemon-inserted: opens a backfill the agent capped — `omitted` older entries
+   * of its session were left out. Absent when the backfill is the whole session.
+   */
+  | { kind: "backfill"; omitted: number };
 
 export type TranscriptEntry = TranscriptEntryBody & {
   /** Position in the transcript; stable across upserts. */
@@ -275,7 +280,11 @@ export type TranscriptEntry = TranscriptEntryBody & {
   at: number;
 };
 
-/** A frame on `GET /api/agents/:id/transcript/stream` (SSE): the buffer on connect, then each upsert. */
+/**
+ * A frame on `GET /api/agents/:id/transcript/stream` (SSE): the buffer on connect,
+ * then each upsert. A `hello` can come again mid-stream: when the agent backfills
+ * its session, the buffer is replaced, and the view replaces its copy.
+ */
 export type TranscriptStreamEvent =
   | { type: "hello"; entries: TranscriptEntry[] }
   | { type: "entry"; entry: TranscriptEntry };

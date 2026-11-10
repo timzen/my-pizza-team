@@ -27,10 +27,12 @@ export function resolveAssistantChatMode(raw: unknown): AssistantChatMode {
 }
 
 /**
- * What the assistant pane shows. Terminal mode shows the live session only:
- * reading an earlier session (`viewingId`) is the chat record — a transcript
- * has no backfill — so history always renders as the chat. Before the first
- * status answer (`mode` null) it's the default, chat.
+ * What the assistant pane shows. Terminal mode shows the live session only —
+ * the current session so far (the leader backfills it when the view opens),
+ * then live. Reading an earlier session (`viewingId`) is the chat record — the
+ * transcript only ever backfills the session the leader is in — so history
+ * always renders as the chat. Before the first status answer (`mode` null)
+ * it's the default, chat.
  */
 export function assistantView(mode: AssistantChatMode | null, viewingId: string | null): AssistantChatMode {
   return mode === "terminal" && viewingId === null ? "terminal" : "chat";

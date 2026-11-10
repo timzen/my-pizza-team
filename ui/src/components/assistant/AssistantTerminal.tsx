@@ -4,7 +4,8 @@
  * Exactly the teammate watch/pair view (docs/DESIGN.md "Assistant Chat Model",
  * "Watching and Pairing with a Teammate"): `useTranscriptStream` + the shared
  * `AgentTerminal`, pointed at the leader. Having it open is watching — the
- * leader's TranscriptMirror streams only then, with no backfill. The composer is
+ * leader's TranscriptMirror streams only then, opening with a backfill of the
+ * current session so far (tool calls and thinking included). The composer is
  * always open (no Pair step: the leader has no work loop to pause) and posts to
  * the same `/api/agents/:id/messages`, which lands the message in the assistant
  * inbox with its queue/steer mode.

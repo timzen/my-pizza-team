@@ -10,9 +10,16 @@
  * stream, which registers a *viewer*. A member with ≥1 viewer — or whose last
  * viewer left less than `WATCH_GRACE_MS` ago, so hopping between pages doesn't
  * flap — is *watched*; the extension polls that bit and only mirrors events
- * while it's set. An unwatched teammate costs nothing. There's no backfill: a
- * `watch` marker records where each watching period begins. An on-demand
- * "load earlier" is a possible future addition.
+ * while it's set. An unwatched teammate costs nothing. A `watch` marker
+ * records where each watching period begins.
+ *
+ * **Backfill replaces the buffer.** When a watching period starts, an agent
+ * that can (the Pi extension; the watch poll advertises `backfill: true`) reads
+ * its current session and posts it as one backfill batch. That batch *is* the
+ * session so far, so it replaces the buffer — the `watch` marker and any stale
+ * entries from earlier watching periods — and viewers get a fresh `hello`. A
+ * capped backfill opens with a `backfill` marker counting what was left out. An
+ * older agent never sends one, so its view keeps the `watch` marker.
  *
  * **Entries are upserts.** Streaming prose and tool calls change over time, so
  * the agent sends entries with a stable `key` (`msg:…`, `tool:…`) and the
@@ -36,8 +43,13 @@ export type { TranscriptEntry, TranscriptEntryBody, TranscriptInputOrigin };
 /** What the agent posts: an entry body, optionally keyed for upsert. */
 export type TranscriptInput = TranscriptEntryBody & { key?: string };
 
-/** Pushed to stream subscribers for a member. */
-export type TranscriptEvent = { type: "entry"; entry: TranscriptEntry };
+/**
+ * Pushed to stream subscribers for a member: an upsert, or (after a backfill)
+ * the whole replaced buffer.
+ */
+export type TranscriptEvent =
+  | { type: "entry"; entry: TranscriptEntry }
+  | { type: "hello"; entries: TranscriptEntry[] };
 
 // ─── Limits ─────────────────────────────────────────────────────────
 
@@ -49,7 +61,9 @@ const MAX_FIELD_CHARS = 64_000;
 /** A member stays "watched" this long after its last viewer leaves. */
 export const WATCH_GRACE_MS = 30_000;
 
-const KINDS = new Set(["session", "user", "run", "message", "tool", "watch"]);
+const KINDS = new Set(["session", "user", "run", "message", "tool", "watch", "backfill"]);
+/** Kinds only the daemon inserts; an agent can't forge them. */
+const DAEMON_KINDS = new Set(["watch", "backfill"]);
 
 // ─── Store ──────────────────────────────────────────────────────────
 
@@ -126,6 +140,37 @@ export class TeammateTranscripts {
     return n;
   }
 
+  /**
+   * Replace the member's buffer with a backfill: the agent's current session so
+   * far (oldest first), led by a `backfill` marker when the agent capped it
+   * (`omitted` > 0). Viewers get the new buffer as a `hello`. Ignored unless
+   * watched, like `record`. Returns how many entries were kept.
+   */
+  backfill(memberId: string, inputs: unknown[], omitted: number): number {
+    if (!this.isWatched(memberId)) return 0;
+    const t = this.get(memberId);
+    const entries: TranscriptEntry[] = [];
+    const byKey = new Map<string, TranscriptEntry>();
+    const add = (input: TranscriptInput) => {
+      const existing = input.key ? byKey.get(input.key) : undefined;
+      if (existing) { Object.assign(existing, input); return; }
+      const entry = { ...input, seq: ++this.seq, at: this.now() } as TranscriptEntry;
+      entries.push(entry);
+      if (entry.key) byKey.set(entry.key, entry);
+    };
+    if (Number.isFinite(omitted) && omitted > 0) add({ kind: "backfill", omitted: Math.floor(omitted) });
+    for (const input of inputs) {
+      const body = sanitize(input);
+      if (body) add(body);
+    }
+    t.entries = entries.length > MAX_ENTRIES ? entries.slice(entries.length - MAX_ENTRIES) : entries;
+    const snapshot = [...t.entries];
+    for (const fn of t.viewers) {
+      try { fn({ type: "hello", entries: snapshot }); } catch { /* ignore */ }
+    }
+    return t.entries.filter((e) => e.kind !== "backfill").length;
+  }
+
   /** Drop a member's transcript (dismissed / deregistered). */
   forget(memberId: string): void {
     const t = this.members.get(memberId);
@@ -157,7 +202,7 @@ export class TeammateTranscripts {
 function sanitize(input: unknown): TranscriptInput | null {
   if (!input || typeof input !== "object") return null;
   const raw = input as Record<string, unknown>;
-  if (typeof raw.kind !== "string" || !KINDS.has(raw.kind) || raw.kind === "watch") return null;
+  if (typeof raw.kind !== "string" || !KINDS.has(raw.kind) || DAEMON_KINDS.has(raw.kind)) return null;
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(raw)) {
     if (k === "seq" || k === "at") continue; // daemon-owned

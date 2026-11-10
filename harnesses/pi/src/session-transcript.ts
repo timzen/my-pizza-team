@@ -12,8 +12,16 @@
 // handlers); runtime/ stays harness-agnostic. Type-only imports, so the tests can
 // load it under Node's type stripping and drive it with a fake `pi`.
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import type { TranscriptMirror } from "./runtime/transcript.js";
+import type { ExtensionAPI, SessionEntry } from "@earendil-works/pi-coding-agent";
+import type { MessageLike, TranscriptMirror } from "./runtime/transcript.js";
+
+/**
+ * The slice of Pi's session manager the backfill reads (`ctx.sessionManager`):
+ * the current branch, which Pi already holds in memory — no file read.
+ */
+export interface SessionHistory {
+  getBranch(): SessionEntry[];
+}
 
 /** How a web-composer message lands on a run in flight: after it (Pi followUp), or at the next tool step. */
 export type WebSendMode = "queue" | "steer";
@@ -24,8 +32,19 @@ export type WebSendMode = "queue" | "steer";
  * Called from both the teammate setup (index.ts) and the leader setup
  * (leader.ts). Its own pi.on registrations, separate from the work loop's and
  * the chat mirror's, so those concerns never share a handler.
+ *
+ * `session` (the setup's `ctx.sessionManager`) is the history a watching period
+ * starts with: read once per watch start, never while unwatched. An instance
+ * lives for one session (a new session re-runs setup), so it's never stale.
  */
-export function attachTranscriptMirror(pi: ExtensionAPI, transcript: TranscriptMirror): TranscriptMirror {
+export function attachTranscriptMirror(
+  pi: ExtensionAPI,
+  transcript: TranscriptMirror,
+  session?: SessionHistory | null,
+): TranscriptMirror {
+  if (session && typeof session.getBranch === "function") {
+    transcript.setHistory(() => sessionMessages(session));
+  }
   pi.on("input", async (event) => { transcript.onInput(event.text, event.source, event.streamingBehavior); });
   pi.on("agent_start", async () => { transcript.onAgentStart(); });
   pi.on("agent_end", async () => { transcript.onAgentEnd(); });
@@ -39,6 +58,15 @@ export function attachTranscriptMirror(pi: ExtensionAPI, transcript: TranscriptM
   pi.on("session_shutdown", async () => { transcript.stop(); });
   transcript.start().catch(() => {});
   return transcript;
+}
+
+/** The current branch's messages, oldest first (other entry kinds have no transcript entry). */
+export function sessionMessages(session: SessionHistory): MessageLike[] {
+  const out: MessageLike[] = [];
+  for (const entry of session.getBranch()) {
+    if (entry.type === "message") out.push(entry.message as MessageLike);
+  }
+  return out;
 }
 
 /**

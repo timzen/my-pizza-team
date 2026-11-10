@@ -379,7 +379,7 @@ async function setupTeammate(
   // too (session-transcript.ts), so both views are fed identically.
   const { TranscriptMirror } = await import("./runtime/transcript.js");
   const { attachTranscriptMirror, deliverWebMessage } = await import("./session-transcript.js");
-  const transcript = attachTranscriptMirror(pi, new TranscriptMirror(client));
+  const transcript = attachTranscriptMirror(pi, new TranscriptMirror(client), ctx.sessionManager);
 
   // ─── Web pairing (talk to this teammate from the browser) ────────
   // Pairing pauses the work loop (like typing in this pane, but permissions

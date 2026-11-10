@@ -59,6 +59,8 @@ import {
   type LeaderDirectivesResponse,
   type PairingPoll,
   type StatusResponse,
+  type TranscriptBackfill,
+  type TranscriptWatchResponse,
 } from "../shared/agent-protocol.ts";
 
 // ─── Error Type ──────────────────────────────────────────────────────
@@ -717,22 +719,27 @@ export class DaemonClient {
 
   // ─── Teammate transcript (watch view; my-pizza-team docs/DESIGN.md "Watching and Pairing with a Teammate") ─
 
-  /** Is anyone watching this agent's live transcript? Mirror only while true. */
-  async isTranscriptWatched(): Promise<boolean> {
-    const res = await this.get<{ watched: boolean }>(
+  /**
+   * Is anyone watching this agent's live transcript? Mirror only while true.
+   * `backfill` says the daemon accepts a backfill batch (older daemons omit it).
+   */
+  async getTranscriptWatch(): Promise<TranscriptWatchResponse> {
+    const res = await this.get<TranscriptWatchResponse>(
       `/api/agents/${encodeURIComponent(this.agentId)}/transcript/watch`,
     );
-    return !!res.watched;
+    return { watched: !!res.watched, backfill: res.backfill === true };
   }
 
   /**
    * Post a batch of transcript entries. The response says whether the agent is
    * still watched, so the mirror can stop as soon as the viewer's grace runs out.
+   * With `backfill`, the batch is the session so far and replaces the daemon's
+   * buffer (send it only to a daemon whose watch poll said `backfill: true`).
    */
-  async postTranscript(entries: Record<string, unknown>[]): Promise<{ watched: boolean }> {
+  async postTranscript(entries: Record<string, unknown>[], backfill?: TranscriptBackfill): Promise<{ watched: boolean }> {
     const res = await this.post<{ watched: boolean }>(
       `/api/agents/${encodeURIComponent(this.agentId)}/transcript`,
-      { entries },
+      backfill ? { entries, backfill } : { entries },
     );
     return { watched: !!res.watched };
   }

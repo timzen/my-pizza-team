@@ -51,8 +51,9 @@ carries on.
 In terminal mode the composer is always open — there's no **Pair** step, since the
 assistant has no queue of work to pause. As with a paired teammate, **Enter** queues
 your message after the current run and **⌘/Ctrl+Enter** steers it in at the next
-step. Like a teammate's page, the view is live from when you open it (no backfill);
-reading an earlier session from the session menu shows it as the chat.
+step. Like a teammate's page, the view opens with the current session so far —
+tool calls included — then stays live; reading an earlier session from the session
+menu shows it as the chat.
 
 ## Assistant personas
 

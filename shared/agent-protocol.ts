@@ -236,6 +236,28 @@ export interface PairingPoll {
   messages: Array<{ id: string; text: string; mode: "queue" | "steer"; at: number }>;
 }
 
+// ─── Live transcript (the watch view; docs/DESIGN.md "Watching and Pairing with a Teammate") ─
+// Backfill is additive, not a protocol change: a daemon that accepts it says so
+// in the watch poll, and a harness sends it only then; an older harness never
+// sends one, and the view keeps its "watching from" marker.
+
+/** GET /api/agents/:id/transcript/watch. */
+export interface TranscriptWatchResponse {
+  watched: boolean;
+  /** This daemon accepts a backfill batch (absent from daemons that predate it). */
+  backfill?: boolean;
+}
+
+/**
+ * The `backfill` field of a POST /api/agents/:id/transcript batch: its entries
+ * are the agent's current session so far, and *replace* the buffered transcript
+ * (sent once, when a watching period starts). `omitted` counts the older entries
+ * the agent left out to stay under its cap.
+ */
+export interface TranscriptBackfill {
+  omitted: number;
+}
+
 // ─── Assistant inbox (the leader mirrors Pi <-> the daemon chat) ──────
 
 /** Where a message came from: the web UI, the agent's terminal, the agent, the daemon. */

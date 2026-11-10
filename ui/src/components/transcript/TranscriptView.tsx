@@ -4,7 +4,9 @@
  * One monospace column that reads like the terminal (docs/DESIGN.md "Watching and Pairing with a Teammate"),
  * not chat bubbles:
  *
- *   ── watching from 14:32 ──        where live coverage starts (no backfill)
+ *   ── 40 earlier entries not shown ──  the session so far was capped (backfill)
+ *   ── watching from 14:32 ──        where live coverage starts, from an agent
+ *                                    too old to backfill its session
  *   ❯ user input                     the work prompt / tmux typing; long ones collapse
  *   ✻ Thinking (12 lines)            reasoning, collapsed and dimmed
  *   ⏺ assistant prose                markdown
@@ -12,7 +14,9 @@
  *     ⎿ output preview               …its (collapsible) result; red on error
  *   ▍ working…                       while a run is in flight
  *
- * Presentational: entries come from useTranscriptStream. Sticks to the bottom
+ * When watching starts, the agent backfills its session so far (docs/DESIGN.md
+ * "Watching and Pairing with a Teammate"); those entries render exactly like
+ * live ones. Presentational: entries come from useTranscriptStream. Sticks to the bottom
  * while you're at the bottom, and leaves you alone once you scroll up.
  */
 
@@ -47,7 +51,7 @@ export function TranscriptView({ entries, empty }: { entries: TranscriptEntry[];
   const running = isRunning(entries);
   const visible = entries.filter((e) => e.kind !== "run");
   // Markers alone (just started watching) still count as "nothing yet".
-  const hasContent = visible.some((e) => e.kind !== "watch" && e.kind !== "session");
+  const hasContent = visible.some((e) => e.kind !== "watch" && e.kind !== "session" && e.kind !== "backfill");
 
   return (
     <div ref={scrollRef} onScroll={onScroll} className="h-full overflow-y-auto bg-background px-4 py-3 font-mono text-[13px] leading-relaxed">
@@ -72,6 +76,7 @@ export function TranscriptView({ entries, empty }: { entries: TranscriptEntry[];
 const EntryRow = memo(function EntryRow({ entry }: { entry: TranscriptEntry }) {
   switch (entry.kind) {
     case "watch": return <Divider label={`watching from ${clock(entry.at)}`} />;
+    case "backfill": return <Divider label={earlierNotShown(entry.omitted)} />;
     case "session": return <Divider label={`new session · ${clock(entry.at)}`} />;
     case "user": return <UserBlock entry={entry} />;
     case "message": return <MessageBlock entry={entry} />;
@@ -194,6 +199,11 @@ function summarizeArgs(args: unknown): string {
 function oneLine(s: string, max = 200): string {
   const flat = s.replace(/\s*\n\s*/g, " ⏎ ");
   return flat.length > max ? `${flat.slice(0, max)}…` : flat;
+}
+
+/** The capped-backfill note: how many older entries of the session aren't shown. */
+function earlierNotShown(omitted: number): string {
+  return `${omitted} earlier ${omitted === 1 ? "entry" : "entries"} not shown`;
 }
 
 function clock(ms: number): string {

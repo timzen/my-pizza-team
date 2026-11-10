@@ -175,7 +175,7 @@ console.log("Transcript tagging:");
 await test("web-sent messages are tagged `web`; delivery mode is kept", async () => {
   const batches = [];
   const m = new TranscriptMirror(
-    { async isTranscriptWatched() { return true; }, async postTranscript(e) { batches.push(...e); return { watched: true }; } },
+    { async getTranscriptWatch() { return { watched: true }; }, async postTranscript(e) { batches.push(...e); return { watched: true }; } },
     { pollMs: 10_000, flushMs: 5 },
   );
   await m.start();

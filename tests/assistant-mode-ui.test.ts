@@ -29,7 +29,7 @@ test("assistantView: terminal only in terminal mode, on the live session", () =>
   assertEquals(assistantView("chat", null), "chat");
   // Before the first /api/status answer: the default.
   assertEquals(assistantView(null, null), "chat");
-  // An earlier session is the chat record (a transcript has no backfill).
+  // An earlier session is the chat record (a transcript backfills only the current one).
   assertEquals(assistantView("terminal", "sess-1"), "chat");
 });
 

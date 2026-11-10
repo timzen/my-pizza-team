@@ -7,14 +7,17 @@
  *   watching — the connection registers a viewer, and the `hello` frame carries
  *   the buffered transcript so the view renders immediately.
  * - Agent-facing: `GET .../transcript/watch` (am I watched? polled by the
- *   extension) and `POST .../transcript` (a batch of entries; the response also
- *   carries `watched`, so a mirror stops promptly when the last viewer's grace
- *   runs out).
+ *   extension; `backfill: true` says this daemon accepts a backfill) and
+ *   `POST .../transcript` (a batch of entries; the response also carries
+ *   `watched`, so a mirror stops promptly when the last viewer's grace runs
+ *   out). A batch with `backfill: { omitted }` is the agent's session so far and
+ *   replaces the buffer; viewers get it as a fresh `hello`.
  * - `GET .../transcript` returns the buffer as JSON (debugging, tests).
  */
 
 import type { RouteContext } from "./types.ts";
 import { readBody, fail } from "./http.ts";
+import type { TranscriptBackfill, TranscriptWatchResponse } from "../../shared/protocol.ts";
 
 export function registerTranscriptRoutes(ctx: RouteContext): void {
   const { app, store } = ctx;
@@ -26,16 +29,19 @@ export function registerTranscriptRoutes(ctx: RouteContext): void {
   });
 
   app.get("/api/agents/:id/transcript/watch", (c) => {
-    return c.json({ watched: transcripts.isWatched(c.req.param("id")) });
+    return c.json({ watched: transcripts.isWatched(c.req.param("id")), backfill: true } satisfies TranscriptWatchResponse);
   });
 
   app.post("/api/agents/:id/transcript", async (c) => {
     const id = c.req.param("id");
-    const body = await readBody(c) as { entries?: unknown };
+    const body = await readBody(c) as { entries?: unknown; backfill?: Partial<TranscriptBackfill> };
     if (!Array.isArray(body.entries)) {
       return fail(c, 400, "Field 'entries' must be an array");
     }
-    const recorded = transcripts.record(id, body.entries);
+    const backfill = body.backfill && typeof body.backfill === "object" ? body.backfill : null;
+    const recorded = backfill
+      ? transcripts.backfill(id, body.entries, typeof backfill.omitted === "number" ? backfill.omitted : 0)
+      : transcripts.record(id, body.entries);
     return c.json({ success: true, recorded, watched: transcripts.isWatched(id) });
   });
 
