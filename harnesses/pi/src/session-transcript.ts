@@ -1,7 +1,7 @@
 // Session transcript wiring: ONE code path for every agent's live watch view
 //
 // The web UI's terminal view of a Pi session — a teammate's page (/teammates/:id)
-// and, in `assistant.chatMode: "terminal"`, the assistant dock — is fed by a
+// and the assistant dock at Full page — is fed by a
 // TranscriptMirror (runtime/transcript.ts). This module is the only place its Pi
 // events are wired, and the only place a web-composer message is handed to Pi, so
 // the teammate and the leader cannot drift apart: same entry kinds, same clipping,

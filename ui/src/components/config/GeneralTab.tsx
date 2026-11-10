@@ -1,6 +1,6 @@
 /**
  * GeneralTab — Config → General (`/config`): the Work items feature toggles,
- * the Assistant card (chat mode + persona), Server (port, the terminal and its
+ * the Assistant card (persona), Server (port, the terminal and its
  * new-windows-only warning, session name, team size, default workflow), Scheduling (the readiness
  * probe and the agent env file), favorite directories, and Autosave.
  * Everything except the favorites and the assistant's persona edits the page's
@@ -11,7 +11,7 @@
 import { useApi } from "@/hooks/useApi";
 import { TERMINAL_OPTIONS, terminalSwitchWarning, type ConfigData } from "@/lib/config-draft";
 import { WorkItemFeatures } from "@/components/config/WorkItemFeatures";
-import { AssistantChatModeSetting } from "@/components/config/AssistantSettings";
+import { AssistantSettings } from "@/components/config/AssistantSettings";
 import { FavoriteDirectories } from "@/components/config/FavoriteDirectories";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -39,7 +39,7 @@ export function GeneralTab({ config, setConfig, saved, featureError }: {
     <div className="space-y-4">
       <WorkItemFeatures config={config} setConfig={setConfig} saved={saved} error={featureError} />
 
-      <AssistantChatModeSetting config={config} setConfig={setConfig} />
+      <AssistantSettings />
 
       <Card>
         <CardContent className="p-4 space-y-3">

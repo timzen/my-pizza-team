@@ -1,7 +1,7 @@
 // Parity tests: a teammate and the leader feed the live transcript identically
 // Run with: node --experimental-strip-types tests/session-transcript.test.mjs
 //
-// The assistant's terminal mode (assistant.chatMode: "terminal") MUST be exactly
+// The assistant's terminal view (the web dock at Full page) MUST be exactly
 // the teammate watch/pair experience. Both roles wire their TranscriptMirror with
 // the one `attachTranscriptMirror` and hand web messages to Pi with the one
 // `deliverWebMessage` (src/session-transcript.ts). These tests drive the same

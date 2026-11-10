@@ -16,8 +16,8 @@ import { assertEquals, assertStringIncludes } from "./_assert.ts";
 import { makeTeam } from "./_team.ts";
 import { buildApp } from "../daemon/server.ts";
 import { Store } from "../daemon/store.ts";
-import { DEFAULT_CONFIG, resolveAssistantChatMode, type TeamConfig } from "../shared/types.ts";
-import { loadTeamConfig, readTeamConfigFile, saveTeamConfig } from "../shared/team-config.ts";
+import { DEFAULT_CONFIG, type TeamConfig } from "../shared/types.ts";
+import { applyTeamConfigDefaults, loadTeamConfig, readTeamConfigFile, saveTeamConfig } from "../shared/team-config.ts";
 import * as path from "node:path";
 
 /** Every persistable field set to a non-default value, so a dropped one shows. */
@@ -33,7 +33,7 @@ const FULL: Partial<TeamConfig> = {
   favoriteDirectories: ["/tmp/mpt-fav-a", "/tmp/mpt-fav-b"],
   features: { stories: false, tasks: true, schedules: true },
   retry: { maxRetries: 2, backoffMinutes: [2, 10] },
-  assistant: { chatMode: "terminal" },
+  assistant: { persona: "builtin:assistant" },
   packages: ["./plain-plugin", { source: "./configured-plugin", config: { project: "ACME", tokenEnv: "ACME_TOKEN" } }],
   dev: { fixtureSource: { dir: "./fixture-items" } },
   harnesses: {
@@ -66,7 +66,7 @@ function assertPreserved(saved: Partial<TeamConfig>) {
   assertEquals(saved.features, FULL.features);
   // Errored-session retry policy has no editor; a save must keep it.
   assertEquals(saved.retry, FULL.retry);
-  // A save that doesn't change the assistant chat mode keeps it.
+  // PUT /api/config ignores `assistant`; the persona selection is kept.
   assertEquals(saved.assistant, FULL.assistant);
   // Plugin packages (and their settings) have no form on the Config page; a save must keep them.
   assertEquals(saved.packages, FULL.packages);
@@ -216,51 +216,53 @@ test("experimental must be an object with a boolean harnesses", async () => {
   } finally { cleanup(); }
 });
 
-// ─── Assistant chat mode (Config → General) ──────────────────────────
+// ─── Retired assistant.chatMode (the dock's size picks the view) ─────
 
-test("resolveAssistantChatMode: missing or invalid is chat", () => {
-  assertEquals(resolveAssistantChatMode({}), "chat");
-  assertEquals(resolveAssistantChatMode({ assistant: {} }), "chat");
-  assertEquals(resolveAssistantChatMode({ assistant: { chatMode: "bogus" as never } }), "chat");
-  assertEquals(resolveAssistantChatMode({ assistant: { chatMode: "chat" } }), "chat");
-  assertEquals(resolveAssistantChatMode({ assistant: { chatMode: "terminal" } }), "terminal");
+test("an old config.json with assistant.chatMode loads cleanly, and the next save drops it", () => {
+  const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-config-test-"));
+  const file = path.join(teamDir, "config.json");
+  try {
+    // chatMode beside a persona: the persona stays.
+    fs.writeFileSync(file, JSON.stringify({ maxTeammates: 3, assistant: { chatMode: "terminal", persona: "p-1" } }));
+    let loaded = loadTeamConfig(teamDir);
+    assertEquals(loaded.assistant, { persona: "p-1" });
+    saveTeamConfig(teamDir, loaded);
+    assertEquals(JSON.parse(fs.readFileSync(file, "utf8")).assistant, { persona: "p-1" });
+
+    // chatMode alone (any value, even an invalid one): the block goes away on save.
+    for (const chatMode of ["chat", "terminal", "bogus"]) {
+      fs.writeFileSync(file, JSON.stringify({ maxTeammates: 3, assistant: { chatMode } }));
+      loaded = loadTeamConfig(teamDir);
+      assertEquals(loaded.assistant, {});
+      saveTeamConfig(teamDir, loaded);
+      const onDisk = JSON.parse(fs.readFileSync(file, "utf8"));
+      assertEquals("assistant" in onDisk, false, chatMode);
+      assertEquals(onDisk.maxTeammates, 3);
+    }
+  } finally { fs.rmSync(teamDir, { recursive: true, force: true }); }
 });
 
-test("assistant.chatMode saves, persists, applies live, and is reported by /api/status", async () => {
+test("applyTeamConfigDefaults drops chatMode without touching the raw object", () => {
+  const raw = { assistant: { chatMode: "terminal", persona: "p-1" } };
+  assertEquals(applyTeamConfigDefaults(raw).assistant, { persona: "p-1" });
+  assertEquals(raw.assistant, { chatMode: "terminal", persona: "p-1" });
+});
+
+test("/api/status no longer reports a chat mode, and PUT /api/config ignores assistant.chatMode", async () => {
   const { app, store, onDisk, cleanup } = setup();
   try {
-    let r = await putConfig(app, { assistant: { chatMode: "chat" } });
-    assertEquals(r.body.success, true);
-    assertEquals(onDisk().assistant, { chatMode: "chat" });
-    assertEquals(store.getConfig().assistant, { chatMode: "chat" });
-    assertEquals((await (await app.request("/api/status")).json()).assistantChatMode, "chat");
+    const status = await (await app.request("/api/status")).json();
+    assertEquals("assistantChatMode" in status, false);
+    assertEquals(Array.isArray(status.externalSources), true);
 
-    r = await putConfig(app, { assistant: { chatMode: "terminal" } });
-    assertEquals(r.body.success, true);
-    assertEquals(onDisk().assistant, { chatMode: "terminal" });
-    assertEquals((await (await app.request("/api/status")).json()).assistantChatMode, "terminal");
-
-    // `null` clears it back to the default, and nothing is written.
-    r = await putConfig(app, { assistant: null });
-    assertEquals(r.body.success, true);
-    assertEquals(onDisk().assistant, undefined);
-    assertEquals((await (await app.request("/api/status")).json()).assistantChatMode, "chat");
-  } finally { cleanup(); }
-});
-
-test("PUT /api/config rejects an invalid assistant.chatMode and changes nothing", async () => {
-  const { app, store, cleanup } = setup();
-  try {
-    const maxBefore = store.getConfig().maxTeammates;
-    let r = await putConfig(app, { assistant: { chatMode: "bubbles" }, maxTeammates: 9 });
-    assertEquals(r.status, 400);
-    assertStringIncludes(r.body.error ?? "", "assistant.chatMode");
-    assertEquals(store.getConfig().assistant, FULL.assistant);
-    assertEquals(store.getConfig().maxTeammates, maxBefore);
-
-    r = await putConfig(app, { assistant: "terminal" });
-    assertEquals(r.status, 400);
-    assertStringIncludes(r.body.error ?? "", "assistant");
+    // An old UI may still send it, valid or not: accepted, ignored, never written.
+    for (const assistant of [{ chatMode: "terminal" }, { chatMode: "bubbles" }, null, "terminal"]) {
+      const r = await putConfig(app, { assistant, maxTeammates: 7 });
+      assertEquals(r.body.success, true, JSON.stringify(assistant));
+      assertEquals(store.getConfig().assistant, FULL.assistant);
+      assertEquals(onDisk().assistant, FULL.assistant);
+    }
+    assertEquals(store.getConfig().maxTeammates, 7);
   } finally { cleanup(); }
 });
 

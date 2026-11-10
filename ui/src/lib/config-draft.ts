@@ -43,8 +43,8 @@ export interface ConfigData {
   defaultHarness?: string;
   /** Custom harness templates from config.json (read-only here; adds to the picker). */
   harnesses?: Record<string, { teammate: string; leader?: string }>;
-  /** How the user talks to the assistant. Unset (or unknown) chatMode = "chat". */
-  assistant?: { chatMode?: "chat" | "terminal"; persona?: string };
+  /** The assistant block; only `persona`, edited via PUT /api/assistant/persona, not this draft. */
+  assistant?: { persona?: string };
   /** One teammate per directory (exclusive directory leases). Unset = on. */
   exclusiveDirectories?: boolean;
   /** Which work-item kinds are on, defaults applied (docs/DESIGN.md "Feature Toggles"). */

@@ -187,8 +187,8 @@ re-runs whenever a heartbeat reports `dismissed`/`reregister`.
 
 Each teammate runs a `TranscriptMirror` (`src/transcript.ts`) so the web UI can
 show its session live at `/teammates/:id` (my-pizza-team docs/DESIGN.md "Watching and Pairing with a Teammate").
-The leader runs one too, for the assistant's terminal mode (`assistant.chatMode:
-"terminal"`). Both are wired by the same `attachTranscriptMirror`
+The leader runs one too, for the assistant's terminal view (the web dock at
+Full page). Both are wired by the same `attachTranscriptMirror`
 (`src/session-transcript.ts`) and take web messages through the same
 `deliverWebMessage` — the teammate from its pairing poll, the leader from its
 chat inbox (`ChatMirror.onDeliver`) — so the two views are identical by

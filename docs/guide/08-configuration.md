@@ -2,8 +2,9 @@
 
 Settings live under the **config** (gear) icon, at `/config`:
 
-- **General** — the **Work items** toggles, the **Assistant** style (see
-  [The assistant](04-assistant.md#assistant-style-chat-or-terminal)), port, the
+- **General** — the **Work items** toggles, the **Assistant**'s persona (its chat or
+  terminal look follows the dock's size — see
+  [The assistant](04-assistant.md#chat-in-the-dock-terminal-at-full-page)), port, the
   **terminal** and its session name, team size (min/max teammates), default workflow, the **readiness probe**,
   the **agent env file**, **favorite directories**, autosave (flush/commit cadence, auto-commit)
 - **Teammates** — the nouns used to name teammates, **One teammate per directory**,

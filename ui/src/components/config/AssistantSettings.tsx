@@ -1,52 +1,27 @@
 /**
- * AssistantSettings — Config → General's **Assistant** card: the chat-mode
- * radio (in the page's draft) and the assistant's persona picker (applied at
- * once via PUT /api/assistant/persona).
+ * AssistantSettings — Config → General's **Assistant** card: the assistant's
+ * persona picker (applied at once via PUT /api/assistant/persona). How the
+ * assistant looks isn't a setting: the dock's size picks it — the chat docked,
+ * the terminal at Full page (lib/assistant-mode.ts `assistantView`).
  */
 
 import { useState } from "react";
 import { useApi, apiPut } from "@/hooks/useApi";
-import type { ConfigDraftProps } from "@/lib/config-draft";
 import { PersonaPicker } from "@/components/personas/PersonaPicker";
 import { Card, CardContent } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { FormError } from "@/components/ui/form-error";
 
-// --- Assistant chat mode (docs/DESIGN.md "Assistant Chat Model") ---
-
-/**
- * The `assistant.chatMode` picker: iMessage-style bubbles (default) or the same
- * terminal transcript and composer used to watch and pair with a teammate.
- * Applies live once saved — the leader picks up the matching system prompt on
- * its next run, with no restart and no new session.
- */
-export function AssistantChatModeSetting({ config, setConfig }: ConfigDraftProps) {
-  const mode = config.assistant?.chatMode === "terminal" ? "terminal" : "chat";
-  const set = (chatMode: "chat" | "terminal") => setConfig({ ...config, assistant: { ...config.assistant, chatMode } });
+/** The Assistant card. Nothing here is in the page's config.json draft. */
+export function AssistantSettings() {
   return (
     <Card>
       <CardContent className="p-4 space-y-3">
         <h2 className="font-semibold">Assistant</h2>
         <p className="text-xs text-muted-foreground">
-          How you talk to the assistant: a chat with message bubbles, or a terminal view of its session —
-          the same view you get when you watch and pair with a teammate.
-        </p>
-        <div className="flex flex-col gap-1.5 text-sm">
-          <label className="flex items-center gap-2">
-            <input type="radio" name="assistant-chat-mode" id="assistant-chat-mode-chat"
-              checked={mode === "chat"} onChange={() => set("chat")} />
-            Chat (bubbles)
-          </label>
-          <label className="flex items-center gap-2">
-            <input type="radio" name="assistant-chat-mode" id="assistant-chat-mode-terminal"
-              checked={mode === "terminal"} onChange={() => set("terminal")} />
-            Terminal (like watching a teammate)
-          </label>
-        </div>
-        <p className="text-xs text-muted-foreground">
-          Takes effect as soon as you save: the assistant's next reply follows the new style. The current
-          conversation carries on — no restart or new chat needed.
+          In the dock the assistant is a chat with message bubbles; switch the dock to Full page for a
+          terminal view of its whole session, tool calls included.
         </p>
         <AssistantPersonaSetting />
       </CardContent>

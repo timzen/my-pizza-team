@@ -124,7 +124,7 @@ export class ChatMirror {
 
   /**
    * Refresh the cached persona from the daemon (best-effort). Called from the
-   * leader's `before_agent_start` hook so a persona or `assistant.chatMode`
+   * leader's `before_agent_start` hook so a persona
    * change shapes the very next run's system prompt (agent_start fires too late).
    */
   async refreshPersona(): Promise<void> {

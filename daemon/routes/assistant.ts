@@ -19,7 +19,6 @@
 import type { RouteContext } from "./types.ts";
 import { readBody, fail } from "./http.ts";
 import type { AssistantDelivery } from "../store/assistant-chat.ts";
-import { resolveAssistantChatMode, type AssistantChatMode } from "../../shared/types.ts";
 import { DEFAULT_ASSISTANT_PERSONA } from "../personas/builtins.ts";
 import { startLeader } from "../leader-start.ts";
 import { mptInvocation } from "../self.ts";
@@ -31,13 +30,15 @@ import { mptInvocation } from "../self.ts";
 export { DEFAULT_ASSISTANT_PERSONA };
 
 /**
- * Chat framing injected ahead of every persona (custom or default) in the
- * default `assistant.chatMode: "chat"` (terminal mode uses
- * `ASSISTANT_TERMINAL_FRAMING` instead). Chat v2
+ * Chat framing injected ahead of every persona (custom or default). Chat v2
  * shrank this dramatically: the assistant now just *talks*, and the extension
  * mirrors its prose into bubbles by splitting on blank lines. There is no
  * `send_message` tool to teach and no turn-taking rule to explain, because the
  * user really can interrupt at any time. See DESIGN.md ("Assistant chat model").
+ *
+ * One framing for both views: the same session is the bubble chat docked and
+ * the terminal at Full page, switched per browser at any moment, so replies
+ * are shaped for the chat (short paragraphs read fine in a transcript too).
  */
 export const ASSISTANT_CHAT_FRAMING = [
   "# You are in a live chat",
@@ -54,30 +55,12 @@ export const ASSISTANT_CHAT_FRAMING = [
 ].join("\n");
 
 /**
- * Framing for `assistant.chatMode: "terminal"`: the user watches the session as
- * a terminal transcript (the same view as pairing with a teammate), so there are
- * no bubbles to shape replies for — only the fact that the user may interrupt.
+ * Compose the effective system prompt: the chat framing first, then the
+ * persona (or default). Composed per request, so a persona change reaches the
+ * leader on its next run (it refetches before each run).
  */
-export const ASSISTANT_TERMINAL_FRAMING = [
-  "# You are in a live terminal session",
-  "",
-  "The user is watching this session as a terminal transcript and can send you",
-  "messages at any time, including while you are working. If a new message",
-  "arrives mid-task, acknowledge it before carrying on.",
-].join("\n");
-
-/** The framing that leads the system prompt for a chat mode (see TeamConfig.assistant). */
-export function assistantFraming(mode: AssistantChatMode): string {
-  return mode === "terminal" ? ASSISTANT_TERMINAL_FRAMING : ASSISTANT_CHAT_FRAMING;
-}
-
-/**
- * Compose the effective system prompt: the mode's framing first, then the
- * persona (or default). Composed per request from the live config, so a mode
- * switch reaches the leader on its next run (it refetches before each run).
- */
-export function composeSystemPrompt(personaBody: string | null, mode: AssistantChatMode = "chat"): string {
-  return `${assistantFraming(mode)}\n\n${personaBody ?? DEFAULT_ASSISTANT_PERSONA}`;
+export function composeSystemPrompt(personaBody: string | null): string {
+  return `${ASSISTANT_CHAT_FRAMING}\n\n${personaBody ?? DEFAULT_ASSISTANT_PERSONA}`;
 }
 
 export function registerAssistantRoutes(ctx: RouteContext): void {
@@ -307,7 +290,7 @@ export function registerAssistantRoutes(ctx: RouteContext): void {
     const entry = personaId ? store.getPersona(personaId) : null;
     const resolved = store.resolveAssistantPersona();
     const persona = store.getPersona(resolved.id)!;
-    return { personaId: entry ? personaId : null, persona, entry, systemPrompt: composeSystemPrompt(resolved.body, resolveAssistantChatMode(config)) };
+    return { personaId: entry ? personaId : null, persona, entry, systemPrompt: composeSystemPrompt(resolved.body) };
   };
 
   app.get("/api/assistant/persona", (c) => c.json(current()));

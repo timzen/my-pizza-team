@@ -12,17 +12,12 @@
  *
  * The same `/api/status` answer also carries the registered external Work
  * Sources (`externalSources`), served by `useExternalSources` from this cache,
- * so the Work tabs and the NavBar learn of them without another request — and
- * the resolved assistant chat mode (`assistantChatMode`, served by
- * `useAssistantChatMode`), which picks the assistant's chat or terminal view.
+ * so the Work tabs and the NavBar learn of them without another request.
  */
 
 import { useSyncExternalStore } from "react";
 import { resolveFeatures, type Features } from "@/lib/features";
 import type { ExternalSourceInfo } from "@/lib/work-items";
-import { resolveAssistantChatMode, type AssistantChatMode } from "@/lib/assistant-mode";
-
-export type { AssistantChatMode } from "@/lib/assistant-mode";
 
 /** Window event: the toggles changed (fired by the Config page after a save). */
 const FEATURES_CHANGED_EVENT = "mpt:features-changed";
@@ -31,7 +26,6 @@ const POLL_MS = 30_000;
 
 let current: Features | null = null;
 let currentSources: ExternalSourceInfo[] | null = null;
-let currentChatMode: AssistantChatMode | null = null;
 const listeners = new Set<() => void>();
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -40,19 +34,15 @@ async function load(): Promise<void> {
     const res = await fetch("/api/status");
     if (!res.ok) return;
     const body = await res.json() as {
-      features?: Record<string, unknown>; externalSources?: ExternalSourceInfo[]; assistantChatMode?: unknown;
+      features?: Record<string, unknown>; externalSources?: ExternalSourceInfo[];
     };
     const next = resolveFeatures(body.features);
     // A daemon too old to report sources has none.
     const nextSources = Array.isArray(body.externalSources) ? body.externalSources : [];
-    // A daemon too old to report the mode (or an unknown value) means the default.
-    const nextChatMode = resolveAssistantChatMode(body.assistantChatMode);
     // Only notify on a real change, so subscribers don't re-render every poll.
-    if (current && sameFeatures(current, next) && currentSources && sameSources(currentSources, nextSources)
-      && currentChatMode === nextChatMode) return;
+    if (current && sameFeatures(current, next) && currentSources && sameSources(currentSources, nextSources)) return;
     current = next;
     currentSources = nextSources;
-    currentChatMode = nextChatMode;
     for (const l of listeners) l();
   } catch { /* offline: keep the last known toggles */ }
 }
@@ -93,11 +83,6 @@ export function useFeatures(): Features | null {
 /** The registered external Work Sources, or null until the first `/api/status` answer. */
 export function useExternalSources(): ExternalSourceInfo[] | null {
   return useSyncExternalStore(subscribe, () => currentSources, () => null);
-}
-
-/** The assistant chat mode ("chat" | "terminal"), or null until the first `/api/status` answer. */
-export function useAssistantChatMode(): AssistantChatMode | null {
-  return useSyncExternalStore(subscribe, () => currentChatMode, () => null);
 }
 
 /** Tell every `useFeatures` consumer to refetch (call after saving the config). */

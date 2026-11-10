@@ -287,7 +287,7 @@ export async function setupLeader(
   );
   pi.on("session_shutdown", async () => { disposeAuthorizer(); });
 
-  // Persona: the daemon vends the chat-mode framing (assistant.chatMode) + the
+  // Persona: the daemon vends the chat framing + the
   // selected persona (or its default), injected as the system prompt on every
   // run. Refetched here, before the prompt is built, so a Config change applies
   // to the next run with no restart or session reset.
@@ -402,11 +402,11 @@ export async function setupLeader(
     }
   };
 
-  // ─── Live transcript (the assistant's terminal mode) ──────────────
+  // ─── Live transcript (the assistant's terminal view) ──────────────
   // Exactly a teammate's watch view: the same mirror, wired by the same function
-  // (session-transcript.ts), streaming only while the dock's terminal view is
-  // open (assistant.chatMode: "terminal"). It runs in both modes — unwatched it
-  // costs nothing — so switching modes needs no restart. Inbox messages are
+  // (session-transcript.ts), streaming whenever the dock's terminal view (Full
+  // page) is watching. It is always attached — unwatched it costs nothing — so
+  // toggling Full page needs no restart. Inbox messages are
   // handed to Pi through the same delivery as a teammate's web pairing, so they
   // are tagged `web` and keep the composer's queue/steer choice.
   const { TranscriptMirror } = await import("./runtime/transcript.js");

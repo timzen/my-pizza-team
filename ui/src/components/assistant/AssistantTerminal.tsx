@@ -1,5 +1,6 @@
 /**
- * AssistantTerminal — The assistant in `assistant.chatMode: "terminal"`.
+ * AssistantTerminal — The assistant at Full page (the dock filling the center;
+ * docked it is the bubble chat — lib/assistant-mode.ts `assistantView`).
  *
  * Exactly the teammate watch/pair view (docs/DESIGN.md "Assistant Chat Model",
  * "Watching and Pairing with a Teammate"): `useTranscriptStream` + the shared

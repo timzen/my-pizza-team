@@ -1376,8 +1376,8 @@ a non-goal (TODO.md).
 **`assistant.persona` replaces the `assistant_persona` setting.** That setting
 lives in SQLite `settings`, which is runtime state: never committed, invisible in
 the team's git history, lost with `state.db`, and different on every clone of a
-team. Who the assistant is, is team configuration like `assistant.chatMode`, so it
-moves to config.json beside it. `PUT /api/assistant/persona` is **kept**, because
+team. Who the assistant is, is team configuration, so it moves to config.json's
+`assistant` block. `PUT /api/assistant/persona` is **kept**, because
 it is an *action*, not just a setting: it validates the id, writes
 `assistant.persona`, and ends the current chat session ("Nothing is destroyed;
 sessions are the unit of history"). Its body is unchanged (`{ personaId }`); only
@@ -1492,9 +1492,9 @@ Every body goes through `normalizeInstructionMarkdown(body, 3)` as today.
 Additional Context, so a migrated task's prompt carried the same words.
 
 **Chat framing stays system-level** ("Assistant Chat Model" point 7): the
-`ASSISTANT_CHAT_FRAMING` / `ASSISTANT_TERMINAL_FRAMING` prefix is the daemon's,
-chosen by `assistant.chatMode`, and is never part of a persona — so any persona
-works in either mode and a persona author never writes delivery mechanics.
+`ASSISTANT_CHAT_FRAMING` prefix is the daemon's and is never part of a persona —
+so any persona works in either view and a persona author never writes delivery
+mechanics.
 
 ### The in-flight persona: a snapshot on the WorkItem
 
@@ -2286,23 +2286,26 @@ resume an old conversation with its context intact.
    recorded Pi session file; a session with no recorded file is readable but not
    restorable.
 7. **Chat behavior is system-level, not per-persona.** The system prompt is always
-   the mode's framing — in chat mode `ASSISTANT_CHAT_FRAMING` (be brief, blank lines separate bubbles, the user may
+   `ASSISTANT_CHAT_FRAMING` (be brief, blank lines separate bubbles, the user may
    interrupt) followed by the persona body or `DEFAULT_ASSISTANT_PERSONA`. Personas
    are about voice and role, never delivery mechanics.
-8. **The UI is a toggle; the framing follows it.** `assistant.chatMode` in
-   config.json picks how the user sees the assistant: `chat` (the bubbles above,
-   the default — missing or invalid reads as `chat`, so no existing team changes)
-   or `terminal`, which is *exactly* the teammate watch/pair experience (see
-   "Watching and Pairing with a Teammate") through one shared code path — not an
-   assistant-only lookalike. Bubble instructions would be noise in a transcript,
-   so terminal mode swaps `ASSISTANT_CHAT_FRAMING` for the short
-   `ASSISTANT_TERMINAL_FRAMING` (the user may interrupt; nothing about bubbles).
-   The switch is live: the daemon composes the prompt from config per request
-   and the leader refetches it in `before_agent_start`, so the next run uses the
-   new framing with no restart or session reset — the conversation is the same
-   Pi session either way; only how it is shown changes. The UI reads the mode
-   from `/api/status` (refetched the moment Config saves).
-9. **Terminal mode is the teammate pipeline, not a copy of it.** The leader wires
+8. **Docked is the chat, full page is the terminal.** The dock's size picks how
+   the user sees the assistant (ui/src/lib/assistant-mode.ts `assistantView`):
+   docked — a side column, the Bottom panel, the floating panel below `lg`, the
+   phone — it's the bubble chat above, the minimal view; at **Full page**
+   (`dockFillsCenter`) it's the terminal, which is *exactly* the teammate
+   watch/pair experience (see "Watching and Pairing with a Teammate") through one
+   shared code path — not an assistant-only lookalike — opening with the session
+   so far, tool calls and thinking included: the maximal view. One control
+   instead of two: the team-wide `assistant.chatMode` setting that used to pick
+   the view separately was removed, and with it the mixed combinations (a
+   terminal squeezed into a column, bubbles stretched across the page). An old
+   config.json that still has it loads cleanly; `applyTeamConfigDefaults` drops
+   the key, so the next save leaves it out. Since one session is now seen both
+   ways, switched per browser at any moment, there's one framing — the chat's
+   (short paragraphs read fine in a transcript); the terminal-only framing went
+   with the setting.
+9. **Terminal view is the teammate pipeline, not a copy of it.** The leader wires
    its session with the same `attachTranscriptMirror` a teammate uses
    (harnesses/pi/src/session-transcript.ts), the daemon stores and streams it
    through the same transcript store and routes keyed by agent id, and the dock
@@ -2310,15 +2313,16 @@ resume an old conversation with its context intact.
    teammate's page — so entry kinds, clipping, collapse, watch semantics (only
    while watched, opening with a backfill of the current session) and live
    streaming are the same by construction;
-   a difference is a bug. The leader's mirror runs in both modes (unwatched it
-   costs nothing), which is why switching needs no restart. **The one
+   a difference is a bug. The leader's mirror is always attached and streams
+   whenever the terminal view is watching (unwatched it costs nothing), which is
+   why toggling Full page needs no restart. **The one
    deliberate difference is input.** A teammate's composer opens only after
    *Pair*, because pairing pauses its work loop and release settles its held
    work item; the leader has neither, so its composer is always open and
    `POST /api/agents/<leader>/messages` skips pairing. Its messages go to the
    assistant inbox — how the leader receives every chat message, so the
    conversation record, receipts, and session history stay whole whichever
-   mode you use — carrying the composer's `queue`/`steer` mode, and the leader
+   view you use — carrying the composer's `queue`/`steer` mode, and the leader
    hands them to Pi with the same `deliverWebMessage` a paired teammate uses
    (tagged `web`; queue → followUp, steer → steer mid-run). Chat-composer
    messages carry no mode and are steered, as before. Reading an *earlier*
@@ -2852,7 +2856,7 @@ older harness sends none and its view keeps the "watching from …" marker. Only
 current session is backfilled; an earlier one is the work item's thread (or, for
 the assistant, the chat record).
 
-The assistant's terminal mode (`assistant.chatMode: "terminal"`) is this very
+The assistant's terminal view (the dock at Full page) is this very
 view pointed at the leader — see "Assistant Chat Model" item 9 for the one
 input difference (no Pair step: the leader has no work loop to pause).
 

@@ -63,9 +63,10 @@
  * SideDockProvider's). Unlike the other two it mounts only while shown: it
  * holds no live data and no half-typed text.
  *
- * The Assistant tab is `AssistantPane`: the bubble chat, or — in
- * `assistant.chatMode: "terminal"` — the teammate watch/pair view pointed at the
- * leader (docs/DESIGN.md "Assistant Chat Model"), switching live with Config.
+ * The Assistant tab is `AssistantPane`, and the dock's size picks its view
+ * (docs/DESIGN.md "Assistant Chat Model"): docked it's the bubble chat; at
+ * Full page it's the terminal — the teammate watch/pair view pointed at the
+ * leader, the session so far included. Toggling Full page switches it live.
  *
  * The guided tour (lib/tour.ts) points at the dock's column or rail, or — below
  * `lg` — at the floating button (its `nav` has no box of its own there):
@@ -225,7 +226,7 @@ export function SideDock() {
     <div className="min-h-0 flex-1">
       <div className={tab === "assistant" ? "h-full" : "hidden"}>
         {/* A full-width Bottom panel would stretch a line across the screen. */}
-        <AssistantPane stream={stream} viewingId={viewingId} onViewSession={setViewingId} readable={isDesktop && onBottom && !full} />
+        <AssistantPane stream={stream} viewingId={viewingId} onViewSession={setViewingId} readable={isDesktop && onBottom && !full} fullPage={full} />
       </div>
       <div className={tab === "team" ? "h-full" : "hidden"}>
         <TeamPanel team={team} onSpawn={() => setSpawnOpen(true)} />

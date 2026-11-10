@@ -363,10 +363,11 @@ most of it is editable on the **Config** page. Minimal:
   "favoriteDirectories": ["/path/to/project"],
 
   // ─── Assistant ─────────────────────────────────────────────────
-  // How you talk to the assistant: "chat" (default, iMessage-style bubbles) or
-  // "terminal" (the same transcript view as watching/pairing with a teammate).
-  // Config → General; applies live from the assistant's next reply.
-  "assistant": { "chatMode": "chat" },
+  // The assistant's persona id (unset = builtin:assistant); set from Config →
+  // General or the chat's persona chips. Its chat or terminal look isn't
+  // configured: the dock's size picks it. A retired "chatMode" key here is
+  // ignored and dropped on the next save.
+  "assistant": { "persona": "builtin:assistant" },
 
   // ─── Work distribution ─────────────────────────────────────────
   // One teammate per directory (default true): overlapping work waits its turn.
@@ -644,6 +645,9 @@ phone, the chat is a tab of the [phone view](#phone-view).
   never split); markdown is rendered; any bubble can be expanded or copied.
 - **Reply to a bubble** — the quote travels with your message.
 - **Peek at its thinking** — click the `…`. Ephemeral: never saved.
+- **Chat docked, terminal at full page.** Docked, the assistant is the bubble chat;
+  at **Full page** it's the terminal view of its session (tool calls included), the
+  same view as watching a teammate. No setting: the size decides.
 - **Terminal parity.** Type in the assistant's tmux window and it appears in the web
   chat (with a terminal glyph), and vice versa.
 - **Personas.** Any persona can be the assistant (`assistant.persona`; unset is

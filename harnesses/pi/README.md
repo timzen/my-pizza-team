@@ -196,8 +196,8 @@ watch-only until you click **Pair**: that pauses the teammate's autonomous
 loop (like typing in its window, but permissions stay autonomous — nobody is at
 its terminal) and opens a message box. Messages queue behind the current run
 unless you **steer**; **Resume / Complete / Fail** hand it back, applied after
-any run in flight. The assistant's terminal mode (`assistant.chatMode:
-"terminal"`) is this same view of the leader — wired by the same
+any run in flight. The assistant's terminal view (the web dock at Full
+page) is this same view of the leader — wired by the same
 `attachTranscriptMirror` (`src/session-transcript.ts`), with an always-open
 composer whose messages reach the leader through its chat inbox. See
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#transcript-mirror-teammates-the-web-uis-watch-view).

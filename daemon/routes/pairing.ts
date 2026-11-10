@@ -13,8 +13,8 @@
  * Only teammates can be paired: the leader is the chat agent, and you talk to it
  * in the left dock.
  *
- * One exception, for the assistant's terminal mode (`assistant.chatMode:
- * "terminal"`, docs/DESIGN.md "Assistant Chat Model"): the dock renders the same
+ * One exception, for the assistant's terminal view (the dock at Full page,
+ * docs/DESIGN.md "Assistant Chat Model"): the dock renders the same
  * transcript and `PairComposer` as a teammate's page, pointed at the leader, so
  * `POST /api/agents/<leader>/messages` is accepted too. There is no pair/release
  * step for the leader — those exist to pause a work loop and settle a held work

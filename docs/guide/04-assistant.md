@@ -37,18 +37,20 @@ shows *"This team already has a leader (another Pi is connected). This Pi stays
 inactive."* and does nothing else, so the chat isn't answered twice; `/ppt-help` in it
 explains why. Once the assistant exits or goes offline, a newly started Pi takes over.
 
-## Assistant style: chat or terminal
+## Chat in the dock, terminal at full page
 
-**Config → General → Assistant** picks how you talk to the assistant. **Chat
-(bubbles)**, the default, is the iMessage-style chat: short replies, one bubble per
-paragraph. **Terminal** shows the assistant's session the way a teammate's page does
-when you [watch and pair with it](03-teammates.md#pairing-with-a-teammate) — a
-terminal-style transcript and the same composer. The assistant's reply style follows
-the choice (no bubble-shaped answers in terminal mode). It applies as soon as you
-save, from the assistant's next reply: no restart, and the current conversation
-carries on.
+The dock's size decides how the assistant looks. Docked (beside the page or across
+the bottom), and on a phone or a narrow window, it's the iMessage-style **chat**:
+short replies, one bubble per paragraph. Switch the dock to
+[**Full page**](10-tips.md#getting-around) and it becomes the **terminal**: the
+assistant's session the way a teammate's page shows it when you
+[watch and pair with it](03-teammates.md#pairing-with-a-teammate), a terminal-style
+transcript with every tool call, and the same composer. **Restore** brings the chat
+back. It's the same conversation either way, and there's no setting for it. (The old
+**Config → General → Assistant** chat/terminal choice is gone; a config.json that
+still has `assistant.chatMode` loads fine and the field is ignored.)
 
-In terminal mode the composer is always open — there's no **Pair** step, since the
+In the terminal the composer is always open — there's no **Pair** step, since the
 assistant has no queue of work to pause. As with a paired teammate, **Enter** queues
 your message after the current run and **⌘/Ctrl+Enter** steers it in at the next
 step. Like a teammate's page, the view opens with the current session so far —

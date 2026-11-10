@@ -1,18 +1,19 @@
 /**
  * lib/assistant-mode.ts — Which UI the assistant (the leader) gets.
  *
- * `assistant.chatMode` (TeamConfig, docs/DESIGN.md "Assistant Chat Model"):
- * `chat` is the iMessage-style bubble chat (the default); `terminal` is exactly
- * the teammate watch/pair view (TranscriptView + PairComposer via AgentTerminal),
- * pointed at the leader. Pure functions so the choice is testable without React.
- * `resolveAssistantChatMode` here reads the mode `/api/status` reports and applies
- * the same default as shared/types.ts's (tests keep them in step).
+ * The dock's size decides it (docs/DESIGN.md "Assistant Chat Model"): docked —
+ * a side column, the Bottom panel, the floating panel below `lg`, the phone —
+ * is the iMessage-style bubble **chat** (the minimal view); **Full page**
+ * (lib/dock-layout.ts `dockFillsCenter`) is the **terminal**, exactly the
+ * teammate watch/pair view (TranscriptView + PairComposer via AgentTerminal)
+ * pointed at the leader, with the session so far backfilled — tool calls and
+ * all (the maximal view). There is no setting and no per-view override; the
+ * team-wide `assistant.chatMode` that used to pick it is gone. Pure functions
+ * so the choice is testable without React.
  */
 
-import type { AssistantChatMode } from "@shared/types";
-
-/** The assistant's UI (TeamConfig.assistant.chatMode, default applied). */
-export type { AssistantChatMode };
+/** The assistant pane's two views. */
+export type AssistantView = "chat" | "terminal";
 
 /**
  * The leader's member id when no leader is online. It always registers as
@@ -21,21 +22,17 @@ export type { AssistantChatMode };
  */
 export const DEFAULT_LEADER_ID = "leader";
 
-/** A reported mode with the default applied: anything but "terminal" (or a too-old daemon's nothing) is chat. */
-export function resolveAssistantChatMode(raw: unknown): AssistantChatMode {
-  return raw === "terminal" ? "terminal" : "chat";
-}
-
 /**
- * What the assistant pane shows. Terminal mode shows the live session only —
- * the current session so far (the leader backfills it when the view opens),
- * then live. Reading an earlier session (`viewingId`) is the chat record — the
- * transcript only ever backfills the session the leader is in — so history
- * always renders as the chat. Before the first status answer (`mode` null)
- * it's the default, chat.
+ * What the assistant pane shows: the terminal when the dock fills the page
+ * (`fullPage`, i.e. `dockFillsCenter(...)` — never below `lg`), else the chat.
+ * The terminal shows the live session only — the current session so far (the
+ * leader backfills it when the view opens), then live. Reading an earlier
+ * session (`viewingId`) is the chat record — the transcript only ever
+ * backfills the session the leader is in — so history always renders as the
+ * chat, even at full page.
  */
-export function assistantView(mode: AssistantChatMode | null, viewingId: string | null): AssistantChatMode {
-  return mode === "terminal" && viewingId === null ? "terminal" : "chat";
+export function assistantView(fullPage: boolean, viewingId: string | null): AssistantView {
+  return fullPage && viewingId === null ? "terminal" : "chat";
 }
 
 /** The agent id the terminal view watches and messages: the online leader, else the default id. */

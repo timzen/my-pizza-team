@@ -30,7 +30,9 @@ choice, the dock's width and height, and whether it's collapsed are remembered i
 browser.
 
 **Full page dock.** For a long chat or a big team, the **Full page** button in the
-dock's header lets the dock fill the whole area below the nav bar. The page you were
+dock's header lets the dock fill the whole area below the nav bar. The Assistant tab
+turns into the terminal view of the assistant's session, tool calls included; docked
+it's the chat ([Assistant](04-assistant.md#chat-in-the-dock-terminal-at-full-page)). The page you were
 on is still there, just hidden. **Restore** (the same button), **Esc** in the dock, or
 going to any page (a nav link, a teammate) puts the dock back beside the page.
 

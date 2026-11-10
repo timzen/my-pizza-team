@@ -168,9 +168,9 @@ export interface TeamConfig {
    */
   features?: FeaturesConfig;
   /**
-   * How the user talks to the assistant (the leader). Read it through
-   * `resolveAssistantChatMode`, never directly. See docs/DESIGN.md
-   * "Assistant Chat Model" and "Watching and Pairing with a Teammate".
+   * Assistant (leader) settings: its persona. How the assistant is shown isn't
+   * configured — the dock's size picks chat or terminal (docs/DESIGN.md
+   * "Assistant Chat Model").
    */
   assistant?: AssistantConfig;
   /**
@@ -187,40 +187,14 @@ export interface SourcePersonaSetting {
   triagePersona?: string;
 }
 
-/**
- * The assistant's UI. `chat` (the default) is the iMessage-style bubble chat;
- * `terminal` is the same transcript view and composer used to watch and pair
- * with a teammate.
- */
-export type AssistantChatMode = "chat" | "terminal";
-
-/** Every assistant chat mode, default first. */
-export const ASSISTANT_CHAT_MODES: readonly AssistantChatMode[] = ["chat", "terminal"];
-
 /** The `assistant` block of TeamConfig. */
 export interface AssistantConfig {
-  /** Missing (or anything unrecognized) means `chat`, so existing teams see no change. */
-  chatMode?: AssistantChatMode;
   /**
    * The assistant's persona id (docs/DESIGN.md "Personas"); unset means
    * `builtin:assistant`. Written by `PUT /api/assistant/persona`, which also ends
    * the current chat session.
    */
   persona?: string;
-}
-
-/** Is `value` a valid `AssistantChatMode`? Used to validate `PUT /api/config`. */
-export function isAssistantChatMode(value: unknown): value is AssistantChatMode {
-  return typeof value === "string" && (ASSISTANT_CHAT_MODES as readonly string[]).includes(value);
-}
-
-/**
- * The assistant chat mode with the default applied: a missing block, a missing
- * mode, or an invalid (hand-edited) value is `chat`.
- */
-export function resolveAssistantChatMode(config: Pick<TeamConfig, "assistant">): AssistantChatMode {
-  const mode = config.assistant?.chatMode;
-  return isAssistantChatMode(mode) ? mode : "chat";
 }
 
 /**

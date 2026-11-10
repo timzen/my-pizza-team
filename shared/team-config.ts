@@ -52,12 +52,28 @@ export function readTeamConfigFile(teamDir: string): Record<string, unknown> | u
  */
 export function applyTeamConfigDefaults(raw: Record<string, unknown>): TeamConfig {
   const user = raw as Partial<TeamConfig>;
-  return {
+  const config: TeamConfig = {
     ...DEFAULT_CONFIG,
     ...user,
     autosave: { ...DEFAULT_CONFIG.autosave, ...(user.autosave || {}) },
     teammates: { ...DEFAULT_CONFIG.teammates, ...(user.teammates || {}) },
   };
+  dropRetiredAssistantKeys(config);
+  return config;
+}
+
+/**
+ * Drop `assistant.chatMode`, retired when the dock's size took over picking
+ * the assistant's chat or terminal view (docs/DESIGN.md "Assistant Chat
+ * Model"). An old config.json that still has it loads as if it didn't, and
+ * the next save leaves it out (an `assistant` block left empty is omitted).
+ * Copies the block rather than editing it, so the raw object is untouched.
+ */
+function dropRetiredAssistantKeys(config: TeamConfig): void {
+  const assistant = config.assistant as Record<string, unknown> | undefined;
+  if (!assistant || typeof assistant !== "object" || !("chatMode" in assistant)) return;
+  const { chatMode: _retired, ...rest } = assistant;
+  config.assistant = rest;
 }
 
 /**

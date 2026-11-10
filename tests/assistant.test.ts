@@ -13,7 +13,7 @@ import { test } from "node:test";
 import { assertEquals, assertExists, assertStringIncludes } from "./_assert.ts";
 import { makeTeam, withTeam, post, put } from "./_team.ts";
 import {
-  ASSISTANT_CHAT_FRAMING, ASSISTANT_TERMINAL_FRAMING, assistantFraming, composeSystemPrompt,
+  ASSISTANT_CHAT_FRAMING, DEFAULT_ASSISTANT_PERSONA, composeSystemPrompt,
 } from "../daemon/routes/assistant.ts";
 import { ASSISTANT_DIR, ASSISTANT_SESSIONS_DIR } from "../shared/types.ts";
 import * as path from "node:path";
@@ -312,53 +312,27 @@ test("persona: defaults to none, can be set and cleared", async () => {
   });
 });
 
-test("persona: the framing follows assistant.chatMode (chat default, terminal on request)", async () => {
-  // Default (no `assistant` block): the iMessage-style chat framing.
-  let env = makeTeam();
-  try {
-    const body = await (await env.app.request("/api/assistant/persona")).json();
-    assertStringIncludes(body.systemPrompt, "You are in a live chat");
-  } finally { env.cleanup(); }
-
-  // Terminal mode: no bubble instructions, the terminal framing instead.
-  env = makeTeam({ assistant: { chatMode: "terminal" } });
-  try {
-    let body = await (await env.app.request("/api/assistant/persona")).json();
-    assertStringIncludes(body.systemPrompt, "live terminal session");
-    assertStringIncludes(body.systemPrompt, "team assistant");
-    assertEquals(body.systemPrompt.includes("You are in a live chat"), false);
-    assertEquals(body.systemPrompt.includes("bubble"), false);
-
-    // A persona swap in terminal mode keeps the terminal framing.
-    const id = (await (await post(env.app, "/api/personas", { title: "Pizzaiolo", content: "You are a gruff pizzaiolo." })).json()).persona.id;
-    body = await (await put(env.app, "/api/assistant/persona", { personaId: id })).json();
-    assertStringIncludes(body.systemPrompt, "live terminal session");
-    assertStringIncludes(body.systemPrompt, "gruff pizzaiolo");
-  } finally { env.cleanup(); }
-
-  // An invalid hand-edited mode falls back to chat.
-  env = makeTeam({ assistant: { chatMode: "bogus" as never } });
-  try {
-    const body = await (await env.app.request("/api/assistant/persona")).json();
-    assertStringIncludes(body.systemPrompt, "You are in a live chat");
-  } finally { env.cleanup(); }
-});
-
-test("persona: a chatMode change via PUT /api/config applies to the next fetch (no restart)", async () => {
+test("persona: one chat framing, whatever the persona (the view is the dock's size, not a setting)", async () => {
   await withTeam({}, async ({ app }) => {
-    const current = await (await app.request("/api/config")).json();
-    const res = await put(app, "/api/config", { ...current, assistant: { chatMode: "terminal" } });
-    assertEquals((await res.json()).success, true);
-    const body = await (await app.request("/api/assistant/persona")).json();
-    assertStringIncludes(body.systemPrompt, "live terminal session");
+    let body = await (await app.request("/api/assistant/persona")).json();
+    assertStringIncludes(body.systemPrompt, ASSISTANT_CHAT_FRAMING);
+    const id = (await (await post(app, "/api/personas", { title: "Pizzaiolo", content: "You are a gruff pizzaiolo." })).json()).persona.id;
+    body = await (await put(app, "/api/assistant/persona", { personaId: id })).json();
+    assertEquals(body.systemPrompt.startsWith(ASSISTANT_CHAT_FRAMING), true);
+    assertStringIncludes(body.systemPrompt, "gruff pizzaiolo");
   });
+  // A team whose config still says terminal (the retired assistant.chatMode) gets the same framing.
+  const env = makeTeam({ assistant: { chatMode: "terminal" } as never });
+  try {
+    const body = await (await env.app.request("/api/assistant/persona")).json();
+    assertStringIncludes(body.systemPrompt, ASSISTANT_CHAT_FRAMING);
+  } finally { env.cleanup(); }
 });
 
-test("assistantFraming selects the framing by mode", () => {
-  assertEquals(assistantFraming("chat"), ASSISTANT_CHAT_FRAMING);
-  assertEquals(assistantFraming("terminal"), ASSISTANT_TERMINAL_FRAMING);
-  assertStringIncludes(composeSystemPrompt("P", "terminal"), ASSISTANT_TERMINAL_FRAMING);
+test("composeSystemPrompt: the chat framing, then the persona (or the default)", () => {
+  assertEquals(composeSystemPrompt("P"), `${ASSISTANT_CHAT_FRAMING}\n\nP`);
   assertStringIncludes(composeSystemPrompt(null), ASSISTANT_CHAT_FRAMING);
+  assertStringIncludes(composeSystemPrompt(null), DEFAULT_ASSISTANT_PERSONA);
 });
 
 test("persona swap ends the session (snapshotted) instead of wiping the chat", async () => {

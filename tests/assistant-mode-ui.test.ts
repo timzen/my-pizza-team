@@ -2,35 +2,36 @@
  * tests/assistant-mode-ui.test.ts — The assistant's chat/terminal switch in the
  * UI (ui/src/lib/assistant-mode.ts, docs/DESIGN.md "Assistant Chat Model").
  *
- * The rule under test: terminal mode is *exactly* the teammate watch/pair view —
- * one shared component (AgentTerminal), not an assistant-only lookalike — and
- * the dock and phone pick it from the live mode, so a switch needs no reload.
+ * The rules under test: the dock's size picks the view — docked is the chat,
+ * Full page is the terminal — and the terminal is *exactly* the teammate
+ * watch/pair view (one shared component, AgentTerminal, not an assistant-only
+ * lookalike). The retired `assistant.chatMode` setting is gone from the UI.
  */
 
 import * as fs from "node:fs";
 import { test } from "node:test";
 import { assertEquals } from "./_assert.ts";
-import {
-  assistantTerminalTarget, assistantView, DEFAULT_LEADER_ID, resolveAssistantChatMode,
-} from "../ui/src/lib/assistant-mode.ts";
-import { resolveAssistantChatMode as sharedResolve } from "../shared/types.ts";
+import { assistantTerminalTarget, assistantView, DEFAULT_LEADER_ID } from "../ui/src/lib/assistant-mode.ts";
+import { dockFillsCenter } from "../ui/src/lib/dock-layout.ts";
 import { LEADER_MEMBER_NAME } from "../daemon/store.ts";
 
 const read = (p: string) => fs.readFileSync(new URL(`../ui/src/${p}`, import.meta.url), "utf-8");
 
-test("the UI resolves the reported mode exactly as the daemon does", () => {
-  for (const raw of [undefined, null, "chat", "terminal", "bogus", 3]) {
-    assertEquals(resolveAssistantChatMode(raw), sharedResolve({ assistant: { chatMode: raw as never } }), String(raw));
-  }
+test("assistantView: the terminal at full page on the live session, else the chat", () => {
+  assertEquals(assistantView(true, null), "terminal");
+  assertEquals(assistantView(false, null), "chat");
+  // An earlier session is the chat record, even at full page (a transcript backfills only the current one).
+  assertEquals(assistantView(true, "sess-1"), "chat");
+  assertEquals(assistantView(false, "sess-1"), "chat");
 });
 
-test("assistantView: terminal only in terminal mode, on the live session", () => {
-  assertEquals(assistantView("terminal", null), "terminal");
-  assertEquals(assistantView("chat", null), "chat");
-  // Before the first /api/status answer: the default.
-  assertEquals(assistantView(null, null), "chat");
-  // An earlier session is the chat record (a transcript backfills only the current one).
-  assertEquals(assistantView("terminal", "sess-1"), "chat");
+test("assistantView over the dock's modes: only lg+ Full page is the terminal", () => {
+  for (const mode of ["expanded", "collapsed", "full"] as const) {
+    for (const isDesktop of [true, false]) {
+      const want = mode === "full" && isDesktop ? "terminal" : "chat";
+      assertEquals(assistantView(dockFillsCenter(mode, isDesktop), null), want, `${mode} desktop=${isDesktop}`);
+    }
+  }
 });
 
 test("the terminal watches the online leader, else the id the leader registers with", () => {
@@ -39,16 +40,21 @@ test("the terminal watches the online leader, else the id the leader registers w
   assertEquals(DEFAULT_LEADER_ID, LEADER_MEMBER_NAME);
 });
 
-test("dock and phone render the pane that switches on the live mode", () => {
+test("the dock passes its full-page state; the phone never does; nothing reads a chat mode", () => {
   for (const f of ["components/dock/SideDock.tsx", "mobile/MobileChat.tsx"]) {
     const src = read(f);
     assertEquals(src.includes("<AssistantPane "), true, f);
     assertEquals(src.includes("<AssistantChat "), false, f);
   }
+  assertEquals(/<AssistantPane [^>]*fullPage=\{full\}/.test(read("components/dock/SideDock.tsx")), true);
+  assertEquals(read("mobile/MobileChat.tsx").includes("fullPage"), false);
   const pane = read("components/assistant/AssistantPane.tsx");
-  assertEquals(pane.includes("useAssistantChatMode()"), true);
+  assertEquals(pane.includes("assistantView(fullPage, viewingId)"), true);
   assertEquals(pane.includes("<AssistantTerminal "), true);
   assertEquals(pane.includes("<AssistantChat "), true);
+  for (const f of ["hooks/useFeatures.ts", "components/config/AssistantSettings.tsx", "components/config/GeneralTab.tsx", "lib/config-draft.ts", "components/assistant/AssistantPane.tsx"]) {
+    assertEquals(/chatMode|ChatMode/.test(read(f)), false, f);
+  }
 });
 
 test("one code path: the assistant terminal and the teammate page share AgentTerminal + useTranscriptStream", () => {

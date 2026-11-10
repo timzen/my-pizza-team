@@ -2,9 +2,9 @@
  * MobileChat — The phone view's **Chat** tab (`/m/chat`): the conversation with
  * the leader.
  *
- * The desktop dock's `AssistantPane` as is — the bubble chat, or the terminal
- * view in `assistant.chatMode: "terminal"`; both were built for a 300–560px
- * column, so they already fit a phone — under a row with who's answering and the
+ * The desktop dock's `AssistantPane` as is — always the bubble chat (the
+ * terminal is the desktop's Full page view), built for a 300–560px column, so
+ * it already fits a phone — under a row with who's answering and the
  * session menu (the dock's tab row carries those on the desktop). The stream is
  * the shell's, so the unread badge stays live on the other tabs.
  */

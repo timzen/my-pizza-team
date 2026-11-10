@@ -12,7 +12,7 @@
  */
 
 import type {
-  AssistantChatMode, Comment, FeaturesConfig, Member, MemberSessionStats, Persona, PersonaKind, PersonaRef, PersonaUsage, ThreadEntry, Thought, ThoughtGroup,
+  Comment, FeaturesConfig, Member, MemberSessionStats, Persona, PersonaKind, PersonaRef, PersonaUsage, ThreadEntry, Thought, ThoughtGroup,
   TriageBadge, TriageOutcome, TriageProposalState, TriageSkipReason, WorkflowConfig, WorkItemState,
 } from "./types.ts";
 import type {
@@ -75,8 +75,6 @@ export interface StatusResponse extends AgentStatusResponse<WorkflowConfig> {
   features: Required<FeaturesConfig> & Record<string, boolean>;
   /** The registered external (pull-only) Work Sources — one read-only Work tab each. */
   externalSources: ExternalSourceView[];
-  /** How the UI renders the assistant, default applied (`resolveAssistantChatMode`). */
-  assistantChatMode: AssistantChatMode;
   /**
    * One-line, dismissable notices (`DELETE /api/notices/:id`) — today only the
    * "the context library was removed" line 0.34–0.36's persona migration left,

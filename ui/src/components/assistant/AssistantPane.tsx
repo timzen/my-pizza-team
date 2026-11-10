@@ -1,12 +1,12 @@
 /**
  * AssistantPane — The assistant's body in the dock and on the phone: the bubble
- * chat or the terminal, per `assistant.chatMode` (docs/DESIGN.md "Assistant Chat
- * Model"; the choice is lib/assistant-mode.ts `assistantView`).
+ * chat when docked, the terminal when the dock fills the page (`fullPage`, from
+ * SideDock's `dockFillsCenter`; docs/DESIGN.md "Assistant Chat Model"; the
+ * choice is lib/assistant-mode.ts `assistantView`). The phone never passes
+ * `fullPage`, so it is always the chat.
  *
- * The mode is read live from `/api/status` (useAssistantChatMode), refreshed
- * the moment Config saves, so a switch takes effect without a reload or a
- * daemon restart. The chat stream stays owned by the host either way, so the
- * unread badge and the leader's presence dot keep working in terminal mode.
+ * The chat stream stays owned by the host either way, so the unread badge and
+ * the leader's presence dot keep working while the terminal is showing.
  *
  * `readable` (the dock at the Bottom, a full-width panel) caps the bubble chat's
  * bubbles and composer at a readable width, centered; the terminal keeps the
@@ -24,7 +24,6 @@
 import { AssistantChat } from "./AssistantChat";
 import { AssistantTerminal } from "./AssistantTerminal";
 import { StartAssistant } from "./StartAssistant";
-import { useAssistantChatMode } from "@/hooks/useFeatures";
 import { assistantTerminalTarget, assistantView } from "@/lib/assistant-mode";
 import type { AssistantStreamState } from "@/hooks/useAssistantStream";
 import { CHAT_PANE_ATTR } from "@/hooks/useStartChat";
@@ -32,7 +31,7 @@ import { CHAT_PANE_ATTR } from "@/hooks/useStartChat";
 const CHAT_PANE = { [CHAT_PANE_ATTR]: "" };
 
 export function AssistantPane({
-  stream, viewingId, onViewSession, active, readable,
+  stream, viewingId, onViewSession, active, readable, fullPage = false,
 }: {
   stream: AssistantStreamState;
   viewingId: string | null;
@@ -40,9 +39,10 @@ export function AssistantPane({
   active?: boolean;
   /** Center the chat at a readable width (for a host much wider than a column). */
   readable?: boolean;
+  /** The dock fills the page (Full page, `lg`+ only): show the terminal instead of the chat. */
+  fullPage?: boolean;
 }) {
-  const mode = useAssistantChatMode();
-  const view = assistantView(mode, viewingId) === "terminal"
+  const view = assistantView(fullPage, viewingId) === "terminal"
     ? <AssistantTerminal leaderId={assistantTerminalTarget(stream.chatAgent)} />
     : <AssistantChat stream={stream} viewingId={viewingId} onViewSession={onViewSession} active={active} readable={readable} />;
   const noLeader = stream.connected && !stream.chatAgent && viewingId === null;

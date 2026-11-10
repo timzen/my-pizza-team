@@ -233,8 +233,8 @@ test("routes: the SSE stream primes with hello and registers a viewer", async ()
   });
 });
 
-test("routes: the leader's transcript is the same pipeline as any teammate's (terminal mode)", async () => {
-  // assistant.chatMode "terminal" watches the leader through these very routes;
+test("routes: the leader's transcript is the same pipeline as any teammate's (terminal view)", async () => {
+  // The dock's Full page terminal view watches the leader through these very routes;
   // there's no leader-specific branch, so the same batch must land identically.
   await withTeam({ minTeammates: 0 }, async ({ app, store }) => {
     await app.request("/api/agents/register", {

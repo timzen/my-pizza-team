@@ -4,7 +4,7 @@
  * The body of the watch/pair experience (docs/DESIGN.md "Watching and Pairing
  * with a Teammate"), shared by every agent that has one: a teammate's page
  * (`TeammatePage`, composer only while paired) and the assistant in
- * `assistant.chatMode: "terminal"` (`AssistantTerminal`, composer always — the
+ * the dock's Full page view (`AssistantTerminal`, composer always — the
  * leader has no work loop to pause, see daemon/routes/pairing.ts). One component
  * so the two can't drift: same entries, clipping, collapse, and sends.
  *

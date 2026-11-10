@@ -177,7 +177,7 @@ test("injects the persona via before_agent_start", () => {
   assert.ok(leaderSrc.includes("chat.persona"));
 });
 
-test("refetches the persona before building each run's system prompt (chatMode/persona apply live)", () => {
+test("refetches the persona before building each run's system prompt (a persona change applies live)", () => {
   // agent_start fires after the prompt is built, so the refresh must be here.
   assert.match(leaderSrc, /before_agent_start[\s\S]*?await chat\.refreshPersona\(\)[\s\S]*?chat\.persona/);
 });
