@@ -62,6 +62,10 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y tmux
       - name: Verify tmux is really available
         run: tmux -V
+      - name: Install the extension's Pi
+        # tests/e2e/pi-scripted.test.ts runs harnesses/pi's dev-dependency Pi (on a
+        # scripted, model-free provider) and skips without it.
+        run: npm ci --prefix harnesses/pi
       - name: End-to-end tests
         # Failures are re-emitted as annotations (scripts/ci-annotate.py), which anyone
         # can read — job logs need authentication, so otherwise a failure reads only as

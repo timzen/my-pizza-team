@@ -2950,5 +2950,8 @@ protocol bump — a harness that never reports simply shows no numbers.
 - Suites are checked by mutation: green on first run is a reason for suspicion, so
   new tests are verified by deliberately breaking the code they guard.
 - No LLM is in the loop, so these test mpt's mechanics — windows, settings files,
-  directives, exit codes. Whether a teammate does good work is exercised by hand
-  with `mpt-demo-team`.
+  directives, exit codes. Where a real agent is needed, it runs on a scripted
+  stand-in: `tests/fixtures/fake-acp-agent.ts` for ACP, and for Pi a scripted
+  provider (`tests/fixtures/pi-scripted-provider.ts`) loaded into a real `pi` with
+  the real extension, so the whole leader/teammate path runs without a model call.
+  Whether a teammate does good work is exercised by hand with `mpt-demo-team`.
