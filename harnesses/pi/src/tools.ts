@@ -4,7 +4,7 @@
 // No local store or filesystem access (except reading files for upload).
 //
 // Two registration functions for role-specific tool sets:
-//   - registerTeammateTools: upload_attachment, fail, propose_work
+//   - registerTeammateTools: upload_attachment, fail, propose_work, wait_for_next_check
 //   - registerLeaderTools: create_story, edit_story, add_task, create_task,
 //                          create_schedule, set_schedule_pending, get_task,
 //                          edit_task, activate_task,
@@ -38,6 +38,7 @@ import * as fs from "node:fs";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import type { DaemonClient, WorkDefSummary } from "./runtime/client.js";
+import { setWaitToolActive, WAIT_TOOL } from "./wait-tool.js";
 import { featureDisabledMessage, featuresFromStatus, type FeatureName } from "./shared/agent-protocol.js";
 import { featureForProposalKind } from "./features.js";
 
@@ -95,11 +96,69 @@ export function registerTeammateTools(
   pi: ExtensionAPI,
   client: DaemonClient,
   getCurrentWorkItemId: () => string | null,
-  onWorkItemFailed?: (workItemId: string) => void
+  onWorkItemFailed?: (workItemId: string) => void,
+  onWorkItemWaited?: (workItemId: string) => void,
 ): void {
   registerUploadAttachment(pi, client, getCurrentWorkItemId);
   registerFailWorkItem(pi, client, getCurrentWorkItemId, onWorkItemFailed);
   registerProposeWork(pi, client, getCurrentWorkItemId);
+  registerWaitForNextCheck(pi, client, getCurrentWorkItemId, onWorkItemWaited);
+  // Offered only while the claimed item's state polls (setWaitToolActive).
+  setWaitToolActive(pi, false);
+}
+
+// ─── wait_for_next_check (a poll state's "not yet") ──────────────
+
+/**
+ * How a teammate ends a poll state's check with "not yet" (my-pizza-team
+ * docs/DESIGN.md "Polling States"): the item goes WAITED, the task stays in its
+ * state, and the daemon runs the next check later — a fresh run that reads this
+ * one's comment. The comment is posted only once the daemon accepts the wait,
+ * so a refused wait leaves no misleading `[wait]` line on the thread.
+ */
+function registerWaitForNextCheck(
+  pi: ExtensionAPI,
+  client: DaemonClient,
+  getCurrentWorkItemId: () => string | null,
+  onWorkItemWaited?: (workItemId: string) => void,
+): void {
+  pi.registerTool({
+    name: WAIT_TOOL,
+    label: "Wait for Next Check",
+    description:
+      "End this check of a polling work item because it isn't done yet (e.g. a CR still has open comments or isn't " +
+      "approved, a build is still running). The task stays where it is and a fresh run checks again later, reading " +
+      "what you post here. Only for work whose prompt says the state polls. Not for finished work (end with a " +
+      "summary) or work that can't be done (use fail).",
+    promptSnippet: "End this check: not done yet, check again later",
+    promptGuidelines: [
+      "Use wait_for_next_check only when the outside signal isn't there yet; then stop — don't sleep or poll yourself.",
+      "Give a short reason (one line) and, in details, what you did this check, so the next check can pick up from it.",
+    ],
+    parameters: Type.Object({
+      reason: Type.String({ description: 'Why it isn\'t done yet, one line, e.g. "CR-123 has 2 unresolved comments; revision posted"' }),
+      details: Type.Optional(Type.String({ description: "What you did this check and what the next check should look at (posted on the thread)" })),
+    }),
+    async execute(_toolCallId, params) {
+      const workItemId = getCurrentWorkItemId();
+      if (!workItemId) {
+        return { content: [{ type: "text", text: "No work item is currently claimed — nothing to wait on." }], details: undefined };
+      }
+      const p = params as { reason: string; details?: string };
+      try {
+        const res = await client.waitWorkItem(workItemId, p.reason);
+        if (!res.success) {
+          return { content: [{ type: "text", text: `Not accepted: ${res.error || "unknown error"}. The work item is still yours: finish with done or fail.` }], details: undefined };
+        }
+        const body = p.details?.trim() ? `[wait] ${p.reason.trim()}\n\n${p.details.trim()}` : `[wait] ${p.reason.trim()}`;
+        await client.postComment(workItemId, body).catch(() => {});
+        onWorkItemWaited?.(workItemId);
+        return { content: [{ type: "text", text: "Check recorded as wait: the next check runs later. Stop working on it now." }], details: undefined };
+      } catch {
+        return { content: [{ type: "text", text: "Failed to record the wait (daemon unreachable)." }], details: undefined };
+      }
+    },
+  });
 }
 
 // ─── propose_work (the answer to a triage item) ─────────────────

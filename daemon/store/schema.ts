@@ -69,7 +69,10 @@ const FINAL_SCHEMA = `
     -- WorkDef unification: board tasks are WorkDefs — their authored acceptance
     -- criteria / additional context, cached (docs/DESIGN.md "WorkDefs & Parents").
     acceptance_criteria TEXT,
-    additional_context TEXT
+    additional_context TEXT,
+    -- A poll state's bookkeeping (TaskPollRecord as JSON), cached from the
+    -- story's task entry like status (docs/DESIGN.md "Polling States").
+    poll TEXT
   );
 
   CREATE TABLE IF NOT EXISTS assignments (
@@ -164,7 +167,7 @@ const FINAL_SCHEMA = `
     title TEXT,
     work_def_id TEXT,          -- the ref: the WorkDef this runs
     directory TEXT,            -- affinity bias, copied from the ref at creation
-    state TEXT,                -- READY|IN_PROGRESS|MORIBUND|COMPLETE|FAILED|CANCELED
+    state TEXT,                -- READY|IN_PROGRESS|MORIBUND|COMPLETE|FAILED|CANCELED|WAITED
     read INTEGER DEFAULT 0,
     member_id TEXT,            -- who is/was working it
     enqueued_at INTEGER,
@@ -195,6 +198,7 @@ const FINAL_SCHEMA = `
  */
 const MIGRATIONS: ReadonlyArray<(db: DatabaseSync) => void> = [
   migrateFrom036,
+  addTaskPoll,
 ];
 
 /** The schema version this code writes: the number of migrations. */
@@ -294,11 +298,24 @@ function migrateFrom036(db: DatabaseSync): void {
   db.exec("CREATE INDEX IF NOT EXISTS idx_work_items_work_def ON work_items(work_def_id)");
 }
 
+// --- Migration 2: poll states ---
+
+/**
+ * Migration 2. Adds `tasks.poll`, the cached poll bookkeeping of a task in a
+ * poll state (docs/DESIGN.md "Polling States"). A cache column: the story file
+ * is the record, and `loadFromDisk` refills it on every boot.
+ */
+function addTaskPoll(db: DatabaseSync): void {
+  if (!columnsOf(db, "tasks").has("poll")) db.exec("ALTER TABLE tasks ADD COLUMN poll TEXT");
+}
+
 // --- Refusing pre-0.36.0 databases ---
 
 /** What 0.36.0 had beyond today's schema; a version-0 database may carry these and still be 0.36.0's. */
 const SCHEMA_036_EXTRA_TABLES = new Set(["comments", "comments_loaded"]);
 const SCHEMA_036_EXTRA_COLUMNS = new Set(["tasks.dirty"]);
+/** Columns added by migrations after 1: a version-0 (0.36.0) database lacks them and is still 0.36.0's. */
+const POST_036_COLUMNS = new Set(["tasks.poll"]);
 
 /** Today's tables and their columns, read off `FINAL_SCHEMA` in a scratch in-memory database. */
 function finalColumns(): Map<string, Set<string>> {
@@ -332,7 +349,7 @@ export function preCutoffSchemaFindings(db: DatabaseSync): string[] {
   for (const [table, cols] of final) {
     if (!tables.includes(table)) { findings.push(`state.db has no \`${table}\` table`); continue; }
     const have = columnsOf(db, table);
-    const missing = [...cols].filter((c) => !have.has(c));
+    const missing = [...cols].filter((c) => !have.has(c) && !POST_036_COLUMNS.has(`${table}.${c}`));
     const extra = [...have].filter((c) => !cols.has(c) && !SCHEMA_036_EXTRA_COLUMNS.has(`${table}.${c}`));
     if (missing.length) findings.push(`state.db's \`${table}\` table has no ${missing.map((c) => `\`${c}\``).join(", ")}`);
     if (extra.length) findings.push(`state.db's \`${table}\` table still has the retired ${extra.map((c) => `\`${c}\``).join(", ")}`);

@@ -52,6 +52,8 @@ import {
   type WorkflowConfig,
   type WorkItem,
   type WorkItemRef,
+  type TaskPollRecord,
+  type WorkflowStateCompletion,
   type WorkItemState,
 } from "../shared/types.ts";
 import { normalizeDirectory } from "../shared/directory.ts";
@@ -255,6 +257,8 @@ export class Store {
     getWorkflowForStory: (id) => this.getWorkflowForStory(id),
     isPending: (id) => this.isPending(id),
     writeTaskPosition: (taskId, status) => this.board.writeTaskPosition(taskId, status),
+    writeTaskPoll: (taskId, poll) => this.board.writeTaskPoll(taskId, poll),
+    getLatestItemState: (defId) => this.getLatestWorkItemState(defId),
     setStoryStatus: (id, status) => this.updateStoryStatus(id, status),
     getActiveItem: (defId) => this.getActiveWorkItem(defId),
     cancelActiveItem: (defId) => this.abandonActiveWorkItem(defId),
@@ -806,6 +810,41 @@ export class Store {
   /** Agent-facing terminal transition (COMPLETE/FAILED); see `QueueStore.setWorkItemState`. */
   setWorkItemState(id: string, state: "COMPLETE" | "FAILED"): { ok: boolean; error?: string; newStatus?: string; completed?: boolean } {
     return this.queue.setWorkItemState(id, state);
+  }
+
+  /**
+   * The agent ends its run with wait (docs/DESIGN.md "Polling States"): only a
+   * board task in a poll state may; anywhere else — a once state, a manual or
+   * bucket position, a Solitary/Scheduled WorkDef — it is refused and the item
+   * is left as it was. The item goes WAITED (`QueueStore.waitWorkItem`) and the
+   * task's poll record notes the check (`StorySource.recordWait`); the task
+   * neither advances nor fails. The daemon posts no comment — the agent's
+   * `[wait]` comment is its record, as for done and fail.
+   */
+  waitWorkItem(id: string, reason: string): { ok: boolean; error?: string; poll?: TaskPollRecord } {
+    const item = this.getWorkItem(id);
+    if (!item) return { ok: false, error: "WorkItem not found" };
+    if (item.state !== "IN_PROGRESS" && item.state !== "MORIBUND") {
+      return { ok: false, error: `WorkItem is ${item.state}, not in flight` };
+    }
+    const task = this.getTask(item.ref.workDefId);
+    if (!task || !this.storySource.pollSettingsFor(task.id)) {
+      const where = task ? `its state "${task.status}" completes once` : "it isn't a board task in a poll state";
+      return { ok: false, error: `Can't wait: ${where}. Finish with done (end with a summary) or fail.` };
+    }
+    const res = this.queue.waitWorkItem(id);
+    if (!res.ok) return res;
+    const poll = this.storySource.recordWait(task.id, reason) ?? undefined;
+    return { ok: true, poll };
+  }
+
+  /**
+   * How the work a WorkItem runs finishes: `poll` for a board task in a poll
+   * state (the run may end with wait), else `once`. Reported on claim, so a
+   * harness offers its wait tool only where wait is accepted.
+   */
+  completionFor(workDefId: string): WorkflowStateCompletion {
+    return this.storySource.pollSettingsFor(workDefId) ? "poll" : "once";
   }
 
   /** Tell the item's source it reached a terminal state (hook: onItemTerminal). */

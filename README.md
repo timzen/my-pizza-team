@@ -469,7 +469,7 @@ a File".
 ├── daemon.log           # a background daemon's output (daemon.log.1: the run before)
 ├── workflows/
 │   ├── default/
-│   │   └── workflow.json    # states; a teammate state may name a "persona"
+│   │   └── workflow.json    # states; a teammate state may name a "persona" and poll ("completion": "poll")
 │   └── .deleted/        # deleted workflows' folders, kept as backups (<name>-<timestamp>/)
 ├── personas/            # the team persona library (personas/<id>.md)
 ├── stories/             # one file per story: order + status of its tasks (archived: archivedAt + synopsis)

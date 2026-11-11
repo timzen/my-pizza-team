@@ -12,7 +12,9 @@
 // 4. On the agent_end **of that prompt's own run**, POST
 //    .../work-items/:id/state COMPLETE → the daemon advances the task
 //    mechanically. If the agent used the `fail` tool instead, the item is
-//    already FAILED and completion is skipped. If the run's *session errored*
+//    already FAILED and completion is skipped; likewise after
+//    `wait_for_next_check` (a poll state's "not yet": the item is WAITED —
+//    my-pizza-team docs/DESIGN.md "Polling States"). If the run's *session errored*
 //    (the model call failed: stopReason "error"), it is not a completion
 //    either: the item is failed with the error and the daemon retries it with
 //    backoff (my-pizza-team docs/DESIGN.md "Errored Sessions Retry").
@@ -97,6 +99,14 @@ export class TeammateLoop {
    * contexts. Any other action is failed, not retried.
    */
   public onSessionDirective: ((action: string, params: Record<string, unknown>) => void) | null = null;
+
+  /**
+   * Called on every successful claim with how the item finishes: `poll` (its
+   * board state polls, so the run may end with wait) or `once`. Wired by
+   * setupTeammate to offer `wait_for_next_check` only for `poll`
+   * (wait-tool.ts; my-pizza-team docs/DESIGN.md "Polling States").
+   */
+  public onClaimCompletion: ((completion: "once" | "poll") => void) | null = null;
 
   /** Called when the agent is dismissed from the UI */
   public onDismissed: (() => void) | null = null;
@@ -209,9 +219,10 @@ export class TeammateLoop {
   }
 
   /**
-   * Record that the current WorkItem was failed by the agent (the `fail` tool
-   * ran). The in-flight agent turn may keep going briefly; when it ends,
-   * handleAgentComplete sees the flag and does not mark the item COMPLETE.
+   * Record that the current WorkItem was ended by the agent — failed (the
+   * `fail` tool) or waited (`wait_for_next_check`). The in-flight agent turn
+   * may keep going briefly; when it ends, handleAgentComplete sees the flag
+   * and does not mark the item COMPLETE.
    */
   markReturned(workItemId: string): void {
     if (this.currentWorkItemId === workItemId) this.failedWorkItemId = workItemId;
@@ -338,8 +349,10 @@ export class TeammateLoop {
           return;
         }
 
-        // We now own this work item
+        // We now own this work item. Its state may poll: offer the wait tool
+        // only then (an older daemon sends no `completion`: once).
         this.currentWorkItemId = response.workItem.id;
+        this.onClaimCompletion?.(claim.completion === "poll" ? "poll" : "once");
         this.client.heartbeat("working", response.workItem.id).catch(() => {});
 
         // Execute the work using the daemon-assembled prompt.
@@ -418,9 +431,9 @@ export class TeammateLoop {
     // (Usage is reported for every run by the agent_end handler in index.ts —
     // see usage.ts — not here, so pairing and non-work runs are counted too.)
 
-    // ─── Failed mid-turn? The item is already FAILED (task left stuck). ───
+    // ─── Failed (or waited) mid-turn? The item already ended. ───
     if (this.failedWorkItemId === workItemId) {
-      this.debugLog(`[ppt-debug] WorkItem ${workItemId} was failed via the fail tool — skipping COMPLETE.`);
+      this.debugLog(`[ppt-debug] WorkItem ${workItemId} was ended via the fail or wait tool — skipping COMPLETE.`);
       this.failedWorkItemId = null;
       this.currentWorkItemId = null;
       this.awaitingWorkRun = false;

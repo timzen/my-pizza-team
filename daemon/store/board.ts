@@ -32,13 +32,14 @@ import {
   type Comment,
   type Story,
   type StoryTaskRef,
+  type TaskPollRecord,
   type TeamConfig,
   type WorkflowConfig,
   type WorkDef,
 } from "../../shared/types.ts";
 import { normalizeDirectory } from "../../shared/directory.ts";
 import { writeFileAtomic } from "../../shared/atomic-write.ts";
-import { validateWorkflow } from "../workflow-engine.ts";
+import { ignoredStateFields, validateWorkflow } from "../workflow-engine.ts";
 import { normalizeWorkflowStateTypes } from "../workflow-aliases.ts";
 import { listWorkDefs, getWorkDef, saveWorkDef, deleteWorkDef, workDefDir } from "./workdefs.ts";
 import type { StoreDomainContext } from "./domain.ts";
@@ -101,6 +102,8 @@ export interface Task {
   acceptanceCriteria?: string;
   additionalContext?: string;
   status: string;
+  /** Poll bookkeeping while the task sits in a poll state (docs/DESIGN.md "Polling States"). */
+  poll?: TaskPollRecord;
 }
 
 export interface TaskWithMeta extends Task {
@@ -109,6 +112,27 @@ export interface TaskWithMeta extends Task {
   slug: string;
   /** The WorkDef directory (`tasks/<id>/`) — comments/attachments live here. */
   dirPath: string;
+}
+
+/**
+ * A poll record read from a story file or the cache, or undefined when it isn't
+ * one (a hand-edit, a file from a newer daemon) — a bad record is dropped, never
+ * allowed to break loading the story.
+ */
+function pollRecordOf(value: unknown): TaskPollRecord | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const v = value as Record<string, unknown>;
+  if (typeof v.state !== "string" || typeof v.startedAt !== "string") return undefined;
+  const record: TaskPollRecord = { state: v.state, startedAt: v.startedAt, checks: typeof v.checks === "number" && v.checks >= 0 ? Math.floor(v.checks) : 0 };
+  if (typeof v.lastCheckAt === "string") record.lastCheckAt = v.lastCheckAt;
+  if (typeof v.lastWaitReason === "string") record.lastWaitReason = v.lastWaitReason;
+  return record;
+}
+
+/** The `tasks.poll` cache column (JSON) as a poll record, or undefined. */
+function parsePollColumn(value: unknown): TaskPollRecord | undefined {
+  if (typeof value !== "string" || !value) return undefined;
+  try { return pollRecordOf(JSON.parse(value)); } catch { return undefined; }
 }
 
 /** True for a story file's data that carries the archived flag (`archivedAt`). */
@@ -192,6 +216,8 @@ export class BoardStore {
             // A manual state has no WorkItem, so a persona there does nothing.
             for (const st of wf.states) {
               if (st.type === "manual" && st.persona) console.warn(`[personas] workflow '${entry.name}' manual state '${st.name}' names persona '${st.persona}', which is ignored (manual states have no teammate)`);
+              // Likewise a completion/poll field (docs/DESIGN.md "Polling States").
+              for (const field of ignoredStateFields(st)) console.warn(`[workflows] workflow '${entry.name}' manual state '${st.name}' sets '${field}', which is ignored (manual states have no teammate)`);
             }
           }
         } catch {
@@ -327,7 +353,7 @@ export class BoardStore {
       let seq = 0;
       for (const t of story.tasks) {
         seq += 1;
-        this.upsertTask(defById.get(t.id)!, story.id, t.status, seq);
+        this.upsertTask(defById.get(t.id)!, story.id, t.status, seq, pollRecordOf(t.poll));
       }
     }
 
@@ -362,15 +388,15 @@ export class BoardStore {
     );
   }
 
-  /** Cache a board WorkDef (+ its story-owned status) into the tasks index. */
-  private upsertTask(def: WorkDef, storyId: string, status: string, seq: number): void {
+  /** Cache a board WorkDef (+ its story-owned status and poll record) into the tasks index. */
+  private upsertTask(def: WorkDef, storyId: string, status: string, seq: number, poll?: TaskPollRecord): void {
     this.db.prepare(
-      `INSERT OR REPLACE INTO tasks (id, story_id, seq, slug, title, description, acceptance_criteria, additional_context, status, dir_path)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT OR REPLACE INTO tasks (id, story_id, seq, slug, title, description, acceptance_criteria, additional_context, status, dir_path, poll)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       def.id, storyId, seq, slugify(def.title), def.title, def.goal,
       def.acceptanceCriteria || "", def.additionalContext || null,
-      status, workDefDir(this.teamDir, def.id),
+      status, workDefDir(this.teamDir, def.id), poll ? JSON.stringify(poll) : null,
     );
   }
 
@@ -379,8 +405,9 @@ export class BoardStore {
   /** Map a raw SQLite row to a Story object (tasks[] joined from the task index). */
   private rowToStory(row: Record<string, unknown>): Story & { dirPath: string } {
     const order: string[] = row.task_order && (row.task_order as string) !== "[]" ? JSON.parse(row.task_order as string) : [];
-    const taskRows = this.db.prepare("SELECT id, status, seq FROM tasks WHERE story_id = ?").all(row.id as string) as Array<Record<string, unknown>>;
+    const taskRows = this.db.prepare("SELECT id, status, seq, poll FROM tasks WHERE story_id = ?").all(row.id as string) as Array<Record<string, unknown>>;
     const statusById = new Map(taskRows.map((t) => [t.id as string, t.status as string]));
+    const pollById = new Map(taskRows.map((t) => [t.id as string, parsePollColumn(t.poll)]));
     const ids = order.filter((id) => statusById.has(id));
     for (const t of [...taskRows].sort((a, b) => (a.seq as number) - (b.seq as number))) {
       if (!ids.includes(t.id as string)) ids.push(t.id as string);
@@ -394,7 +421,10 @@ export class BoardStore {
       pending: row.pending ? true : undefined,
       workflow: (row.workflow as string) || undefined,
       directory: (row.directory as string) || undefined,
-      tasks: ids.map((id) => ({ id, status: statusById.get(id) ?? TODO_STATE })),
+      tasks: ids.map((id) => {
+        const poll = pollById.get(id);
+        return { id, status: statusById.get(id) ?? TODO_STATE, ...(poll ? { poll } : {}) };
+      }),
       dirPath: path.join(this.teamDir, STORIES_DIR),
     };
   }
@@ -412,6 +442,7 @@ export class BoardStore {
       additionalContext: (row.additional_context as string) || undefined,
       status: row.status as string,
       dirPath: row.dir_path as string,
+      ...(row.poll ? { poll: parsePollColumn(row.poll) } : {}),
     };
   }
 
@@ -721,6 +752,19 @@ export class BoardStore {
    */
   writeTaskPosition(taskId: string, status: string): void {
     this.db.prepare("UPDATE tasks SET status = ? WHERE id = ?").run(status, taskId);
+    const task = this.getTask(taskId);
+    const story = task ? this.getStory(task.storyId) : null;
+    if (story) this.writeStory(story);
+  }
+
+  /**
+   * Persist a task's poll record (null drops it): the task cache row and the
+   * story's owned `tasks[]` on disk, exactly like its position
+   * (`writeTaskPosition`), so it survives a daemon restart. Bookkeeping only —
+   * no queue side effects (docs/DESIGN.md "Polling States").
+   */
+  writeTaskPoll(taskId: string, poll: TaskPollRecord | null): void {
+    this.db.prepare("UPDATE tasks SET poll = ? WHERE id = ?").run(poll ? JSON.stringify(poll) : null, taskId);
     const task = this.getTask(taskId);
     const story = task ? this.getStory(task.storyId) : null;
     if (story) this.writeStory(story);

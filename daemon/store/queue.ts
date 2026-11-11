@@ -4,14 +4,15 @@
  * A WorkItem is the unit of agent execution: a dumb, terminal-only attempt
  * pointing at a WorkDef (a board task or standalone work). It drives the work:
  * a COMPLETE item advances a board task, a FAILED/CANCELED one leaves it stuck
- * for a human (docs/DESIGN.md "The WorkItem"). This module owns the
+ * for a human, and a WAITED one (a poll state's "not yet") leaves it in place
+ * for its next check (docs/DESIGN.md "The WorkItem", "Polling States"). This module owns the
  * `work_items` rows:
  *   - reads (one item, filtered lists, counts, the active item for a def, the
  *     latest state) and the claim-time persona snapshot;
  *   - `enqueueFor`, the single creator (pending WorkDefs never get one);
  *   - `getNextWorkItem` — directory affinity, eligibility, retry backoff, and
  *     the exclusive directory leases (`getDirectoryBlocker`) — and `claimWorkItem`;
- *   - the transitions: the agent's `setWorkItemState`, the errored-session
+ *   - the transitions: the agent's `setWorkItemState` and `waitWorkItem`, the errored-session
  *     retry (`failWorkItemForSessionError`), cancel / force-fail / re-enqueue,
  *     read flags, and `notifyItemTerminal` (the source's onItemTerminal hook);
  *   - execution stats (docs/DESIGN.md "Execution Count: Derived, not Counted").
@@ -441,6 +442,28 @@ export class QueueStore {
     // comment (see the teammate loop / fail tool) before calling this.
     const outcome = this.notifyItemTerminal(id);
     return { ok: true, ...outcome };
+  }
+
+  /**
+   * A poll state's check ended with "not yet" (docs/DESIGN.md "Polling
+   * States"): the item goes WAITED — terminal, so the WorkItem stays one-shot
+   * and its directory lease frees — and is marked read, because a wait isn't
+   * news (the outcome that finally comes is). Its assignment row is released
+   * and its source told, as for any terminal state; the Story source neither
+   * advances nor fails the task. Whether the item's state may wait at all is
+   * the caller's check (`Store.waitWorkItem`).
+   */
+  waitWorkItem(id: string): { ok: boolean; error?: string } {
+    const item = this.getWorkItem(id);
+    if (!item) return { ok: false, error: "WorkItem not found" };
+    if (item.state !== "IN_PROGRESS" && item.state !== "MORIBUND") {
+      return { ok: false, error: `WorkItem is ${item.state}, not in flight` };
+    }
+    this.setWorkItemStateRow(id, "WAITED");
+    this.markWorkItemRead(id, true);
+    this.deps.releaseAssignment(item.ref.workDefId);
+    this.notifyItemTerminal(id);
+    return { ok: true };
   }
 
   /**

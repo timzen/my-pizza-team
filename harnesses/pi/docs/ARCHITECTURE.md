@@ -54,6 +54,7 @@ src/
 ├── tools.ts              # LLM-callable tools (shared across roles, all via daemon API)
 ├── features.ts           # Feature toggles: which leader tools each kind owns (FEATURE_TOOLS),
 │                         #   applyFeatureTools (pi.setActiveTools), featurePromptNote
+├── wait-tool.ts          # WAIT_TOOL / setWaitToolActive: wait_for_next_check active only for a poll claim
 ├── permissions.ts        # Dynamic yoloMode toggling + ppt-autonomous authorizer chain link;
 │                         # also keeps the leader/chat agent unblockable on remote-driven runs
 ├── readiness.ts          # Host readiness probe (leader-run): exit 0 = ready, non-zero = not ready
@@ -85,6 +86,7 @@ All state is owned by the **my-pizza-team daemon**. The extension is a pure clie
 │     └── handleAgentComplete(lastAssistantMessage)        │
 │         ├── foreign run (prompt not started yet) → skip  │
 │         ├── item failed via the `fail` tool → skip       │
+│         ├── check waited (`wait_for_next_check`) → skip │
 │         ├── session errored (stopReason "error") →       │
 │         │   POST .../state FAILED + sessionError; the    │
 │         │   daemon posts [retry]/[failed] and retries    │
@@ -143,6 +145,16 @@ sources") — posts its analysis with `propose_work` (src/tools.ts → `client.p
 (`proposals`/`nothing`/`question`), and structured proposals. The daemon validates and
 returns a message the agent can act on, so a malformed proposal is a retry rather than
 a broken thread. The tool creates nothing — accepting is the author's decision.
+
+**Poll states (`wait_for_next_check`).** A claim says `completion: "poll"` when the
+task's workflow state polls (my-pizza-team docs/DESIGN.md "Polling States"): each
+run is one check that ends done, fail, or **wait**. The loop reports every claim's
+completion (`onClaimCompletion`), and setup keeps `wait_for_next_check` in Pi's
+active tool set only for `poll` (`setWaitToolActive`, src/wait-tool.ts; it starts
+withdrawn). The tool sends `client.waitWorkItem` → `POST .../state`
+`{ state: "WAITED", reason }`; once the daemon accepts it, it posts `[wait] <reason>`
+(plus `details`) and marks the item ended, so the run's `agent_end` doesn't
+complete it. A refused wait leaves the item the agent's to finish.
 
 Rework needs no special path: a human moves the task back into a teammate state,
 which enqueues a fresh READY WorkItem, and the next poll discovers it like new

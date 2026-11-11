@@ -27,6 +27,7 @@ import { TEAM_DIR, LEGACY_TEAM_DIR, DEFAULT_DAEMON_URL, PRE_CUTOFF_UPGRADE_MESSA
 import { DaemonClient } from "./runtime/client.js";
 import { readTerminalMetadata, registerTerminalFlags } from "./terminal.js";
 import { readTeammateFlag, registerTeammateFlags } from "./teammate-flag.js";
+import { setWaitToolActive } from "./wait-tool.js";
 import { summarizeRun, hasUsage } from "./runtime/usage.js";
 import { readSessionStats, sameStats, type SessionStats } from "./runtime/session-stats.js";
 
@@ -266,8 +267,15 @@ async function setupTeammate(
   reportStats(ctx);
 
   // Register tools. The `fail` tool lets the agent give up on a claimed work
-  // item with a comment when it can't proceed; the loop then skips COMPLETE.
-  registerTeammateTools(pi, client, () => loop.currentTask || loop.lastTask, (workItemId) => loop.markReturned(workItemId));
+  // item with a comment when it can't proceed, and `wait_for_next_check` ends
+  // a poll state's check with "not yet"; after either the loop skips COMPLETE.
+  registerTeammateTools(
+    pi, client, () => loop.currentTask || loop.lastTask,
+    (workItemId) => loop.markReturned(workItemId),
+    (workItemId) => loop.markReturned(workItemId),
+  );
+  // The wait tool is offered only while the claimed item's state polls.
+  loop.onClaimCompletion = (completion) => setWaitToolActive(pi, completion === "poll");
 
   // Warn loudly when the permission system is absent (P2-8). The extension works
   // without it, but an autonomous teammate then stalls on the first permission

@@ -128,6 +128,13 @@ An npm package, git repository or local folder that adds [sources](#source) and/
 [personas](#persona) to a team. Managed with `mpt plugins`. To write one, see
 [docs/PLUGINS.md](../PLUGINS.md).
 
+## Polling step
+
+A teammate step (`"completion": "poll"` in `workflow.json`) that finishes on an
+outside signal, such as a CR's approval. Each run is one check that ends done,
+failed, or **wait** (not yet; checked again later). See
+[Polling steps](02-stories-and-workflows.md#polling-steps).
+
 ## Queue
 
 The home page tab of work in flight: at risk, waiting, and working
@@ -146,8 +153,9 @@ One attempt at a task — what a teammate picks up. Internally a [WorkItem](#wor
 ## Run states
 
 A run is **waiting** (`READY`), **working** (`IN_PROGRESS`), **at risk**
-(`MORIBUND`), or finished: **COMPLETE**, **FAILED**, or **CANCELED** (canceled before
-it ran). It never moves backward.
+(`MORIBUND`), or finished: **COMPLETE**, **FAILED**, **CANCELED** (canceled before
+it ran), or **WAITED** (a [polling step](02-stories-and-workflows.md#polling-steps)'s
+check found it isn't done yet; the task stays in the step). It never moves backward.
 
 ## Scheduled
 

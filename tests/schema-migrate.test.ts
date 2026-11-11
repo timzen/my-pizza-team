@@ -169,6 +169,30 @@ test("a 0.36.0 database is migrated to exactly the fresh schema and keeps its ro
   }
 });
 
+test("a version-1 database gets tasks.poll (migration 2) and keeps its task rows", () => {
+  const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-schema-test-"));
+  const dbPath = path.join(teamDir, "state.db");
+  try {
+    // A fresh database, taken back to version 1's shape: no `tasks.poll`.
+    new Store(teamDir, structuredClone(TEST_CONFIG)).close();
+    const fresh = schemaOf(dbPath);
+    const db = new DatabaseSync(dbPath);
+    db.exec("ALTER TABLE tasks DROP COLUMN poll");
+    db.exec("INSERT INTO tasks (id, story_id, status) VALUES ('t-keep', NULL, 'todo')");
+    db.exec("PRAGMA user_version = 1");
+    db.close();
+    assert(!columns(dbPath, "tasks").includes("poll"));
+
+    new Store(teamDir, structuredClone(TEST_CONFIG)).close();
+
+    assertEquals(userVersion(dbPath), SCHEMA_VERSION);
+    assertEquals(JSON.stringify(schemaOf(dbPath)), JSON.stringify(fresh), "matches the fresh schema");
+    const check = new DatabaseSync(dbPath);
+    try { assertEquals((check.prepare("SELECT COUNT(*) AS n FROM tasks WHERE id = 't-keep'").get() as { n: number }).n, 1); }
+    finally { check.close(); }
+  } finally { fs.rmSync(teamDir, { recursive: true, force: true }); }
+});
+
 /** Older-than-0.36.0 shapes, each a 0.36.0 database with one thing changed. */
 const PRE_036: Array<[string, string, string]> = [
   ["a missing column", SCHEMA_036.replace("ALTER TABLE members ADD COLUMN directory TEXT;", ""), "`members` table has no `directory`"],

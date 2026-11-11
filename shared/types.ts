@@ -352,9 +352,76 @@ export interface WorkflowState {
    * Ignored (with a load warning) on a manual state.
    */
   persona?: string;
+  /**
+   * How a teammate state finishes (docs/DESIGN.md "Polling States"). Teammate
+   * states only; ignored (with a load warning) on a manual state.
+   * - `once` (the default, and what an unset field means): one run; it ends
+   *   done (the task advances) or failed (it stays, stuck for a human).
+   * - `poll`: the state is a series of one-shot **checks**. Each check is its
+   *   own WorkItem and ends done (advance), failed, or **wait** (not yet — the
+   *   item goes `WAITED` and the task stays put). The daemon queues the next
+   *   check after `pollEvery`, until done or until `pollTimeout` runs out.
+   */
+  completion?: WorkflowStateCompletion;
+  /**
+   * Poll states: how long after a wait the next check is due — a duration
+   * string (shared/duration.ts `parseDuration`), e.g. `"15m"`. Required for
+   * `completion: "poll"`, at least `MIN_POLL_EVERY`.
+   */
+  pollEvery?: string;
+  /**
+   * Poll states: how long the task may poll before `onTimeout` applies,
+   * counted from when it entered the state — a duration such as `"7d"`.
+   * Optional (`DEFAULT_POLL_TIMEOUT`); at least `pollEvery`. Time a due check
+   * spends held for readiness never times a task out.
+   */
+  pollTimeout?: string;
+  /**
+   * Poll states: what happens when `pollTimeout` runs out (default `manual`).
+   * - `fail`: the task is failed (it stays in the state, stuck, as for any
+   *   failed run).
+   * - `manual`: polling stops — no further check is queued — and the task
+   *   stays in the state, flagged as needing a human. The human marks it done
+   *   (moves it on, as a done check would) or failed. Nothing is failed
+   *   automatically.
+   */
+  onTimeout?: PollTimeoutAction;
 }
 
-/** Implicit bucket states present in every workflow (never in config). */
+/** A teammate state's completion mode (`WorkflowState.completion`). */
+export type WorkflowStateCompletion = "once" | "poll";
+
+/** What a poll state does when its `pollTimeout` runs out (`WorkflowState.onTimeout`). */
+export type PollTimeoutAction = "fail" | "manual";
+
+/** The shortest `pollEvery` a poll state may set: a check is a model run, so faster than this only burns tokens. */
+export const MIN_POLL_EVERY = "1m";
+
+/** A poll state's `pollTimeout` when it sets none. */
+export const DEFAULT_POLL_TIMEOUT = "7d";
+
+/** A poll state's `onTimeout` when it sets none. */
+export const DEFAULT_POLL_ON_TIMEOUT: PollTimeoutAction = "manual";
+
+/**
+ * The poll bookkeeping a board task carries while it sits in a poll state
+ * (docs/DESIGN.md "Polling States"). Stored on the story's task entry
+ * (`StoryTaskRef.poll`) next to its position, so it survives a daemon restart
+ * the same way the position does. Set fresh whenever the task lands in a poll
+ * state (re-entry ≡ first entry) and dropped when it lands anywhere else.
+ */
+export interface TaskPollRecord {
+  /** The poll state this record belongs to. */
+  state: string;
+  /** When the task entered the state (ISO) — `pollTimeout` counts from here. */
+  startedAt: string;
+  /** When the latest check ended with wait (ISO); unset before the first. */
+  lastCheckAt?: string;
+  /** The reason the latest wait gave (e.g. "CR-123 has 2 unresolved comments; revision posted"). */
+  lastWaitReason?: string;
+  /** How many checks have ended with wait in this state. */
+  checks: number;
+}
 export const TODO_STATE = "todo";
 export const DONE_STATE = "done";
 
@@ -371,7 +438,8 @@ export type WorkItemState =
   | "MORIBUND"     // the owning teammate went quiet (reaped); not dead yet
   | "COMPLETE"     // finished successfully (terminal)
   | "FAILED"       // the teammate gave up, or a moribund item was force-failed (terminal)
-  | "CANCELED";    // a human canceled it before/instead of running (terminal)
+  | "CANCELED"     // a human canceled it before/instead of running (terminal)
+  | "WAITED";      // a poll state's check ended with "not yet" (terminal): the task neither advances nor fails
 
 /** Non-terminal states — a WorkItem in one of these is "in the queue / in flight". */
 export const ACTIVE_WORK_ITEM_STATES: WorkItemState[] = ["READY", "IN_PROGRESS", "MORIBUND"];
@@ -652,6 +720,8 @@ export interface StoryTaskRef {
   id: string;
   /** Workflow position: an active state name, or the "todo"/"done" buckets. */
   status: string;
+  /** Poll bookkeeping while the task sits in a poll state (docs/DESIGN.md "Polling States"). */
+  poll?: TaskPollRecord;
 }
 
 export interface Story {

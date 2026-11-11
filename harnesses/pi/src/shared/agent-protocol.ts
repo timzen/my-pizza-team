@@ -218,17 +218,30 @@ export interface AgentClaimResponse {
   workItem?: { id: string };
   /** Full assembled prompt from the daemon — delivered verbatim to the agent. */
   prompt?: string;
+  /**
+   * How this work finishes: `poll` when its board state is a poll state, so the
+   * run may end with wait (`WAITED`) — offer the wait tool — else `once`.
+   * Additive: absent from an older daemon, which means `once`.
+   */
+  completion?: "once" | "poll";
 }
 
 /**
  * POST /api/agents/work-items/:workItemId/state — the single state-setter.
- * The daemon reacts: COMPLETE advances a task ref; FAILED leaves it stuck.
+ * The daemon reacts: COMPLETE advances a task ref; FAILED leaves it stuck;
+ * WAITED (`{ state: "WAITED", reason }`, poll states only — see
+ * `AgentClaimResponse.completion`) ends the check and leaves the task for the
+ * next one. WAITED is additive: an older harness never sends it.
  */
 export interface AgentSetWorkItemStateResponse {
   success: boolean;
   error?: string;
   newStatus?: string;
   completed?: boolean;
+  /** Present (true) when a WAITED was accepted. */
+  waited?: boolean;
+  /** With `waited`: how many checks of this state have now ended with wait. */
+  checks?: number;
   /** Present when a `sessionError` FAILED scheduled a retry. */
   retry?: { workItemId: string; attempt: number; maxAttempts: number; retryAt: string };
 }

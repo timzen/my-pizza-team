@@ -145,6 +145,41 @@ package persona) beside the picker opens the persona itself on
 [Config → Personas](06-personas.md). No persona means just a one-line "you're working
 in the … state" framing.
 
+### Polling steps
+
+Some steps finish on an outside signal rather than when the teammate is done
+typing — a CR step should create the CR, keep checking it for comments, post
+revisions, and only finish once it's approved. Make such a teammate step a
+**polling** step by setting its completion in `workflow.json` (there's no editor
+for it yet):
+
+```json
+{ "name": "cr", "type": "teammate", "completion": "poll", "pollEvery": "15m", "pollTimeout": "7d", "onTimeout": "manual" }
+```
+
+- `completion` — `"once"` (the default: one run, done or failed) or `"poll"`.
+- `pollEvery` — how long after a "not yet" the next check is due: a duration such
+  as `30m`, `2h` or `1h 30m` (units `s`, `m`, `h`, `d`, `w`). Required for
+  polling; at least `1m`.
+- `pollTimeout` — how long the task may keep polling, from when it entered the
+  step (default `7d`; at least `pollEvery`).
+- `onTimeout` — what happens then: `"manual"` (the default) stops polling and
+  leaves the task in the step for you to move on or fail; `"fail"` fails it.
+
+Each run of a polling step is one **check**. The teammate reads what earlier checks
+posted on the task's thread, does what's needed, posts what it did, and ends the
+check one of three ways: **done** (the task advances as usual), **fail**, or **wait**
+— not yet, with a short reason such as "CR-123 has 2 unresolved comments; revision
+posted". A wait doesn't move or fail the task, and isn't news: it doesn't land in
+your Inbox. The task records when it entered the step, when it was last checked,
+the last wait reason, and how many checks waited.
+
+On a **manual** step these fields do nothing; the daemon log warns about them.
+
+*Not yet:* the daemon doesn't queue the next check on its own yet (nor apply
+`pollTimeout`). Until it does, a task whose check waited stays in the step until you
+move it; moving it back into the step runs a fresh check.
+
 ### Deprecated: agent state type
 
 The **teammate** step type used to be called **agent**. A `workflow.json` state with

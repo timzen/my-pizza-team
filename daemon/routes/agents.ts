@@ -5,7 +5,8 @@
  * The streamlined agent-facing interface: register → poll → claim → set state.
  * A WorkItem is the single unit of agent execution; its polymorphic ref points
  * at a story task or a WorkDef. The daemon owns the prompt and reacts to a
- * terminal WorkItem state (COMPLETE advances a task; FAILED leaves it stuck).
+ * terminal WorkItem state (COMPLETE advances a task; FAILED leaves it stuck;
+ * WAITED, a poll state's "not yet", leaves it for its next check).
  * See docs/DESIGN.md "The WorkItem".
  *
  * Also includes leader directives + spawn request endpoints.
@@ -19,6 +20,9 @@ import { DEFAULT_HARNESS, isExperimentalHarness, type ResolvedPersona, type Team
 import { LEADER_ALREADY_CONNECTED, MIN_PROTOCOL_VERSION, PROTOCOL_VERSION, type AgentListResponse } from "../../shared/protocol.ts";
 import { packageVersion } from "../../shared/paths.ts";
 import { dismissParams, focusMember } from "../spawner.ts";
+
+/** The longest wait `reason` accepted: a one-line status, not a report (that goes in a comment). */
+const MAX_WAIT_REASON_LENGTH = 500;
 
 export function registerAgentRoutes(ctx: RouteContext): void {
   const { app, store, config, isPaused } = ctx;
@@ -194,8 +198,12 @@ export function registerAgentRoutes(ctx: RouteContext): void {
     store.updateMemberStatus(body.agentId, "working");
 
     const prompt = buildClaimPrompt(store, item.ref, persona);
+    // A poll state's run may end with wait (docs/DESIGN.md "Polling States"):
+    // say so, and the harness offers its wait tool. Additive: an older harness
+    // ignores it, and never sends WAITED.
+    const completion = store.completionFor(item.ref.workDefId);
 
-    return c.json({ success: true, workItem: { id: item.id }, prompt });
+    return c.json({ success: true, workItem: { id: item.id }, prompt, completion });
   });
 
   // ─── Set WorkItem State (the single state-setter) ──────────────────
@@ -208,13 +216,24 @@ export function registerAgentRoutes(ctx: RouteContext): void {
   // model call failed), so nobody gave up. The daemon retries it with backoff
   // and posts the attempt's comment itself (docs/DESIGN.md "Errored Sessions
   // Retry"; Store.failWorkItemForSessionError).
+  //
+  // WAITED (with a `reason`) is a poll state's "not yet" (docs/DESIGN.md
+  // "Polling States"): the item ends, the task stays put for its next check.
+  // Refused (400) for any task whose state completes once.
 
   app.post("/api/agents/work-items/:workItemId/state", async (c) => {
     const workItemId = c.req.param("workItemId");
-    const body = await readBody(c) as { agentId?: string; state?: string; sessionError?: unknown };
+    const body = await readBody(c) as { agentId?: string; state?: string; sessionError?: unknown; reason?: unknown };
     if (!body.agentId) return fail(c, 400, "Field 'agentId' is required");
-    if (body.state !== "COMPLETE" && body.state !== "FAILED") {
-      return fail(c, 400, "Field 'state' must be 'COMPLETE' or 'FAILED'");
+    if (body.state !== "COMPLETE" && body.state !== "FAILED" && body.state !== "WAITED") {
+      return fail(c, 400, "Field 'state' must be 'COMPLETE', 'FAILED' or 'WAITED'");
+    }
+    const reason = typeof body.reason === "string" ? body.reason.trim() : "";
+    if (body.state === "WAITED" && !reason) {
+      return fail(c, 400, "Field 'reason' is required with 'WAITED' (why the work isn't done yet)");
+    }
+    if (reason.length > MAX_WAIT_REASON_LENGTH) {
+      return fail(c, 400, `Field 'reason' must be at most ${MAX_WAIT_REASON_LENGTH} characters (put the detail in a comment)`);
     }
 
     const item = store.getWorkItem(workItemId);
@@ -228,6 +247,14 @@ export function registerAgentRoutes(ctx: RouteContext): void {
       store.updateMemberStatus(body.agentId, "idle");
       if (!res.ok) return fail(c, 400, res.error);
       return c.json({ success: true, ...(res.retry ? { retry: res.retry } : {}) });
+    }
+
+    if (body.state === "WAITED") {
+      const res = store.waitWorkItem(workItemId, reason);
+      // A refused wait leaves the item in flight: the agent can still finish it.
+      if (!res.ok) return fail(c, 400, res.error);
+      store.updateMemberStatus(body.agentId, "idle");
+      return c.json({ success: true, waited: true, ...(res.poll ? { checks: res.poll.checks } : {}) });
     }
 
     const res = store.setWorkItemState(workItemId, body.state);

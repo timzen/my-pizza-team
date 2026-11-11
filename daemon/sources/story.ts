@@ -12,6 +12,9 @@
  *     landing in a teammate state enqueues one (re-entry ≡ first entry — the
  *     rework path), and the story's open/done status follows its tasks;
  *   - advancing the task when its item COMPLETEs (`onItemTerminal`);
+ *   - poll states (docs/DESIGN.md "Polling States"): a fresh poll record when a
+ *     task lands in one, the wait outcome (`recordWait` — the task stays put),
+ *     and the poll framing of the prompt;
  *   - eligibility: a READY item is handed out only while its story is active
  *     (not pending), ready, and the task still sits in a teammate state;
  *   - the story's directory as the item's fallback (`resolveItem`);
@@ -25,9 +28,11 @@
  * capability a source context doesn't offer: withdrawing an in-flight item.
  */
 
-import { type Comment, DONE_STATE, type Story, TODO_STATE, type WorkDef, type WorkflowConfig, type WorkItem } from "../../shared/types.ts";
+import {
+  type Comment, DONE_STATE, type Story, type TaskPollRecord, TODO_STATE, type WorkDef, type WorkflowConfig, type WorkItem, type WorkItemState,
+} from "../../shared/types.ts";
 import { buildWorkDefPrompt } from "../prompt.ts";
-import { firstActiveState, isActiveState, isTeammateState, isValidPosition, nextState } from "../workflow-engine.ts";
+import { firstActiveState, isActiveState, isTeammateState, isValidPosition, nextState, pollSettings, type PollSettings } from "../workflow-engine.ts";
 import { plural } from "./toggle.ts";
 import type { ItemTerminalOutcome, SourceContext, SourceToggle, WorkSource } from "./types.ts";
 
@@ -40,6 +45,8 @@ export interface BoardTask {
   storyId: string;
   /** Workflow position: an active state, or the "todo"/"done" buckets. */
   status: string;
+  /** Poll bookkeeping while the task sits in a poll state. */
+  poll?: TaskPollRecord;
 }
 
 /** The Store-level reads and writes the Story source needs (supplied by the Store). */
@@ -57,6 +64,10 @@ export interface StorySourceDeps {
   isPending(defId: string): boolean;
   /** Persist a task's position (task cache + story.json). No queue side effects. */
   writeTaskPosition(taskId: string, status: string): void;
+  /** Persist a task's poll record, or drop it (null). No queue side effects. */
+  writeTaskPoll(taskId: string, poll: TaskPollRecord | null): void;
+  /** The newest WorkItem's state for a WorkDef (CANCELED included), or null. */
+  getLatestItemState(defId: string): WorkItemState | null;
   /** Persist a story's open/done status (reaching done admits its dependents). */
   setStoryStatus(storyId: string, status: "open" | "done"): void;
   /** The WorkDef's active (READY/IN_PROGRESS/MORIBUND) WorkItem, if any. */
@@ -113,13 +124,17 @@ export class StorySource implements WorkSource {
    * have an active (READY/IN_PROGRESS/MORIBUND) WorkItem (rebuilds after a
    * restart, a hand-edit, or a task admitted before the queue existed). Never
    * touches tasks in buckets/manual states, and never resurrects terminal items.
+   * A poll-state task whose last check ended with wait is left alone: when its
+   * next check runs is the poll schedule's call, not a restart's.
    */
   reconcile(): void {
     for (const story of this.deps.getStories()) this.runAdmission(story.id);
     for (const story of this.deps.getStories()) {
       const wf = this.deps.getWorkflowForStory(story.id);
       for (const task of this.deps.getTasksForStory(story.id)) {
-        if (isTeammateState(wf, task.status) && !this.ctx.hasActiveItem(task.id)) this.ctx.enqueue(task.id);
+        if (!isTeammateState(wf, task.status) || this.ctx.hasActiveItem(task.id)) continue;
+        if (pollSettings(wf, task.status) && this.deps.getLatestItemState(task.id) === "WAITED") continue;
+        this.ctx.enqueue(task.id);
       }
     }
   }
@@ -153,7 +168,8 @@ export class StorySource implements WorkSource {
   /**
    * COMPLETE advances the task to its workflow's next state (re-running
    * admission); FAILED leaves it where it is — stuck, with no active WorkItem,
-   * for a human. The new position goes back to the agent.
+   * for a human. WAITED (a poll state's "not yet") leaves it too, but isn't
+   * stuck: `recordWait` has noted the check. The new position goes back to the agent.
    */
   onItemTerminal(def: WorkDef, item: WorkItem): ItemTerminalOutcome | void {
     if (item.state !== "COMPLETE" || !this.deps.getTask(def.id)) return;
@@ -170,6 +186,7 @@ export class StorySource implements WorkSource {
     if (!task) return base;
     const story = this.deps.getStory(task.storyId);
     const comments = this.deps.getComments(def.id);
+    const poll = story ? pollSettings(this.deps.getWorkflowForStory(story.id), task.status) : null;
     return buildWorkDefPrompt({
       workDef: {
         title: def.title, goal: def.goal, acceptanceCriteria: def.acceptanceCriteria,
@@ -179,6 +196,7 @@ export class StorySource implements WorkSource {
       state: task.status,
       persona: this.deps.getStatePersona(story?.workflow, task.status),
       comments: comments.length > 0 ? comments : undefined,
+      ...(poll ? { poll: { since: task.poll?.state === task.status ? task.poll.startedAt : undefined, checks: task.poll?.checks ?? 0 } } : {}),
     });
   }
 
@@ -199,6 +217,36 @@ export class StorySource implements WorkSource {
       this.runAdmission(task.storyId);
     }
     return this.deps.getActiveItem(def.id);
+  }
+
+  // ─── Poll states (docs/DESIGN.md "Polling States") ───
+
+  /**
+   * The poll settings of the state a board task sits in, or null when it is
+   * not a board task or its state isn't a poll state (`completion` once, the
+   * default). Decides whether a run may end with wait, and the claim's
+   * `completion` (which offers the harness's wait tool).
+   */
+  pollSettingsFor(taskId: string): PollSettings | null {
+    const task = this.deps.getTask(taskId);
+    if (!task) return null;
+    return pollSettings(this.deps.getWorkflowForStory(task.storyId), task.status);
+  }
+
+  /**
+   * A check of a poll state ended with wait: note it on the task's poll record
+   * (last check time, reason, one more check). The task doesn't move and its
+   * item is already WAITED. A record from another state (or none — a task that
+   * predates poll records) is started over from now.
+   */
+  recordWait(taskId: string, reason: string, now: Date = new Date()): TaskPollRecord | null {
+    const task = this.deps.getTask(taskId);
+    if (!task) return null;
+    const at = now.toISOString();
+    const base = task.poll?.state === task.status ? task.poll : { state: task.status, startedAt: at, checks: 0 };
+    const record: TaskPollRecord = { ...base, lastCheckAt: at, lastWaitReason: reason, checks: base.checks + 1 };
+    this.deps.writeTaskPoll(taskId, record);
+    return record;
   }
 
   // ─── Board policy (the Store's board methods delegate here) ───
@@ -223,6 +271,11 @@ export class StorySource implements WorkSource {
     const story = this.deps.getStory(task.storyId);
     if (!story) return;
     const wf = this.deps.getWorkflowForStory(task.storyId);
+
+    // Poll bookkeeping: landing in a poll state starts a fresh record (re-entry
+    // ≡ first entry, so a move back in restarts the clock); anywhere else drops it.
+    if (pollSettings(wf, status)) this.deps.writeTaskPoll(taskId, { state: status, startedAt: new Date().toISOString(), checks: 0 });
+    else if (task.poll) this.deps.writeTaskPoll(taskId, null);
 
     if (!keepWorkItem && before && before.status !== status) this.deps.cancelActiveItem(taskId);
     if (isTeammateState(wf, status) && !this.ctx.hasActiveItem(taskId)) this.ctx.enqueue(taskId);

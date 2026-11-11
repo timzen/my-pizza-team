@@ -10,13 +10,16 @@
  * Section order: persona (role framing: a board task's workflow state, or a
  * Solitary/Scheduled WorkDef's own `persona`) → Story (board work only) →
  * working directory instruction → Goal → Acceptance Criteria →
- * Additional Context → lead comments → completion guidance. (The former
+ * Additional Context → lead comments → (a poll state's earlier checks) →
+ * completion guidance. (The former
  * "Reference Context" section went with the context library; the persona
  * migration inlined its text into Additional Context — docs/DESIGN.md "Personas".)
  *
  * There are no transition instructions: teammates never move work (see
  * docs/DESIGN.md "The Work Model") — completing the work advances its story task
- * mechanically (or, for standalone work, just records the outcome).
+ * mechanically (or, for standalone work, just records the outcome). A poll
+ * state's prompt states the check contract instead (docs/DESIGN.md "Polling
+ * States"): one run is one check, ending done, wait, or fail.
  *
  * `buildTriagePrompt` is the auto-triage variant (TODO.md "Auto Triage"): a
  * Thought-parented WorkDef carries no authored goal, so its prompt is assembled
@@ -89,13 +92,34 @@ export interface WorkDefPromptInput {
    * so both count. Teammate comments (status, summaries) are left out.
    */
   comments?: Array<{ from: string; body: string; at: string }>;
+  /**
+   * Set when the board state is a poll state (docs/DESIGN.md "Polling
+   * States"): the run is one check. `since` is when the task entered the state
+   * (its poll record's `startedAt`) — the thread from then on is what earlier
+   * checks did; `checks` is how many have ended with wait so far.
+   */
+  poll?: { since?: string; checks: number };
 }
 
 /** Comment authors that are the human (see WorkDefPromptInput.comments). */
 const HUMAN_COMMENT_AUTHORS = new Set(["lead", "you"]);
 
+/** The most earlier-check comments a poll prompt quotes (the newest ones): enough to pick up the thread. */
+const MAX_EARLIER_CHECK_COMMENTS = 12;
+
+/** The harness's "started" line every run posts first (teammate.ts): not news to the next check. */
+const STARTED_COMMENT = "[status] Started working on this.";
+
+/**
+ * The poll contract, word for word (docs/DESIGN.md "Polling States"). The
+ * prompt adds how each ending is made after it.
+ */
+export const POLL_CHECK_CONTRACT =
+  "Each run is one check; read the thread for what earlier checks did; post what you did; " +
+  "finish with done when complete, wait if it isn't yet, fail if it can't be done.";
+
 export function buildWorkDefPrompt(input: WorkDefPromptInput): string {
-  const { workDef, story, state, persona, comments } = input;
+  const { workDef, story, state, persona, comments, poll } = input;
   const directory = workDef.directory || story?.directory;
   let out = "";
 
@@ -142,6 +166,14 @@ export function buildWorkDefPrompt(input: WorkDefPromptInput): string {
     out += `## Comments from Team Lead\n\n${bodies}\n\n`;
   }
 
+  // 6. A poll state: the earlier checks (the teammate comments since the task
+  //    entered the state), then the check contract in place of plain completion.
+  if (poll) {
+    out += renderEarlierChecks(comments || [], poll.since);
+    out += renderPollCompletion(poll.checks);
+    return out.trimEnd() + "\n";
+  }
+
   // 6. Completion guidance — teammates never move work; finishing IS the signal.
   out += `## Completing This Work\n\n`;
   out += `Do only this work. When you finish, end with a concise summary of what you accomplished`;
@@ -150,6 +182,39 @@ export function buildWorkDefPrompt(input: WorkDefPromptInput): string {
   out += `and mark this work item failed.\n`;
 
   return out.trimEnd() + "\n";
+}
+
+/**
+ * A poll prompt's "Earlier Checks": the thread's teammate comments since the
+ * task entered the state (human ones are already under "Comments from Team
+ * Lead"), newest last, capped at `MAX_EARLIER_CHECK_COMMENTS`. Empty on the first check.
+ */
+function renderEarlierChecks(comments: Array<{ from: string; body: string; at: string }>, since?: string): string {
+  const sinceMs = since ? Date.parse(since) : NaN;
+  const earlier = comments.filter((c) =>
+    !HUMAN_COMMENT_AUTHORS.has(c.from) && c.body.trim() !== STARTED_COMMENT &&
+    (Number.isNaN(sinceMs) || Date.parse(c.at) >= sinceMs));
+  if (earlier.length === 0) return "";
+  const shown = earlier.slice(-MAX_EARLIER_CHECK_COMMENTS);
+  let out = `## Earlier Checks\n\n`;
+  if (shown.length < earlier.length) out += `_${earlier.length - shown.length} older comment(s) not shown._\n\n`;
+  for (const c of shown) out += `> **${c.from}** (${c.at}):\n>\n${c.body.split("\n").map((l) => `> ${l}`).join("\n")}\n\n`;
+  return out;
+}
+
+/** A poll prompt's completion section: the check contract, then how to end each way. */
+function renderPollCompletion(checks: number): string {
+  let out = `## Completing This Check\n\n`;
+  out += `This state polls: it finishes on an outside signal (an approval, a build, a reply), so it is worked as a series of checks`;
+  out += checks > 0 ? ` — ${checks} earlier check${checks === 1 ? "" : "s"} ended with wait. ` : `. `;
+  out += `${POLL_CHECK_CONTRACT}\n\n`;
+  out += `- **Done**: the work is complete. End with a concise summary of what you accomplished — the task then advances automatically.\n`;
+  out += `- **Wait**: not yet. Call the \`wait_for_next_check\` tool with a short \`reason\` `;
+  out += `(e.g. "CR-123 has 2 unresolved comments; revision posted") and, in \`details\`, what you did this check — `;
+  out += `both go on the thread for the next check — then stop. The daemon runs the next check later; don't sleep or poll yourself.\n`;
+  out += `- **Fail**: it can't be done. Post a comment explaining what you need and mark this work item failed.\n\n`;
+  out += `Do only this work. Do not pick up other work.\n`;
+  return out;
 }
 
 // (Prompt input types are defined above, next to buildWorkDefPrompt.)

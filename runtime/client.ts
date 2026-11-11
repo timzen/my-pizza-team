@@ -492,6 +492,19 @@ export class DaemonClient {
     );
   }
 
+  /**
+   * End a poll state's check with "not yet" (`WAITED`): the task stays in its
+   * state and the daemon runs the next check later (my-pizza-team
+   * docs/DESIGN.md "Polling States"). Only accepted when the claim said
+   * `completion: "poll"`; the caller posts its own comment first.
+   */
+  async waitWorkItem(workItemId: string, reason: string): Promise<AgentSetWorkItemStateResponse> {
+    return this.post<AgentSetWorkItemStateResponse>(
+      `/api/agents/work-items/${encodeURIComponent(workItemId)}/state`,
+      { agentId: this.agentId, state: "WAITED", reason }
+    );
+  }
+
   // ═══════════════════════════════════════════════════════════════════
   // COMMENTS (replaces old "messages")
   // ═══════════════════════════════════════════════════════════════════

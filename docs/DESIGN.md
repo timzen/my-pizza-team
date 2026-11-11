@@ -114,7 +114,9 @@ detail (goal, comments, outcome) lives on the **ref**, never on the item.
 The WorkItem **drives** its work: the daemon reacts to a terminal state. `COMPLETE`
 advances a board task to its next workflow state (freeing the CONWIP token when it
 reaches `done`); `FAILED`/`CANCELED` leaves the work in place with no active item —
-"stuck" until a human re-runs, moves, or edits it. The daemon posts no comment on a
+"stuck" until a human re-runs, moves, or edits it. `WAITED` — a poll state's check
+that found the work not done yet (see "Polling States") — leaves it in place too,
+but not stuck: the state runs its next check later. The daemon posts no comment on a
 state change: the agent writes its own completion or failure comment first.
 
 *Why:* one queue, one lifecycle, terminal-only transitions. It replaces several
@@ -155,6 +157,78 @@ them on the thread is what makes the attempts visible. Intermediate attempts are
 marked read because they aren't news — the retry is; only the final outcome
 should notify. A plain FAILED (the `fail` tool, a human) is never retried: that
 was a decision, not an outage.
+
+## Polling States
+
+Some workflow states finish on an **external signal**, not when a teammate stops
+typing: a CR state should create the CR, keep checking it for comments, post
+revisions, and only finish once the CR is approved. A teammate state therefore has
+a **completion** mode (`WorkflowState.completion`):
+
+- `once` — the default, and exactly what every state did before: one run, which
+  ends done (advance) or failed (stuck).
+- `poll` — the state is a series of one-shot **checks**. Each check ends **done**
+  (advance), **failed**, or **wait** (not yet). After a wait the daemon queues the
+  next check once `pollEvery` (e.g. `"15m"`, at least `MIN_POLL_EVERY`, 1m) has
+  passed, until a check is done or `pollTimeout` (default `DEFAULT_POLL_TIMEOUT`,
+  7d, counted from entering the state) runs out. Then `onTimeout` applies:
+  `manual` (the default) stops polling — no further check is queued — and leaves
+  the task in the state flagged as needing a human, who marks it done (moves it on)
+  or failed; `fail` fails it. Nothing is failed automatically under `manual`.
+
+Durations are `parseDuration` strings (shared/duration.ts): `<n><unit>` parts,
+units `s m h d w`; a bare number is refused as ambiguous. `validateWorkflow`
+refuses a bad value, a poll field on a `once` state (it would silently do nothing),
+and a `pollTimeout` shorter than `pollEvery`. On a **manual** state the fields are
+ignored with a load warning, as a persona is: a manual state has no teammate.
+
+**WorkItems stay one-shot.** The state does the repeating; no teammate is held
+between checks, and each check is a fresh WorkItem and a fresh session. Continuity
+between checks comes from the **task thread**: the poll prompt states the contract
+("Each run is one check; read the thread for what earlier checks did; post what you
+did; finish with done when complete, wait if it isn't yet, fail if it can't be
+done.") and quotes the teammate comments since the task entered the state as
+"Earlier Checks".
+
+**Wait is a terminal state, `WAITED`, not an outcome on `COMPLETE`.** Every
+consumer of `COMPLETE` reads it as *finished*: the Story source advances the task,
+an external source's `onItemTerminal` writes the outcome back, the Inbox and the
+live announcements call it done, run history shows "Complete", the harness reports
+`completed`. An outcome field would need each of them — plugins included — to check
+it, and one that didn't would read a wait as done, failing unsafe. A new state fails
+safe: a consumer that switches on `COMPLETE`/`FAILED` simply ignores it. `WAITED`
+is terminal (the directory lease frees, the item is never reused), counts as a run
+(Execution Count), and is created **read** — a wait isn't news; the outcome that
+finally comes is (the same reasoning as an intermediate retry).
+
+The agent ends a check with `POST /api/agents/work-items/:id/state`
+`{ state: "WAITED", reason }`. Only a board task in a poll state may wait; anywhere
+else the daemon refuses (400) and the item stays in flight, so the agent can still
+finish it. The claim reply says `completion: "poll"` for a poll state, and the Pi
+harness offers its `wait_for_next_check({ reason, details })` tool only then (Pi's
+active tool set). Both are **additive**: an older harness never sends `WAITED` and
+ignores `completion`, so no protocol bump (see "One Protocol, One Version"). The
+agent writes its own `[wait]` comment, as it does for done and fail — after the
+daemon accepts the wait, so a refused one leaves no misleading line.
+
+**The task's poll record** (`TaskPollRecord`: `state`, `startedAt`, `lastCheckAt`,
+`lastWaitReason`, `checks`) lives on the story's task entry next to its position
+(`stories/<id>.json`, cached in `tasks.poll`), so it survives a restart like the
+position does. Landing in a poll state starts a fresh record (re-entry ≡ first
+entry: moving the task back in restarts the clock); landing anywhere else drops
+it. On boot, the Story source's reconcile doesn't re-enqueue a poll-state task whose
+latest item is `WAITED`: when the next check runs is the poll schedule's call, not a
+restart's.
+
+**Readiness gating** works as for schedules (see "Readiness Gating"): a due check
+is queued only while the team's readiness probe says ready, otherwise held; on
+recovery exactly one check runs, not a backlog, and the time limit never fails a
+task while its check is held.
+
+*Status:* the config, its validation, the wait outcome, the poll prompt and the poll
+record are in. The poll scheduler — queuing the next check after `pollEvery`, the
+readiness hold, and `pollTimeout`/`onTimeout` — is not yet; until it lands, a waited
+task stays in its state until a human moves it (moving it back in runs a check).
 
 ## Work Matching: Directory Affinity
 

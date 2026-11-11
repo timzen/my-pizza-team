@@ -12,7 +12,7 @@ import { readBody, fail } from "./http.ts";
 import type { WorkItem, WorkItemState, WorkItemRef } from "../../shared/types.ts";
 import type { WorkItemView, WorkItemsResponse, WorkItemMutationResponse, ForceFailWorkItemRequest, ReEnqueueRequest } from "../../shared/protocol.ts";
 
-const ALL_STATES: WorkItemState[] = ["READY", "IN_PROGRESS", "MORIBUND", "COMPLETE", "FAILED", "CANCELED"];
+const ALL_STATES: WorkItemState[] = ["READY", "IN_PROGRESS", "MORIBUND", "COMPLETE", "FAILED", "CANCELED", "WAITED"];
 
 export function registerWorkRoutes(ctx: RouteContext): void {
   const { app, store } = ctx;

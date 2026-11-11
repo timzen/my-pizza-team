@@ -33,6 +33,7 @@ export function latestStateLabel(state: string | null): string {
     case "COMPLETE": return "Complete";
     case "FAILED": return "Failed";
     case "CANCELED": return "Canceled";
+    case "WAITED": return "Waiting";
     default: return state;
   }
 }

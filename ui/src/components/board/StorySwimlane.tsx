@@ -42,7 +42,7 @@ interface StoryData {
     title: string;
     status: string;
     pending?: boolean;
-    workItemState?: "READY" | "IN_PROGRESS" | "MORIBUND" | "COMPLETE" | "FAILED" | "CANCELED" | null;
+    workItemState?: "READY" | "IN_PROGRESS" | "MORIBUND" | "COMPLETE" | "FAILED" | "CANCELED" | "WAITED" | null;
     description?: string;
     assignee: string | null;
     tokenUsage?: { totalCostUsd: number };

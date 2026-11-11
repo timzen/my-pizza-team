@@ -27,7 +27,7 @@ interface TaskCardProps {
     /** Still pending (docs/DESIGN.md "Pending: Write, Review, Activate"). */
     pending?: boolean;
     /** State of the active WorkItem for this task, if any (queued/working/at-risk). */
-    workItemState?: "READY" | "IN_PROGRESS" | "MORIBUND" | "COMPLETE" | "FAILED" | "CANCELED" | null;
+    workItemState?: "READY" | "IN_PROGRESS" | "MORIBUND" | "COMPLETE" | "FAILED" | "CANCELED" | "WAITED" | null;
     description?: string;
     assignee: string | null;
     tokenUsage?: { totalCostUsd: number };
