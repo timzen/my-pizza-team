@@ -219,3 +219,8 @@ actual unit teammates claim. Retrying always makes a fresh WorkItem.
 The ordered list of steps a story's tasks go through, each an
 [agent state](#agent-state) or a [manual state](#manual-state). See
 [Workflows](02-stories-and-workflows.md#workflows).
+
+A story's workflow can be changed later, unless a task is partway through a step
+the new workflow lacks. A workflow can be deleted unless it's the default, the last
+one, or used by an open story; its folder is kept in `workflows/.deleted/`. See
+[Deleting a workflow](02-stories-and-workflows.md#deleting-a-workflow).

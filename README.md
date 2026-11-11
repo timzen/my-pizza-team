@@ -618,6 +618,18 @@ Manual states need no persona. Create workflows and edit their states under
 creation. With no workflows on disk, a built-in `default` (`in_progress` →
 `review`) is used.
 
+A story's workflow can be changed later (the story page's **Workflow** picker,
+`PUT /api/stories/:id` `workflow`, or the assistant's `edit_story`). An unknown name
+is rejected; empty clears the override to the team default. A switch is **refused**
+(409, naming the task and state) while a task is partway through a state the new
+workflow lacks — tasks in `todo`/`done` or in a state both share never block.
+
+A workflow can be deleted from its page (`DELETE /api/workflows/:name`). It's
+refused for the team's `defaultWorkflow`, the last workflow left, and one an open
+story still uses (those stories are listed). Its folder moves to
+`workflows/.deleted/<name>-<timestamp>/` as a backup; done and archived stories that
+named it fall back to the default workflow.
+
 ---
 
 ## Assistant Chat
@@ -838,7 +850,7 @@ The current protocol version is `PROTOCOL_VERSION` in `shared/agent-protocol.ts`
 | Status / control | `GET /api/status`, `POST /api/control/pause\|resume` | Summary; pause/resume work distribution |
 | Config | `GET/PUT /api/config`, `GET/PUT /api/teammate-pool`, `POST /api/unmanaged-windows/close` | Config and workflows; the declared team size, and the team terminal's unmanaged windows (listed, closed only on request) |
 | Readiness | `GET/POST /api/readiness` | Team readiness (the daemon probes; a harness may report) |
-| Stories | `/api/stories/*` (incl. `POST /:id/pending\|activate`), `/api/archived` | CRUD, pending ⇄ active, archive |
+| Stories | `/api/stories/*` (incl. `POST /:id/pending\|activate`), `/api/archived` | CRUD (incl. a guarded workflow switch), pending ⇄ active, archive |
 | Board tasks | `/api/stories/:id/tasks[/reorder]`, `/api/tasks/:id/move`, `DELETE /api/tasks/:id` | Story-parent operations |
 | WorkDefs | `/api/work-defs/*` | Every unit of work: CRUD (edits only while pending), activate, enqueue, archive, comments, attachments, usage; each view carries its run count (`executionCount`, `lastRunAt`) |
 | Schedules | `/api/schedules/*` | Cron parents (get/update/delete; `…/pending`, `…/activate`) |

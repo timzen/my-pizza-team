@@ -330,12 +330,15 @@ function registerEditStory(pi: ExtensionAPI, client: DaemonClient): void {
       "Edit an existing story on the pi-pizza-team kanban board. Can update title, description, status, " +
       "dependencies, working directory, pending state, and workflow. A story is active or pending (reversible): " +
       "pending: true holds it (an in-flight task finishes, nothing new starts, stories depending on it wait); " +
-      "pending: false activates it again.",
+      "pending: false activates it again. A workflow switch is refused while a task is in flight (not todo/done) " +
+      "in a state the new workflow lacks; the error names the task and state.",
     promptSnippet: "Edit an existing story on the pi-pizza-team board",
     promptGuidelines: [
       "Use edit_story to modify existing stories.",
       "Only the fields you provide will be changed.",
       "Pass directory to set where the work happens (empty string to clear).",
+      "Only pass a workflow name that list_workflows lists. If a switch is refused, move the named task to todo or done " +
+        "(or let it finish) and retry.",
     ],
     parameters: Type.Object({
       storyId: Type.String({ description: "ID of the story to edit" }),
@@ -345,7 +348,7 @@ function registerEditStory(pi: ExtensionAPI, client: DaemonClient): void {
       dependsOn: Type.Optional(Type.Array(Type.String(), { description: "New dependency list" })),
       directory: Type.Optional(Type.String({ description: "Where the work happens (empty string to clear). Teammates cd here." })),
       pending: Type.Optional(Type.Boolean({ description: "true makes the story pending (nothing new is handed out); false activates it" })),
-      workflow: Type.Optional(Type.String({ description: "New workflow name (empty for default)" })),
+      workflow: Type.Optional(Type.String({ description: "New workflow name (empty for the team default). Use list_workflows for valid names; refused while a task is in flight in a state the new workflow lacks." })),
     }),
     async execute(_toolCallId, params) {
       const { storyId, directory, ...rest } = params;

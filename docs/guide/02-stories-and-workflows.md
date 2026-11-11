@@ -107,7 +107,8 @@ Create a workflow by name (it starts as `in_progress` → `review`). Open one to
 its ordered steps and edit them: add/remove steps and set each step's **type**
 (**agent** or **manual**), or make it the default. There are no transitions or
 permissions to configure — the pipeline is the ordered list, and the daemon advances
-agent steps automatically. Every story picks its workflow when it's created.
+agent steps automatically. Every story picks its workflow when it's created, and
+you can change it later (see [Changing a story's workflow](#changing-a-storys-workflow)).
 
 ### Deleting a workflow
 

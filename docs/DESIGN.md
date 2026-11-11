@@ -68,6 +68,22 @@ and there is no transition matrix or per-edge permission to configure. The daemo
 (not an LLM) executes both mechanical rules, so the happy path has no model in its
 critical section.
 
+**Changing and deleting workflows.** A story's workflow can be switched at any
+time, *except* when that would strand a task: a switch is refused while a task
+sits in an active state the new workflow lacks (the refusal names the task and
+state). `todo` and `done` exist in every workflow, so tasks there never block, nor
+do tasks in a state both workflows share. The check lives in the store
+(`updateStoryDetails`), so the UI, the API and the leader's `edit_story` get the
+same rule. Deleting a workflow is guarded the same way: refused for the team's
+default, the last workflow, and any workflow an open story names. A delete moves
+the folder to `workflows/.deleted/<name>-<timestamp>/` rather than removing it,
+and done/archived stories that named it fall back to the default workflow —
+harmless, since none of their tasks is in flight.
+
+*Why:* a task in a state its workflow doesn't have has no next state and no
+persona, so neither daemon rule could move it — exactly the bespoke unhappy path
+the model avoids. Refusing the change up front keeps every task's position valid.
+
 Teammates are **generalists**: every teammate works every agent state, and the
 state persona does the specializing. With WIP = 1 per story there is no
 stage-level parallelism to exploit, and specialists would add a stall mode

@@ -8,13 +8,14 @@
  * - Refused (409): the team's default, the last workflow, one an open story uses
  *   (those stories listed). 404 for an unknown name.
  * - Done stories don't block, and afterwards resolve to the default workflow.
+ * - `PUT /api/config` refuses a workflow named `.deleted` (the backup folder).
  */
 
 import { test } from "node:test";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { assertEquals, assert } from "./_assert.ts";
-import { withTeam, del, get, type TeamOptions } from "./_team.ts";
+import { withTeam, del, get, put, type TeamOptions } from "./_team.ts";
 import { WorkflowDeleteError, DELETED_WORKFLOWS_DIR } from "../daemon/store.ts";
 import type { WorkflowConfig } from "../shared/types.ts";
 import type { DeleteWorkflowResponse, WorkflowUsageResponse } from "../shared/protocol.ts";
@@ -121,5 +122,15 @@ test("workflow delete: used only by done (or archived) stories is allowed; they 
     // The story keeps its (now stale) override and falls back to the default.
     assertEquals(store.getStory("s1")!.workflow, "spare");
     assertEquals(store.getWorkflowForStory("s1"), DEFAULT);
+  }, TEAM);
+});
+
+test("workflow delete: PUT /api/config refuses a workflow named like the backup folder", () => {
+  return withTeam({}, async ({ app, store, teamDir }) => {
+    const res = await put(app, "/api/config", { defaultWorkflow: "default", workflows: { default: DEFAULT, [DELETED_WORKFLOWS_DIR]: SPARE } });
+    assertEquals(res.status, 400);
+    assert(String((await res.json()).error).includes("reserved"));
+    assert(!fs.existsSync(path.join(teamDir, "workflows", DELETED_WORKFLOWS_DIR, "workflow.json")));
+    assertEquals(Object.keys(store.getWorkflows()).sort(), ["default", "spare"]);
   }, TEAM);
 });

@@ -18,7 +18,7 @@ import { enabledFeatures, featureSources, featureUsage, resolveFeaturesUpdate } 
 import { agentsOnOtherTerminal, resolveTemplates } from "../spawner.ts";
 import { externalSourceViews } from "./sources.ts";
 import { validateWorkflow } from "../workflow-engine.ts";
-import { WorkflowDeleteError } from "../store.ts";
+import { WorkflowDeleteError, DELETED_WORKFLOWS_DIR } from "../store.ts";
 import type { DeleteWorkflowResponse, WorkflowUsageResponse } from "../../shared/protocol.ts";
 import { execFile } from "node:child_process";
 import * as path from "node:path";
@@ -195,6 +195,8 @@ export function registerSharedRoutes(ctx: RouteContext): void {
       // Workflows (structure and each agent state's `persona`) are validated up
       // front too, so a refused save writes nothing.
       for (const [name, wf] of Object.entries(body.workflows)) {
+        // workflows/.deleted/ holds deleted workflows' backups (BoardStore.deleteWorkflow).
+        if (name === DELETED_WORKFLOWS_DIR) return fail(c, 400, `Workflow name "${name}" is reserved (deleted workflows' backups)`);
         const invalid = validateWorkflow(wf as WorkflowConfig) ?? statePersonaError(store, name, wf as WorkflowConfig);
         if (invalid) return fail(c, 400, `Workflow "${name}": ${invalid}`);
       }
