@@ -11,6 +11,7 @@
 import type { RouteContext } from "./types.ts";
 import { readBody, fail } from "./http.ts";
 import { DONE_STATE } from "../../shared/types.ts";
+import { StoryUpdateError } from "../store.ts";
 import { requestsPending } from "./work-defs.ts";
 import { contextFieldRefusal } from "./personas.ts";
 import type {
@@ -85,7 +86,14 @@ export function registerStoryRoutes(ctx: RouteContext): void {
     if (!store.getStory(storyId)) return fail(c, 404, `Story "${storyId}" not found`);
     const refused = contextFieldRefusal(body);
     if (refused) return fail(c, 400, refused);
-    store.updateStoryDetails(storyId, { title: body.title, description: body.description, status: body.status, dependsOn: body.dependsOn, pending: requestsStoryPending(body), workflow: body.workflow, directory: body.directory });
+    if (body.workflow !== undefined && body.workflow !== null && typeof body.workflow !== "string") return fail(c, 400, "Field 'workflow' must be a string or null");
+    try {
+      store.updateStoryDetails(storyId, { title: body.title, description: body.description, status: body.status, dependsOn: body.dependsOn, pending: requestsStoryPending(body), workflow: body.workflow, directory: body.directory });
+    } catch (e) {
+      // An unknown workflow (400) or a switch that would strand an in-flight task (409).
+      if (e instanceof StoryUpdateError) return fail(c, e.status, e.message);
+      throw e;
+    }
     return c.json({ success: true } satisfies UpdateStoryResponse);
   });
 

@@ -1,7 +1,11 @@
 /**
  * StoryDetailPage — Full story view and editor at /story/:id.
  *
- * This page is the home for story *editing* (title, description, directory). The board only links here; all story edits happen on this page.
+ * This page is the home for story *editing* (title, description, directory, workflow). The board only links here; all story edits happen on this page.
+ * The Workflow picker applies at once, like the Pending toggle: "Team default"
+ * clears the override (the effective name is shown), and a switch the daemon
+ * refuses — an in-flight task's state missing from the new workflow (409) —
+ * shows its reason under the picker (docs/DESIGN.md "The Work Model").
  * The header's Pending ⇄ Active toggle applies at once (docs/DESIGN.md
  * "Pending: Write, Review, Activate"): pending holds the story — a running
  * task finishes, nothing new is handed out, dependents wait.
@@ -31,11 +35,18 @@ import { useAnnounce } from "@/hooks/useAnnounce";
 import { PageHelpButton } from "@/components/help/PageHelpButton";
 import { FieldHint } from "@/components/ui/field-hint";
 
+/** One row of GET /api/workflows (only what the picker needs). */
+interface WorkflowSummary {
+  name: string;
+  isDefault: boolean;
+}
+
 export function StoryDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { data, refetch } = useApi<{ stories: StoryView[] }>("/api/stories");
   const story = data?.stories.find(s => s.id === id);
+  const { data: workflows } = useApi<WorkflowSummary[]>("/api/workflows");
   const [confirmDialog, confirm] = useConfirm();
   const announce = useAnnounce();
   // The tab's title is the story's (the path can't know it: lib/page-title.ts).
@@ -45,6 +56,7 @@ export function StoryDetailPage() {
   const [description, setDescription] = useState("");
   const [directory, setDirectory] = useState("");
   const [error, setError] = useState("");
+  const [workflowError, setWorkflowError] = useState("");
 
   // Seed edit fields when the story loads/changes. Adjusting state during
   // render (guarded by a "last seeded" marker) is React's recommended pattern
@@ -56,6 +68,7 @@ export function StoryDetailPage() {
     setDescription(story.description);
     setDirectory(story.directory || "");
     setError("");
+    setWorkflowError("");
   }
 
   if (!story) {
@@ -109,6 +122,20 @@ export function StoryDetailPage() {
     const res = await apiPost<{ success: boolean; error?: string }>(`/api/stories/${story.id}/${story.pending ? "activate" : "pending"}`);
     if (res.success) { refetch(); announce(story.pending ? "Story activated" : "Story made pending"); }
     else setError(res.error || "Failed to update");
+  };
+
+  // The team default (what "Team default" stands for) and whether the story's
+  // own workflow still exists — a deleted one falls back to the default.
+  const defaultWorkflow = workflows?.find(wf => wf.isDefault)?.name;
+  const workflowMissing = !!story.workflow && !!workflows && !workflows.some(wf => wf.name === story.workflow);
+  const effectiveWorkflow = story.workflow && !workflowMissing ? story.workflow : defaultWorkflow;
+
+  /** Switch the story's workflow, applied immediately ("" = team default). A refusal shows under the picker. */
+  const changeWorkflow = async (name: string) => {
+    setWorkflowError("");
+    const res = await apiPut<{ success: boolean; error?: string }>(`/api/stories/${story.id}`, { workflow: name || null });
+    if (res.success) { refetch(); announce(`Workflow set to ${name || `team default${defaultWorkflow ? ` (${defaultWorkflow})` : ""}`}`); }
+    else setWorkflowError(res.error || "Failed to change workflow");
   };
 
   /** Move a task up/down and persist the new order. */
@@ -186,6 +213,32 @@ export function StoryDetailPage() {
         <MarkdownField label="Description" value={description} onChange={setDescription} rows={4} required />
 
         <div><div className="mb-2 pb-1 border-b border-border"><Label htmlFor="story-edit-dir">Directory</Label></div><DirectoryInput id="story-edit-dir" placeholder="/path/to/project (optional)" value={directory} onChange={setDirectory} hintId="story-edit-dir-hint" /><FieldHint id="story-edit-dir-hint" field="directory" className="mt-1" /></div>
+
+        <div>
+          <div className="mb-2 pb-1 border-b border-border"><Label htmlFor="story-edit-workflow">Workflow</Label></div>
+          <div className="flex flex-wrap items-center gap-2">
+            <select
+              id="story-edit-workflow"
+              value={story.workflow || ""}
+              disabled={!workflows}
+              onChange={(e) => changeWorkflow(e.target.value)}
+              className="h-8 min-w-[220px] max-w-[360px] rounded-md border border-border bg-background px-2 text-sm disabled:opacity-50"
+              aria-invalid={!!workflowError || workflowMissing || undefined}
+              aria-describedby={workflowError ? "story-edit-workflow-error story-edit-workflow-hint" : "story-edit-workflow-hint"}
+            >
+              <option value="">Team default{defaultWorkflow ? ` (${defaultWorkflow})` : ""}</option>
+              {workflowMissing && <option value={story.workflow}>{story.workflow} (missing)</option>}
+              {(workflows || []).map(wf => <option key={wf.name} value={wf.name}>{wf.name}</option>)}
+            </select>
+            {effectiveWorkflow && (workflowMissing || !story.workflow) && (
+              <span className="text-xs text-muted-foreground">
+                {workflowMissing ? `'${story.workflow}' no longer exists; using ${effectiveWorkflow}` : `Using ${effectiveWorkflow}`}
+              </span>
+            )}
+          </div>
+          <FormError id="story-edit-workflow-error" className="mt-1">{workflowError}</FormError>
+          <FieldHint id="story-edit-workflow-hint" field="workflow" className="mt-1" />
+        </div>
 
         <FormError className="text-sm">{error}</FormError>
       </div>

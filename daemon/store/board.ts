@@ -42,6 +42,21 @@ import { listWorkDefs, getWorkDef, saveWorkDef, deleteWorkDef, workDefDir } from
 import type { StoreDomainContext } from "./domain.ts";
 
 /**
+ * Thrown by `updateStoryDetails` when a workflow change can't be applied: an
+ * unknown workflow name (`status` 400) or a switch that would strand an
+ * in-flight task in a state the new workflow lacks (`status` 409). Routes map
+ * `status` straight onto the HTTP response.
+ */
+export class StoryUpdateError extends Error {
+  readonly status: 400 | 409;
+  constructor(status: 400 | 409, message: string) {
+    super(message);
+    this.name = "StoryUpdateError";
+    this.status = status;
+  }
+}
+
+/**
  * Internal board-task view: a WorkDef whose parent is a story, joined with its
  * workflow position (from the story's `tasks` list). This is a runtime cache
  * shape only — the persisted model is the WorkDef (`tasks/<id>/workdef.md`) plus
@@ -462,6 +477,9 @@ export class BoardStore {
   /**
    * Edit a story's fields (cache + file), then re-run admission — and unblock
    * its dependents when the edit marks it done. False when it's missing.
+   * A workflow change is checked first (`assertWorkflowSwitch`): it throws
+   * `StoryUpdateError` and writes nothing when the name is unknown or the
+   * switch would strand an in-flight task.
    */
   updateStoryDetails(storyId: string, updates: {
     title?: string;
@@ -481,6 +499,7 @@ export class BoardStore {
     const newDependsOn = updates.dependsOn ?? story.dependsOn;
     const newPending = updates.pending !== undefined ? updates.pending : (story.pending || false);
     const newWorkflow = updates.workflow !== undefined ? (updates.workflow || null) : (story.workflow || null);
+    if (updates.workflow !== undefined && newWorkflow !== (story.workflow || null)) this.assertWorkflowSwitch(storyId, newWorkflow);
     const newDirectory = updates.directory !== undefined
       ? (updates.directory ? normalizeDirectory(updates.directory) : null)
       : (story.directory || null);
@@ -510,6 +529,29 @@ export class BoardStore {
     if (newStatus === "done" && story.status !== "done") this.admitDependents(storyId);
 
     return true;
+  }
+
+  /**
+   * Refuse a workflow change before it's written (throws `StoryUpdateError`).
+   * `null` clears the override back to the team's `defaultWorkflow` and is always
+   * a known name. A task's `status` is a state name in its story's workflow, so a
+   * switch must not strand a task that is *in flight* — anywhere other than the
+   * implicit `todo`/`done` buckets every workflow shares (docs/DESIGN.md "The Work
+   * Model") — in a state the new workflow doesn't declare. Not-started and finished
+   * tasks never block, and an in-flight state the new workflow also has is fine.
+   */
+  private assertWorkflowSwitch(storyId: string, workflow: string | null): void {
+    if (workflow !== null && !this.workflows[workflow]) throw new StoryUpdateError(400, `Workflow '${workflow}' not found`);
+    const name = workflow ?? this.config.defaultWorkflow;
+    // Same resolution as getWorkflowForStory: a missing default falls back to the default.
+    const target = this.workflows[name] || this.workflows[this.config.defaultWorkflow]!;
+    const states = new Set(target.states.map((s) => s.name));
+    const stranded = this.getTasksForStory(storyId)
+      .filter((t) => t.status !== TODO_STATE && t.status !== DONE_STATE && !states.has(t.status));
+    if (stranded.length === 0) return;
+    const many = stranded.length > 1;
+    const list = stranded.map((t) => `'${t.title}' (${t.id}) in '${t.status}'`).join("; ");
+    throw new StoryUpdateError(409, `Can't switch to workflow '${name}': ${many ? "these in-flight tasks are" : "this in-flight task is"} in a state it doesn't have: ${list}. Move ${many ? "them" : "it"} to todo or done (or let ${many ? "them" : "it"} finish) first.`);
   }
 
   /**

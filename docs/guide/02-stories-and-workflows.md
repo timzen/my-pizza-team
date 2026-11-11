@@ -109,6 +109,15 @@ its ordered steps and edit them: add/remove steps and set each step's **type**
 permissions to configure — the pipeline is the ordered list, and the daemon advances
 agent steps automatically. Every story picks its workflow when it's created.
 
+### Changing a story's workflow
+
+A story's page has a **Workflow** picker; a change applies at once. **Team default**
+follows the team's default workflow (the page shows which one that is). A switch is
+refused, with the reason under the picker, when a task is partway through a step the
+new workflow doesn't have — the message names the task and step. Move that task to
+`todo` or `done` (or let it finish) and try again. Tasks still in `todo`, finished
+ones, and tasks in a step both workflows share never block a switch.
+
 ### State personas
 
 Each **agent** step can pick a **persona** — role framing the teammate receives when

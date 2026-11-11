@@ -1005,7 +1005,7 @@ Every route reads its JSON body with `readBody` and answers errors with `fail`
 | Method | Path | Description |
 |--------|------|-------------|
 | GET/POST | `/api/stories` | List (with tasks) / create (optionally with tasks) |
-| PUT/DELETE | `/api/stories/:id` | Update (incl. `pending`; deprecated alias `paused`) / delete. `POST /api/stories` also takes `pending`; `GET /api/stories` views carry `pending` |
+| PUT/DELETE | `/api/stories/:id` | Update (incl. `pending`; deprecated alias `paused`; `workflow` — `""`/`null` clears to the default, an unknown name is 400, and a switch that would strand an in-flight task (not `todo`/`done`) in a state the new workflow lacks is 409 naming it; checked in `BoardStore.updateStoryDetails`, `StoryUpdateError`) / delete. `POST /api/stories` also takes `pending`; `GET /api/stories` views carry `pending` |
 | POST | `/api/stories/:id/pending`, `/api/stories/:id/activate` | Make the story pending (nothing new admitted or handed out; an in-flight task finishes) / active again (re-runs admission). 404 unknown |
 | POST | `/api/stories/:id/archive` | Archive in place (sets `archivedAt` + a synopsis in `stories/<id>.json`; the story leaves the board) |
 | GET | `/api/archived` | List archived stories |

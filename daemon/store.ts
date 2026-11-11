@@ -110,6 +110,7 @@ import * as path from "node:path";
 export { DISMISS_EXIT_GRACE_MS, SPAWN_REGISTER_GRACE_MS, SELF_HANDLED_ACTIONS, LEADER_MEMBER_NAME, isPoolTeammate, type LeaderDirective, type TeammatePoolState } from "./store/members.ts";
 export type { WorkDefExecutionStats } from "./store/queue.ts";
 export type { Task, TaskWithMeta } from "./store/board.ts";
+export { StoryUpdateError } from "./store/board.ts";
 export type { AcceptProposalOptions, ProposalResult, TriageProposalOverrides, TriageThread } from "./store/triage.ts";
 
 /** `ctx.options()` of a source registered without settings (the built-ins). */
@@ -696,7 +697,7 @@ export class Store {
   /** Not done, and every dependency done (or no longer active). */
   isStoryReady(storyId: string): boolean { return this.board.isStoryReady(storyId); }
 
-  /** Edit a story's fields, then re-run admission (and unblock dependents on done); see `BoardStore.updateStoryDetails`. */
+  /** Edit a story's fields, then re-run admission (and unblock dependents on done); throws `StoryUpdateError` on a refused workflow change. See `BoardStore.updateStoryDetails`. */
   updateStoryDetails(storyId: string, updates: Parameters<BoardStore["updateStoryDetails"]>[1]): boolean { return this.board.updateStoryDetails(storyId, updates); }
 
   /** Move a story active ⇄ pending (docs/DESIGN.md "Pending: Write, Review, Activate"); false when missing. */
