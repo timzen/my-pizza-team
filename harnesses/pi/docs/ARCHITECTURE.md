@@ -196,7 +196,8 @@ construction (tests/session-transcript.test.mjs).
 It's **watch-only** — nothing flows into Pi — and **streams only while watched**:
 
 ```
-every 2s   GET /api/agents/:id/transcript/watch → { watched }
+every 2s   GET /api/agents/:id/transcript/watch → { watched, backfill }
+watch start → current session so far → POST …/transcript { entries, backfill: { omitted } }
 while watched, Pi events → coalesced entries → POST /api/agents/:id/transcript (every ~150ms)
    session_start (mirror start)  → { kind: "session" }             (fresh session per work item)
    input                         → { kind: "user", origin: tui|extension }
@@ -208,8 +209,11 @@ while watched, Pi events → coalesced entries → POST /api/agents/:id/transcri
 Keyed entries are upserts on the daemon. `message_update` is cumulative per
 message, so a viewer who arrives mid-reply gets the whole message on the next
 update; a burst of token updates (and a tool's start+end) collapse into one
-pending entry per key before each flush. There's no backfill: an unwatched
-teammate sends nothing, and the view starts where watching started. Tool
+pending entry per key before each flush. An unwatched teammate sends nothing.
+When watching starts (and the daemon's watch poll says `backfill: true`), the
+mirror first sends the current session so far as one backfill batch — built
+with the same entry builders, capped at 200 entries / 400k chars with the
+omitted count — which replaces the daemon's buffer; live entries follow. Tool
 output/args are clipped to previews (the session file has the full thing). The
 POST response carries `watched`, so the mirror stops as soon as the last
 viewer's grace window ends. Its `pi.on` registrations are separate from the

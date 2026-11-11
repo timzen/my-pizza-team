@@ -84,6 +84,10 @@ folder, and the step ticks off once it connects (a few seconds). If the daemon
 can't start it (for example it can't reach tmux, or herdr), the button is replaced by the
 reason and the command that fixes it.
 
+The assistant lives in the dock beside the page as a chat. Switch the dock to
+**Full page** (its header) for the terminal view — the whole session so far,
+tool calls included, with the same message box; **Restore** brings the chat back.
+
 The checklist then walks you through the rest — a first teammate, a one-click
 sample task, watching it run, reviewing it in the Inbox — and ticks each step off
 as you do it. Until you're through it, `mpt start --daemon` ends by pointing you there.

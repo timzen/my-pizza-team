@@ -191,7 +191,8 @@ Click a teammate in the web UI's sidebar and its session streams live into the
 center of the page, rendered like the terminal (prompts, prose, tool calls with
 output previews). Each teammate's `TranscriptMirror` forwards its Pi events to the
 daemon **only while someone is watching** — an unwatched teammate sends nothing —
-and there's no backfill: the view starts where you started watching. It's
+and each watching period opens with a backfill of the current session so far
+(capped; a note says when earlier entries were left out), then continues live. It's
 watch-only until you click **Pair**: that pauses the teammate's autonomous
 loop (like typing in its window, but permissions stay autonomous — nobody is at
 its terminal) and opens a message box. Messages queue behind the current run
