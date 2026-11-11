@@ -17,7 +17,7 @@ import {
 import { enabledFeatures, featureSources, featureUsage, resolveFeaturesUpdate } from "../features.ts";
 import { agentsOnOtherTerminal, resolveTemplates } from "../spawner.ts";
 import { externalSourceViews } from "./sources.ts";
-import { validateWorkflow } from "../workflow-engine.ts";
+import { isPollState, validateWorkflow } from "../workflow-engine.ts";
 import { normalizeWorkflowStateTypes } from "../workflow-aliases.ts";
 import { WorkflowDeleteError, DELETED_WORKFLOWS_DIR } from "../store.ts";
 import type { DeleteWorkflowResponse, WorkflowSummary, WorkflowUsageResponse } from "../../shared/protocol.ts";
@@ -385,6 +385,7 @@ export function registerSharedRoutes(ctx: RouteContext): void {
         // DEPRECATED(worker→teammate): remove in remove-worker-aliases — the old name of `teammateCount`.
         agentCount: teammateCount,
         manualCount: wf.states.length - teammateCount, isDefault: name === config.defaultWorkflow,
+        pollStates: wf.states.filter((s) => isPollState(wf, s.name)).map((s) => s.name),
       } satisfies WorkflowSummary;
     });
     return c.json(summaries);

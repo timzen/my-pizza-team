@@ -369,6 +369,8 @@ export interface WorkflowSummary {
   agentCount: number;
   manualCount: number;
   isDefault: boolean;
+  /** The teammate states with `completion: "poll"`, in order (docs/DESIGN.md "Polling States"). */
+  pollStates: string[];
 }
 // GET /api/workflows/:name/usage — the stories naming the workflow explicitly (archived ones aren't listed)
 export interface WorkflowStoryRef { id: string; title: string }

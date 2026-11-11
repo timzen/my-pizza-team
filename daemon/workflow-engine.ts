@@ -16,10 +16,10 @@ import {
   DEFAULT_POLL_ON_TIMEOUT,
   DEFAULT_POLL_TIMEOUT,
   DONE_STATE,
-  MIN_POLL_EVERY,
   TODO_STATE,
 } from "../shared/types.ts";
 import { parseDuration } from "../shared/duration.ts";
+import { pollConfigError } from "../shared/poll-config.ts";
 
 /** Names of a workflow's active states, in order. */
 export function activeStateNames(wf: WorkflowConfig): string[] {
@@ -86,35 +86,11 @@ export function validateWorkflow(wf: WorkflowConfig): string | null {
 const COMPLETION_FIELDS = ["completion", "pollEvery", "pollTimeout", "onTimeout"] as const;
 
 /**
- * Why a teammate state's completion fields are refused, or null. Manual
- * states aren't judged: they have no WorkItem, so the fields are ignored
- * there (with a load warning — `ignoredStateFields`), like a persona.
+ * Why a teammate state's completion fields are refused, or null — the shared
+ * rule (shared/poll-config.ts), which the UI's workflow editor runs too.
  */
 function stateCompletionError(s: WorkflowState): string | null {
-  if (s.type !== "teammate") return null;
-  const { completion, pollEvery, pollTimeout, onTimeout } = s;
-  if (completion !== undefined && completion !== "once" && completion !== "poll") {
-    return `completion must be "once" or "poll"`;
-  }
-  if (completion !== "poll") {
-    // A poll field on a once state would silently do nothing: say so.
-    const stray = (["pollEvery", "pollTimeout", "onTimeout"] as const).filter((f) => s[f] !== undefined);
-    return stray.length > 0 ? `${stray.join(", ")} only apply with completion "poll"` : null;
-  }
-  const minMs = parseDuration(MIN_POLL_EVERY)!;
-  const everyMs = parseDuration(pollEvery);
-  if (pollEvery === undefined) return `completion "poll" needs pollEvery (a duration such as "15m")`;
-  if (everyMs === null) return `pollEvery must be a duration such as "15m" (got ${JSON.stringify(pollEvery)})`;
-  if (everyMs < minMs) return `pollEvery must be at least ${MIN_POLL_EVERY}`;
-  if (pollTimeout !== undefined) {
-    const timeoutMs = parseDuration(pollTimeout);
-    if (timeoutMs === null) return `pollTimeout must be a duration such as "7d" (got ${JSON.stringify(pollTimeout)})`;
-    if (timeoutMs < everyMs) return "pollTimeout must be at least pollEvery";
-  }
-  if (onTimeout !== undefined && onTimeout !== "fail" && onTimeout !== "manual") {
-    return `onTimeout must be "fail" or "manual"`;
-  }
-  return null;
+  return pollConfigError(s)?.message ?? null;
 }
 
 /**

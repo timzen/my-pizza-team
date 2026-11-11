@@ -10,8 +10,12 @@
  * layered on top are the story breadcrumb, the workflow status + move buttons,
  * and delete (which routes through the task endpoint so the story's task list +
  * CONWIP token are cleaned up). A task in a poll state shows its poll status
- * (lib/poll-status.ts) and a **Check now** button (`POST /api/tasks/:id/check-now`;
- * docs/DESIGN.md "Polling States").
+ * (lib/poll-status.ts: waiting with the next check, held with the readiness
+ * probe's reason, a check running, or — after a manual timeout — "Needs
+ * attention" with **Mark done**, the move a done check would make) and a
+ * **Check now** button (`POST /api/tasks/:id/check-now`; docs/DESIGN.md
+ * "Polling States"): disabled with the reason while a check is queued or
+ * running, and the daemon's refusal (e.g. the team isn't ready) shown beside it.
  *
  * The definition is `WorkDefDefinition`: a **pending** task can be edited and
  * activated (it holds its place in the story until then); an active one is
@@ -39,9 +43,9 @@ import { DetailTabBar, useDetailTab } from "@/components/ui/detail-tabs";
 import { DetailPageLayout, DetailPageMessage } from "@/components/TabbedPageLayout";
 import { Trash2 } from "lucide-react";
 import { BackButton } from "@/components/ui/back-button";
-import type { Comment } from "@shared/types";
-import type { CheckNowResponse, StoryView, WorkDefView } from "@shared/protocol";
-import { pollChip } from "@/lib/poll-status";
+import type { Comment, WorkflowState } from "@shared/types";
+import type { CheckNowResponse, StoryView, TaskPollView, WorkDefView } from "@shared/protocol";
+import { checkNowBlockedReason, checkNowRefusal, pollChip } from "@/lib/poll-status";
 import { Tooltip } from "@/components/ui/tooltip";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import { useConfirm } from "@/components/ui/confirm-dialog";
@@ -52,7 +56,7 @@ type WorkDef = WorkDefView;
 
 interface StatusData {
   defaultWorkflow: string;
-  workflows: Record<string, { states: string[]; transitions?: Record<string, Record<string, string>> }>;
+  workflows: Record<string, { states: WorkflowState[]; transitions?: Record<string, Record<string, string>> }>;
 }
 
 export function TaskDetailPage() {
@@ -81,7 +85,7 @@ export function TaskDetailPage() {
   const workflows = statusData?.workflows || {};
   const defaultWorkflow = statusData?.defaultWorkflow || "default";
   const wfName = story?.workflow && workflows[story.workflow] ? story.workflow : defaultWorkflow;
-  const states = workflows[wfName]?.states || [];
+  const states = (workflows[wfName]?.states || []).map((s) => s.name);
   const transitions = workflows[wfName]?.transitions || {};
   const validTransitions = task ? Object.keys(transitions[task.status] || {}) : [];
 
@@ -99,13 +103,22 @@ export function TaskDetailPage() {
     refetchStories();
   };
 
+  // Check now: busy while asking; a refusal (409 — e.g. the team isn't ready)
+  // shows beside the button until the next ask.
+  const [checking, setChecking] = useState(false);
+  const [checkError, setCheckError] = useState("");
   const checkNow = async () => {
     if (!taskId) return;
-    setEditError("");
-    const res = await apiPost<CheckNowResponse>(`/api/tasks/${encodeURIComponent(taskId)}/check-now`, {});
-    if (!res.success) { setEditError(res.error || "Couldn't queue a check"); return; }
-    announce("Check queued");
-    refetchStories();
+    setChecking(true);
+    setCheckError("");
+    try {
+      const res = await apiPost<CheckNowResponse>(`/api/tasks/${encodeURIComponent(taskId)}/check-now`, {});
+      if (!res.success) { setCheckError(checkNowRefusal(res)); return; }
+      announce("Check queued");
+      refetchStories();
+    } catch (e) {
+      setCheckError("Network error: " + (e as Error).message);
+    } finally { setChecking(false); }
   };
 
   const deleteTask = async () => {
@@ -180,14 +193,15 @@ export function TaskDetailPage() {
 
         {/* Poll state: what it's doing between checks, and Check now. */}
         {task.poll && (
-          <div className="flex items-center justify-end gap-2 flex-wrap">
-            <span className="text-xs text-muted-foreground">
-              {pollChip(task.poll)?.title ?? (task.workItemState ? "A check is queued or running." : "Polling.")}
-            </span>
-            <Button type="button" size="sm" variant="outline" onClick={checkNow} disabled={!!task.workItemState}>
-              Check now
-            </Button>
-          </div>
+          <PollPanel
+            poll={task.poll}
+            workItemState={task.workItemState}
+            blocked={checkNowBlockedReason(task, checking)}
+            checkError={checkError}
+            onCheckNow={checkNow}
+            nextState={nextStateName(states, task.status)}
+            onMarkDone={moveTask}
+          />
         )}
 
         <RunHistory workDefId={def.id} />
@@ -207,5 +221,60 @@ export function TaskDetailPage() {
         sendOnCmdEnter
       />
     </DetailPageLayout>
+  );
+}
+
+/** Where a done check would move a task in `status`: the next state, or done after the last. */
+function nextStateName(states: string[], status: string): string {
+  const i = states.indexOf(status);
+  return (i >= 0 && states[i + 1]) || "done";
+}
+
+/**
+ * The task page's poll panel: the status in words (waiting with the next
+ * check and the last wait reason, held with the probe's reason, a check
+ * running, or "Needs attention: polling timed out" with Mark done), and the
+ * Check now button — disabled, with the reason as its tooltip, while a check
+ * is in flight; the daemon's refusal shows beside it.
+ */
+function PollPanel({ poll, workItemState, blocked, checkError, onCheckNow, nextState, onMarkDone }: {
+  poll: TaskPollView;
+  workItemState?: string | null;
+  blocked: string | null;
+  checkError: string;
+  onCheckNow: () => void;
+  nextState: string;
+  onMarkDone: (target: string) => void;
+}) {
+  const chip = workItemState ? null : pollChip(poll);
+  const running = workItemState === "IN_PROGRESS" ? "A check is running." : workItemState ? "A check is queued." : null;
+  const needsYou = chip?.kind === "needs-you";
+  return (
+    <div className={`rounded-lg border p-3 space-y-2 ${needsYou ? "border-amber-500 bg-amber-50 dark:bg-amber-950/40" : "border-border"}`}>
+      <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex-1 min-w-0 text-sm">
+          <p className={needsYou ? "font-semibold text-amber-800 dark:text-amber-300" : "font-medium"}>
+            {running ?? chip?.label ?? "Polling"}
+            {chip?.count && <span className="ml-2 text-xs font-normal text-muted-foreground">{chip.count}</span>}
+          </p>
+          {chip && <p className="text-xs text-muted-foreground">{chip.title}</p>}
+          {!chip && poll.lastWaitReason && <p className="text-xs text-muted-foreground">Last check: {poll.lastWaitReason}</p>}
+        </div>
+        {needsYou && (
+          <Button type="button" size="sm" onClick={() => onMarkDone(nextState)}>
+            Mark done (move to {nextState.replace(/_/g, " ")})
+          </Button>
+        )}
+        <Tooltip content={blocked ?? "Run one check now, outside the schedule"}>
+          <Button
+            type="button" size="sm" variant="outline" onClick={onCheckNow}
+            disabled={blocked !== null} focusableWhenDisabled
+          >
+            Check now
+          </Button>
+        </Tooltip>
+      </div>
+      <FormError id="check-now-error" className="text-xs">{checkError}</FormError>
+    </div>
   );
 }

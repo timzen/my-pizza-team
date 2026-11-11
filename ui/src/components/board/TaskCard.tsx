@@ -8,9 +8,10 @@
  * state, so the card carries no state badge — only the WorkItem chip that shows
  * whether an agent WorkItem is queued / working / at-risk). A pending task shows a
  * **Pending** badge: it holds its place and gets no WorkItem until activated.
- * A task in a poll state between checks shows a **poll chip** (`PollChip`):
- * waiting (next check), held (the team isn't ready), or needs you (timed out) —
- * docs/DESIGN.md "Polling States".
+ * A task in a poll state between checks shows its **poll status**
+ * (`PollStatusBadge`): "Waiting · next check 14:45" with "check 4" beside it,
+ * "Held · team not ready", or "Needs attention: polling timed out" — and the
+ * normal queued/working chip while a check runs (docs/DESIGN.md "Polling States").
  */
 
 import { Link } from "react-router-dom";
@@ -21,7 +22,7 @@ import { taskDragType } from "./task-drag";
 import { PendingBadge } from "@/components/WorkDefDefinition";
 import { Tooltip } from "@/components/ui/tooltip";
 import type { TaskPollView } from "@shared/protocol";
-import { pollChip } from "@/lib/poll-status";
+import { PollStatusBadge } from "./PollStatusBadge";
 
 interface TaskCardProps {
   task: {
@@ -79,10 +80,10 @@ export function TaskCard({ task, storyId }: TaskCardProps) {
         {/* Active WorkItem chip + view/detail actions. The column names the
             state, so no state badge here — just whether an agent WorkItem is
             queued / working / at-risk on this task. */}
-        <div className="flex items-center mt-2 pt-2 border-t border-border">
+        <div className="flex flex-wrap items-center gap-y-1 mt-2 pt-2 border-t border-border">
           {task.pending && <PendingBadge className="text-[10px] px-1 py-0 mr-1" />}
           {task.workItemState && <WorkItemChip state={task.workItemState} />}
-          {!task.workItemState && task.poll && <PollChip poll={task.poll} />}
+          {task.poll && <PollStatusBadge poll={task.poll} workItemState={task.workItemState} className="mr-1" />}
           {/* Explicit navigation — the task page is the one place to read/edit */}
           {storyId && (
             <Link
@@ -113,20 +114,6 @@ function WorkItemChip({ state }: { state: NonNullable<TaskCardProps["task"]["wor
     <Tooltip content={m.title} describe={false}>
       <Badge variant="outline" className={`text-[10px] px-1 py-0 ${m.cls}`}>
         {m.label}
-      </Badge>
-    </Tooltip>
-  );
-}
-
-/** A poll-state task between checks: waiting / held / needs you (lib/poll-status.ts). */
-function PollChip({ poll }: { poll: TaskPollView }) {
-  const chip = pollChip(poll);
-  if (!chip) return null;
-  const cls = chip.kind === "waiting" ? "" : "border-amber-500/50 text-amber-700 dark:text-amber-400";
-  return (
-    <Tooltip content={chip.title} describe={false}>
-      <Badge variant="outline" className={`text-[10px] px-1 py-0 ${cls}`}>
-        {chip.label}
       </Badge>
     </Tooltip>
   );

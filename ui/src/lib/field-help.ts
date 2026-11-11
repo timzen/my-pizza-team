@@ -114,6 +114,22 @@ export const FIELD_HELP = {
     text: "Nouns for generated teammate names (adjective-noun). Empty uses the built-in list.",
   },
 
+  // ─── Config → Workflows (a teammate state's completion) ───
+  stateCompletion: {
+    text: "Single run: one run, done or failed. Poll: repeated checks until one says done.",
+    learnMore: { topic: "stories-and-workflows", anchor: "polling-steps" },
+  },
+  pollEvery: {
+    text: "How long after a \"not yet\" the next check runs, such as 15m or 1h 30m. At least 1m.",
+    learnMore: { topic: "stories-and-workflows", anchor: "polling-steps" },
+  },
+  pollTimeout: {
+    text: "How long the task may keep polling after entering the step. Empty means 7d; at least the interval.",
+  },
+  onTimeout: {
+    text: "What happens when the time limit runs out: flag the task for you, or fail it.",
+  },
+
   // ─── Config → General ───
   defaultWorkflow: {
     text: "The workflow a new story starts with unless you pick another.",

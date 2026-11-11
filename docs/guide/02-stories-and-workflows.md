@@ -150,8 +150,13 @@ in the … state" framing.
 Some steps finish on an outside signal rather than when the teammate is done
 typing — a CR step should create the CR, keep checking it for comments, post
 revisions, and only finish once it's approved. Make such a teammate step a
-**polling** step by setting its completion in `workflow.json` (there's no editor
-for it yet):
+**polling** step: on the workflow's page, **Edit States**, set the step's
+**Completion** to **Poll until complete**, fill in **Check every** (and, if you
+like, **Time limit** and **On timeout**) and **Save**. The editor checks the
+values as the daemon does — an interval under `1m` or a time limit shorter than
+the interval won't save. Polling steps show a **poll** badge in the pipeline and on
+the Workflows list. Single run, the default, leaves the step as it always was. In
+`workflow.json` the same step reads:
 
 ```json
 { "name": "cr", "type": "teammate", "completion": "poll", "pollEvery": "15m", "pollTimeout": "7d", "onTimeout": "manual" }
@@ -175,20 +180,23 @@ your Inbox. The task records when it entered the step, when it was last checked,
 the last wait reason, and how many checks waited.
 
 After a wait the daemon queues the next check once `pollEvery` has passed — one at
-a time, never a pile of them. On the board the task's card says when (**next check
-in 12m**). If the team's [readiness probe](glossary.md#readiness-probe) says it isn't ready when a
-check is due, the check is **held** (the card says so, with the probe's reason)
+a time, never a pile of them. On the board the task's card says when (**Waiting · next check 14:45**,
+with **check 4** beside it and the last reason in its tooltip); the story page's
+task list and the task's page say the same. While a check runs the card shows the
+usual *queued* / *working* chip. If the team's [readiness probe](glossary.md#readiness-probe) says it isn't ready when a
+check is due, the check is **held** (the card says **Held · team not ready**, with the probe's reason)
 and runs once when the team recovers — one check, however many intervals were
 missed. The time limit never runs out on a held check: after recovery one final
 check runs first.
 
 When `pollTimeout` runs out after a check that waited, polling stops with a
-`[timeout]` comment on the thread: with `"manual"` the card says **needs you** —
-move the task on if it's done, or back into the step to poll again (that restarts
-the clock); with `"fail"` the last check is marked failed and lands in your Inbox.
+`[timeout]` comment on the thread: with `"manual"` the card says **Needs attention:
+polling timed out** — move the task on if it's done (**Mark done** on its page, or
+drag it), or back into the step to poll again (that restarts the clock); with `"fail"` the last check is marked failed and lands in your Inbox.
 
 **Check now** on the task's page runs a check right away, if none is queued or
-running. It's refused while the team isn't ready, with the reason.
+running (the button is disabled, with the reason, while one is). It's refused
+while the team isn't ready, and the reason shows beside the button.
 
 On a **manual** step these fields do nothing; the daemon log warns about them.
 

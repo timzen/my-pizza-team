@@ -181,6 +181,9 @@ units `s m h d w`; a bare number is refused as ambiguous. `validateWorkflow`
 refuses a bad value, a poll field on a `once` state (it would silently do nothing),
 and a `pollTimeout` shorter than `pollEvery`. On a **manual** state the fields are
 ignored with a load warning, as a persona is: a manual state has no teammate.
+The rule lives in one place, shared/poll-config.ts `pollConfigError`: the
+daemon's `validateWorkflow` and the web UI's workflow editor (Single run vs Poll
+until complete) both run it, so the editor can't accept what a save would refuse.
 
 **WorkItems stay one-shot.** The state does the repeating; no teammate is held
 between checks, and each check is a fresh WorkItem and a fresh session. Continuity

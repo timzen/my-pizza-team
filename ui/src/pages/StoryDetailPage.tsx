@@ -10,7 +10,8 @@
  * "Pending: Write, Review, Activate"): pending holds the story — a running
  * task finishes, nothing new is handed out, dependents wait.
  * A story with no tasks yet explains how its tasks run and offers Add a task
- * and the chat (components/ui/empty-state).
+ * and the chat (components/ui/empty-state). A task row in a poll state shows
+ * its poll status (`PollStatusBadge`; docs/DESIGN.md "Polling States").
  */
 
 import { useState } from "react";
@@ -26,6 +27,7 @@ import { Save, Trash2, Plus, ChevronUp, ChevronDown, Archive, Hourglass, Play, L
 import { AskAssistantButton, EmptyState } from "@/components/ui/empty-state";
 import { BackButton } from "@/components/ui/back-button";
 import type { StoryView } from "@shared/protocol";
+import { PollStatusBadge } from "@/components/board/PollStatusBadge";
 import { IconButton } from "@/components/ui/icon-button";
 import { Tooltip } from "@/components/ui/tooltip";
 import { useConfirm } from "@/components/ui/confirm-dialog";
@@ -271,6 +273,7 @@ export function StoryDetailPage() {
               </IconButton>
             </div>
             <Link to={`/task/${story.id}/${t.id}`} className="text-sm flex-1 hover:underline">{t.title}</Link>
+            {t.poll && <PollStatusBadge poll={t.poll} workItemState={t.workItemState} />}
             <Badge variant="secondary" className="text-xs">{t.status.replace(/_/g, " ")}</Badge>
             <IconButton variant="ghost" size="icon" className="h-6 w-6 text-destructive hover:text-destructive/80 hover:bg-destructive/10" onClick={() => deleteTaskById(t.id)} label="Delete task">
               <Trash2 className="h-3.5 w-3.5" />

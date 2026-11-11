@@ -1,6 +1,6 @@
 /**
  * WorkflowsPage — Lists all workflows with summary info (state count, teammate /
- * manual states, default status). Links to individual workflow detail pages.
+ * manual states, default status, and a "poll" badge per poll state). Links to individual workflow detail pages.
  * Includes a "New Workflow" form that creates a workflow with default states.
  * Rendered as the Workflows tab of the Config page (`/config/workflows`;
  * ConfigPage supplies the tab bar and layout, and hides the tab while Stories
@@ -12,6 +12,7 @@ import { useNavigate } from "react-router-dom";
 import { useApi, apiPut } from "@/hooks/useApi";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Plus, ArrowRight } from "lucide-react";
 import { workflowPath } from "@/lib/config-tabs";
@@ -96,8 +97,14 @@ export function WorkflowsPage() {
             onClick={() => navigate(workflowPath(wf.name))}
           >
             <CardContent className="p-4 flex items-center justify-between">
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-3 flex-wrap">
                 <span className="font-semibold">{wf.name}</span>
+                {/* Poll states (docs/DESIGN.md "Polling States"): a small badge each. */}
+                {wf.pollStates?.map((st) => (
+                  <Badge key={st} variant="outline" className="text-[10px] px-1 py-0 border-blue-400 text-blue-700 dark:text-blue-300">
+                    {st.replace(/_/g, " ")} · poll
+                  </Badge>
+                ))}
               </div>
               <div className="flex items-center gap-4 text-sm text-muted-foreground">
                 <span>{wf.stateCount} states</span>

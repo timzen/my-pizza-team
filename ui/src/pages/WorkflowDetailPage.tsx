@@ -10,6 +10,13 @@
  * the persona itself on Config → Personas. Unset = no persona block, just the
  * one-line state framing. (The per-state `<state>.md` files became personas.)
  *
+ * Each teammate state's **completion** (docs/DESIGN.md "Polling States") is
+ * edited in Edit States: Single run (the default) or Poll until complete, with
+ * the interval, time limit and on-timeout behavior (lib/workflow-poll.ts). It is
+ * validated with the daemon's own rule before Save, and saved with the rest of
+ * the states. Manual states have no completion control; a poll state's
+ * pipeline chip carries a "poll" badge.
+ *
  * **Delete** (`DELETE /api/workflows/:name`) moves the workflow's folder to
  * `workflows/.deleted/`, after a confirm that says how many done stories will
  * fall back to the default workflow. It's disabled with a reason for the
@@ -38,6 +45,14 @@ import { FormError } from "@/components/ui/form-error";
 import { useAnnounce } from "@/hooks/useAnnounce";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { workflowDeleteBlockedReason, workflowDeleteDescription } from "@/lib/workflows";
+import {
+  DEFAULT_POLL_TIMEOUT, asManual, isPollingState, pollErrorText, pollSummary, withCompletion, withPollField, workflowPollErrors,
+} from "@/lib/workflow-poll";
+import type { PollConfigError } from "@shared/poll-config";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { FieldHint } from "@/components/ui/field-hint";
+import { describedBy } from "@/lib/field-help";
 import type { DeleteWorkflowResponse, WorkflowUsageResponse } from "@shared/protocol";
 
 interface ConfigData {
@@ -258,11 +273,21 @@ function StateChip({ state }: { state: WorkflowState }) {
       {isTeammate ? <Bot className="h-3.5 w-3.5" /> : <User className="h-3.5 w-3.5" />}
       {state.name.replace(/_/g, " ")}
       <Badge variant="outline" className="text-[10px] px-1 py-0">{state.type}</Badge>
+      {isPollingState(state) && <PollBadge state={state} />}
     </span>
   );
 }
 
-/** Inline editor for a workflow's ordered states (name, type, order). */
+/** A poll state's "poll" badge, its rhythm in the tooltip (a tab stop: the tooltip is the only place it shows). */
+function PollBadge({ state }: { state: WorkflowState }) {
+  return (
+    <Tooltip content={pollSummary(state)} focusable>
+      <Badge variant="outline" className="text-[10px] px-1 py-0 border-blue-400 text-blue-700 dark:text-blue-300">poll</Badge>
+    </Tooltip>
+  );
+}
+
+/** Inline editor for a workflow's ordered states (name, type, order, and a teammate state's completion). */
 function StatesEditor({ name, workflow, config, onSaved }: {
   name: string;
   workflow: WorkflowConfig;
@@ -293,9 +318,16 @@ function StatesEditor({ name, workflow, config, onSaved }: {
     setStates(next);
   };
 
+  // Switching a state to manual drops its completion fields (a manual state has no teammate to poll).
   const toggleType = (idx: number) => {
-    setStates(states.map((s, i) => i === idx ? { ...s, type: s.type === "teammate" ? "manual" : "teammate" } : s));
+    setStates(states.map((s, i) => i === idx ? (s.type === "teammate" ? asManual(s) : { ...s, type: "teammate" }) : s));
   };
+
+  const updateState = (idx: number, next: WorkflowState) => setStates(states.map((s, i) => i === idx ? next : s));
+
+  // The daemon's completion rule, run as you edit; shown once Save was tried.
+  const pollErrors = workflowPollErrors(states);
+  const [showPollErrors, setShowPollErrors] = useState(false);
 
   const remove = (idx: number) => setStates(states.filter((_, i) => i !== idx));
 
@@ -313,6 +345,11 @@ function StatesEditor({ name, workflow, config, onSaved }: {
 
   const save = async () => {
     if (states.length === 0) { setError("A workflow needs at least one state"); return; }
+    if (Object.keys(pollErrors).length > 0) {
+      setShowPollErrors(true);
+      setError("Fix the highlighted polling settings first");
+      return;
+    }
     setSaving(true);
     setError(null);
     setNameInvalid(false);
@@ -331,7 +368,8 @@ function StatesEditor({ name, workflow, config, onSaved }: {
     <section className="border border-border rounded-lg p-4 space-y-3">
       <h3 className="text-sm font-semibold">Edit States</h3>
       {states.map((s, idx) => (
-        <div key={s.name} className="flex items-center gap-2">
+        <div key={s.name} className="space-y-2">
+        <div className="flex items-center gap-2">
           <div className="flex flex-col">
             <IconButton className="h-5 w-5" disabled={idx === 0} onClick={() => move(idx, -1)} label={`Move ${s.name.replace(/_/g, " ")} up`}><ChevronUp className="h-3 w-3" /></IconButton>
             <IconButton className="h-5 w-5" disabled={idx === states.length - 1} onClick={() => move(idx, 1)} label={`Move ${s.name.replace(/_/g, " ")} down`}><ChevronDown className="h-3 w-3" /></IconButton>
@@ -343,6 +381,10 @@ function StatesEditor({ name, workflow, config, onSaved }: {
             </Button>
           </Tooltip>
           <IconButton className="h-7 w-7 text-destructive" onClick={() => remove(idx)} label={`Remove ${s.name.replace(/_/g, " ")}`}><Trash2 className="h-3.5 w-3.5" /></IconButton>
+        </div>
+        {s.type === "teammate" && (
+          <CompletionControls state={s} onChange={(next) => updateState(idx, next)} error={showPollErrors ? pollErrors[s.name] : undefined} />
+        )}
         </div>
       ))}
       <div className="flex items-center gap-2 pt-2 border-t border-border">
@@ -361,5 +403,82 @@ function StatesEditor({ name, workflow, config, onSaved }: {
       </div>
       <FormError id="states-editor-error" className="text-xs">{error}</FormError>
     </section>
+  );
+}
+
+/**
+ * A teammate state's completion controls in the states editor: Single run vs
+ * Poll until complete and, for Poll, the interval, the time limit and what
+ * happens when it runs out. `error` (the daemon's rule, lib/workflow-poll.ts)
+ * marks the field it's about.
+ */
+function CompletionControls({ state, onChange, error }: {
+  state: WorkflowState;
+  onChange: (next: WorkflowState) => void;
+  error?: PollConfigError;
+}) {
+  const key = `state-${state.name}`;
+  const label = state.name.replace(/_/g, " ");
+  const poll = isPollingState(state);
+  const errorId = error ? `${key}-poll-error` : undefined;
+  const fieldError = (f: PollConfigError["field"]) => error?.field === f;
+  return (
+    <div className="ml-7 pl-3 border-l border-border space-y-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-xs font-medium" aria-hidden>Completion</span>
+        <Select value={poll ? "poll" : "once"} onValueChange={(v) => onChange(withCompletion(state, v === "poll" ? "poll" : "once"))}>
+          <SelectTrigger size="sm" className="w-48" aria-label={`Completion, for ${label}`}
+            aria-describedby={`${key}-completion-hint`}>
+            <SelectValue>{(v: string) => (v === "poll" ? "Poll until complete" : "Single run")}</SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="once">Single run</SelectItem>
+            <SelectItem value="poll">Poll until complete</SelectItem>
+          </SelectContent>
+        </Select>
+        <FieldHint id={`${key}-completion-hint`} field="stateCompletion" className="basis-full" />
+      </div>
+      {poll && (
+        <div className="grid grid-cols-[110px_1fr] gap-x-3 gap-y-2 items-start">
+          <Label htmlFor={`${key}-poll-every`} className="text-xs pt-1.5">Check every</Label>
+          <div className="space-y-1">
+            <Input
+              id={`${key}-poll-every`} aria-label={`Check every, for ${label}`} className="h-7 w-32 font-mono text-xs" placeholder="15m"
+              value={state.pollEvery ?? ""}
+              onChange={(e) => onChange(withPollField(state, "pollEvery", e.target.value))}
+              aria-invalid={fieldError("pollEvery") || undefined}
+              aria-describedby={describedBy(fieldError("pollEvery") && errorId, `${key}-poll-every-hint`)}
+            />
+            <FieldHint id={`${key}-poll-every-hint`} field="pollEvery" />
+          </div>
+          <Label htmlFor={`${key}-poll-timeout`} className="text-xs pt-1.5">Time limit</Label>
+          <div className="space-y-1">
+            <Input
+              id={`${key}-poll-timeout`} aria-label={`Time limit, for ${label}`} className="h-7 w-32 font-mono text-xs" placeholder={DEFAULT_POLL_TIMEOUT}
+              value={state.pollTimeout ?? ""}
+              onChange={(e) => onChange(withPollField(state, "pollTimeout", e.target.value))}
+              aria-invalid={fieldError("pollTimeout") || undefined}
+              aria-describedby={describedBy(fieldError("pollTimeout") && errorId, `${key}-poll-timeout-hint`)}
+            />
+            <FieldHint id={`${key}-poll-timeout-hint`} field="pollTimeout" />
+          </div>
+          <span className="text-xs font-medium pt-1.5" aria-hidden>On timeout</span>
+          <div className="space-y-1">
+            <Select value={state.onTimeout ?? "manual"} onValueChange={(v) => onChange(withPollField(state, "onTimeout", v === "fail" ? "fail" : "manual"))}>
+              <SelectTrigger size="sm" className="w-48" aria-label={`On timeout, for ${label}`}
+                aria-describedby={`${key}-on-timeout-hint`}>
+                <SelectValue>{(v: string) => (v === "fail" ? "Fail the task" : "Needs attention")}</SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="manual">Needs attention</SelectItem>
+                <SelectItem value="fail">Fail the task</SelectItem>
+              </SelectContent>
+            </Select>
+            <FieldHint id={`${key}-on-timeout-hint`} field="onTimeout" />
+          </div>
+        </div>
+      )}
+      <FormError id={errorId} className="text-xs">{error ? pollErrorText(error) : null}</FormError>
+    </div>
   );
 }

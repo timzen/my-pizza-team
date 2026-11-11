@@ -108,7 +108,7 @@ test("GET /api/workflows counts teammate states (teammateCount, and the deprecat
     await captureWarnings(() => store.reloadWorkflows());
     const summaries = await (await app.request("/api/workflows")).json();
     const legacy = summaries.find((w: { name: string }) => w.name === "legacy");
-    assertEquals(legacy, { name: "legacy", stateCount: 3, teammateCount: 2, agentCount: 2, manualCount: 1, isDefault: false });
+    assertEquals(legacy, { name: "legacy", stateCount: 3, teammateCount: 2, agentCount: 2, manualCount: 1, isDefault: false, pollStates: [] });
   });
 });
 

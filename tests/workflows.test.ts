@@ -51,6 +51,23 @@ test("GET /api/workflows returns workflow summaries", async () => {
   assertEquals(defaultWf.agentCount, 1);
   assertEquals(defaultWf.manualCount, 1);
   assertEquals(defaultWf.isDefault, true);
+  assertEquals(defaultWf.pollStates, []);
+});
+
+test("GET /api/workflows lists a workflow's poll states (pollStates), for the list's poll badge", async () => {
+  const base = await (await app.request("/api/config")).json();
+  const polling = { states: [
+    { name: "cr", type: "teammate", completion: "poll", pollEvery: "15m" },
+    { name: "build", type: "teammate" },
+    { name: "review", type: "manual" },
+  ] };
+  const put = await app.request("/api/config", {
+    method: "PUT", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ...base, workflows: { ...base.workflows, polling } }),
+  });
+  assertEquals(put.status, 200);
+  const body = await (await app.request("/api/workflows")).json();
+  assertEquals(body.find((w: { name: string }) => w.name === "polling").pollStates, ["cr"]);
 });
 
 test("GET /api/workflows/:name returns full workflow config", async () => {
