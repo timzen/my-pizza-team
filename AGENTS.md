@@ -98,6 +98,13 @@ npm run test:a11y        # axe-core scan of the UI's routes, desktop + phone (bu
 npm pack                 # when touching packaging: builds dist/ and the tarball
 ```
 
+The validation for an MPT change is `npm run check`, `npm test` and `npm run test:e2e`
+(no real model calls: the e2e suite's Pi runs on a scripted provider, and the demo
+team's flow runs on a copy of its fixtures in `tests/fixtures/demo/`). The
+`mpt-demo-team` repo is for demos only: its `./run-ui.sh` (and `--legacy`) is an
+optional manual UI smoke check, and its `./run-e2e.sh` is just a compatibility
+wrapper that runs `npm test && npm run test:e2e` here.
+
 UI changes also follow [docs/ACCESSIBILITY.md](docs/ACCESSIBILITY.md) (WCAG 2.2 AA):
 its rules for new UI code, the a11y allowlist, and a keyboard-only pass over the
 screens you changed.
