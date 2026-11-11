@@ -95,7 +95,7 @@ export class PersonaStore {
   // --- State personas ---
 
   /**
-   * The persona body for an agent state: the persona its `workflow.json` state
+   * The persona body for a teammate state: the persona its `workflow.json` state
    * names (docs/DESIGN.md "References: select, don't embed"), or undefined when
    * it names none (the prompt then uses the one-line state framing). A name that
    * doesn't resolve falls back to `builtin:teammate` with a warning.
@@ -104,11 +104,11 @@ export class PersonaStore {
     return this.resolveStatePersona(workflowName, state)?.body;
   }
 
-  /** The resolved persona for an agent state, or null when it names none. */
+  /** The resolved persona for a teammate state, or null when it names none. */
   resolveStatePersona(workflowName: string | undefined, state: string): ResolvedPersona | null {
     const wfName = workflowName || this.config.defaultWorkflow;
     const st = this.deps.getWorkflows()[wfName]?.states.find((s) => s.name === state);
-    if (!st || st.type !== "agent" || !st.persona) return null;
+    if (!st || st.type !== "teammate" || !st.persona) return null;
     return this.resolvePersona(st.persona, { via: "workflow-state", fallback: "builtin:teammate" }, `workflow '${wfName}' state '${state}'`);
   }
 
@@ -322,7 +322,7 @@ export class PersonaStore {
   }
 
   /**
-   * Point a workflow agent state at a persona (`null` clears it). Errors name
+   * Point a workflow teammate state at a persona (`null` clears it). Errors name
    * why: unknown workflow/state, a manual state, or a persona that doesn't exist.
    */
   setStatePersona(workflowName: string, state: string, persona: string | null): { ok: true; workflow: WorkflowConfig } | { ok: false; status: 400 | 404; error: string } {
@@ -331,7 +331,7 @@ export class PersonaStore {
     const st = wf.states.find((s) => s.name === state);
     if (!st) return { ok: false, status: 404, error: `Workflow "${workflowName}" has no state "${state}"` };
     if (persona !== null) {
-      if (st.type !== "agent") return { ok: false, status: 400, error: `State "${state}" is manual; only agent states have a persona` };
+      if (st.type !== "teammate") return { ok: false, status: 400, error: `State "${state}" is manual; only teammate states have a persona` };
       if (!this.getPersona(persona)) return { ok: false, status: 400, error: `Persona "${persona}" doesn't exist` };
     }
     const next: WorkflowConfig = {

@@ -1272,13 +1272,13 @@ export class Store {
     return this.personas.duplicatePersona(id, overrides);
   }
 
-  /** The persona body for an agent state, or undefined when it names none. */
+  /** The persona body for a teammate state, or undefined when it names none. */
   getStatePersona(workflowName: string | undefined, state: string): string | undefined { return this.personas.getStatePersona(workflowName, state); }
 
-  /** The resolved persona for an agent state, or null when it names none. */
+  /** The resolved persona for a teammate state, or null when it names none. */
   resolveStatePersona(workflowName: string | undefined, state: string): ResolvedPersona | null { return this.personas.resolveStatePersona(workflowName, state); }
 
-  /** Point a workflow agent state at a persona (`null` clears it). */
+  /** Point a workflow teammate state at a persona (`null` clears it). */
   setStatePersona(workflowName: string, state: string, persona: string | null): { ok: true; workflow: WorkflowConfig } | { ok: false; status: 400 | 404; error: string } {
     return this.personas.setStatePersona(workflowName, state, persona);
   }
@@ -1631,7 +1631,7 @@ export class Store {
   /**
    * Activate a pending WorkDef: clear the flag (locking the definition) and hand it
    * to its parent's normal enqueue rule (docs/DESIGN.md "Pending: Write, Review, Activate"):
-   *   - Board: if the task already sits in an agent state it gets its WorkItem now;
+   *   - Board: if the task already sits in a teammate state it gets its WorkItem now;
    *     otherwise admission runs, so a pending task that was holding the story's next
    *     slot is admitted.
    *   - Solitary: enqueued, as creating it would have done, unless `enqueue` is false.

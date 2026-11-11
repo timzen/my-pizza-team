@@ -43,9 +43,11 @@ test("GET /api/workflows returns workflow summaries", async () => {
 
   const defaultWf = body.find((w: { name: string }) => w.name === "default");
   assertEquals(defaultWf.name, "default");
-  // Default workflow: in_progress (agent) → review (manual); todo/done are
+  // Default workflow: in_progress (teammate) → review (manual); todo/done are
   // implicit buckets, not states.
   assertEquals(defaultWf.stateCount, 2);
+  assertEquals(defaultWf.teammateCount, 1);
+  // DEPRECATED(worker→teammate): remove in remove-worker-aliases — the old name, same value.
   assertEquals(defaultWf.agentCount, 1);
   assertEquals(defaultWf.manualCount, 1);
   assertEquals(defaultWf.isDefault, true);
@@ -59,7 +61,7 @@ test("GET /api/workflows/:name returns full workflow config", async () => {
   assertEquals(Array.isArray(body.states), true);
   assertEquals(body.states.length, 2);
   assertEquals(body.states[0].name, "in_progress");
-  assertEquals(body.states[0].type, "agent");
+  assertEquals(body.states[0].type, "teammate");
   assertEquals(body.states[1].type, "manual");
 });
 

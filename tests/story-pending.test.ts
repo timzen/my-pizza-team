@@ -20,10 +20,10 @@ import { withTeam, jsonInit, type TeamOptions } from "./_team.ts";
 import * as path from "node:path";
 import type { WorkflowConfig } from "../shared/types.ts";
 
-/** One agent state: completing it finishes the task (done), admitting the next. */
-const SOLO: WorkflowConfig = { states: [{ name: "work", type: "agent" }] };
-/** Two agent states: completing `build` enqueues a fresh READY item in `check`. */
-const TWO: WorkflowConfig = { states: [{ name: "build", type: "agent" }, { name: "check", type: "agent" }] };
+/** One teammate state: completing it finishes the task (done), admitting the next. */
+const SOLO: WorkflowConfig = { states: [{ name: "work", type: "teammate" }] };
+/** Two teammate states: completing `build` enqueues a fresh READY item in `check`. */
+const TWO: WorkflowConfig = { states: [{ name: "build", type: "teammate" }, { name: "check", type: "teammate" }] };
 
 /** Workflows `default` (SOLO) and `two` (TWO), and agent a1 online in /tmp. */
 const SOLO_TEAM: TeamOptions = {
@@ -92,7 +92,7 @@ test("pending mid-flight: the in-progress task finishes; the next task is not ad
   }, SOLO_TEAM);
 });
 
-test("pending mid-flight: advancing into the next agent state is not handed out", () => {
+test("pending mid-flight: advancing into the next teammate state is not handed out", () => {
   return withTeam({}, ({ store }) => {
     store.createStory("s1", "S1", "d", "open", [], [{ title: "T1", description: "d" }], "two");
     const wi = store.getActiveWorkItem("s1-1")!;

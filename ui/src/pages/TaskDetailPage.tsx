@@ -13,7 +13,7 @@
  *
  * The definition is `WorkDefDefinition`: a **pending** task can be edited and
  * activated (it holds its place in the story until then); an active one is
- * locked — rework goes through the Thread and a move back into an agent state
+ * locked — rework goes through the Thread and a move back into a teammate state
  * (docs/DESIGN.md "Pending: Write, Review, Activate").
  *
  * Comments live on the WorkDef's ref (same comments.jsonl the agents append

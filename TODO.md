@@ -9,15 +9,22 @@ number. Delete an item when it's done.
   `worker` became `teammate` (docs/DESIGN.md "Personas", "`worker` became `teammate`"),
   and the old spellings still work as deprecated aliases, each warning once per run:
   `kinds: [worker]` and `GET /api/personas?kind=worker` (→ `teammate`), `builtin:worker`
-  (→ `builtin:teammate`), and Pi's `--ppt-worker` (→ `--ppt-teammate`). Removing them
+  (→ `builtin:teammate`), Pi's `--ppt-worker` (→ `--ppt-teammate`), and the workflow
+  state type `"agent"` (→ `"teammate"`) with `GET /api/workflows`' `agentCount`
+  (→ `teammateCount`). Removing them
   is the `remove-worker-aliases` story, in a future version: delete everything marked
   `DEPRECATED(worker→teammate)` (`rg 'DEPRECATED\(worker'` — `shared/types.ts`
-  `LEGACY_PERSONA_*_ALIASES`, `daemon/personas/aliases.ts`, `shared/protocol.ts`,
-  `ui/src/lib/personas.ts` `currentPersonaId`, `harnesses/pi/src/teammate-flag.ts`)
-  with `tests/persona-aliases.test.ts` and `harnesses/pi/tests/teammate-flag.test.mjs`;
-  switch the demo's `tracker-worker.md` (here in `tests/fixtures/demo/` and in
-  mpt-demo-team) to `kinds: [teammate]`; and drop the "Deprecated: `worker`" notes in
-  README.md and docs/guide/06-personas.md. Removing them is a breaking change — say
+  `LEGACY_PERSONA_*_ALIASES` and `LEGACY_WORKFLOW_STATE_TYPE_ALIASES`,
+  `daemon/personas/aliases.ts`, `daemon/workflow-aliases.ts` and its call sites
+  (`store/board.ts`, `personas/usage-disk.ts`, `routes/shared.ts`, `layout-check.ts`),
+  `shared/protocol.ts` (incl. `WorkflowSummary.agentCount`), `runtime/client.ts`,
+  `ui/src/lib/personas.ts` `currentPersonaId`, `harnesses/pi/src/teammate-flag.ts`,
+  `harnesses/pi/src/tools.ts` `list_workflows`) with `tests/persona-aliases.test.ts`,
+  `tests/workflow-aliases.test.ts` and `harnesses/pi/tests/teammate-flag.test.mjs`;
+  switch the demo's `tracker-worker.md` to `kinds: [teammate]` and its `hotfix`
+  workflow to `"type": "teammate"` (here in `tests/fixtures/demo/` and in
+  mpt-demo-team); and drop the "Deprecated" notes in README.md,
+  docs/guide/06-personas.md and docs/guide/02-stories-and-workflows.md. Removing them is a breaking change — say
   so in the release notes.
 
 - **herdr server under systemd:** `daemon/terminal/herdr.ts` `realHerdrLaunch` starts

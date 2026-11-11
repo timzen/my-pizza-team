@@ -91,6 +91,8 @@ future version, so switch when convenient:
 | `builtin:worker` | `builtin:teammate` |
 | `kind=worker` (`GET /api/personas?kind=…`) | `kind=teammate` |
 | `--ppt-worker` in a customized Pi spawn template | `--ppt-teammate` |
+| `"type": "agent"` on a workflow state (`workflow.json`) | `"type": "teammate"` (saving the workflow updates it; see [Deprecated: agent state type](02-stories-and-workflows.md#deprecated-agent-state-type)) |
+| `agentCount` in `GET /api/workflows` | `teammateCount` |
 
 ## The Context Library was removed
 

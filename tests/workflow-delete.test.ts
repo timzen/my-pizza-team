@@ -20,8 +20,8 @@ import { WorkflowDeleteError, DELETED_WORKFLOWS_DIR } from "../daemon/store.ts";
 import type { WorkflowConfig } from "../shared/types.ts";
 import type { DeleteWorkflowResponse, WorkflowUsageResponse } from "../shared/protocol.ts";
 
-const DEFAULT: WorkflowConfig = { states: [{ name: "build", type: "agent" }, { name: "review", type: "manual" }] };
-const SPARE: WorkflowConfig = { states: [{ name: "ship", type: "agent" }] };
+const DEFAULT: WorkflowConfig = { states: [{ name: "build", type: "teammate" }, { name: "review", type: "manual" }] };
+const SPARE: WorkflowConfig = { states: [{ name: "ship", type: "teammate" }] };
 
 /** `default` (the team default) and `spare`. */
 const TEAM: TeamOptions = {

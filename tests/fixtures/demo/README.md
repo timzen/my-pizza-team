@@ -12,6 +12,10 @@ persona says `kinds: [teammate]` except `plugins/mpt-source-demo-tracker/persona
 which keeps the deprecated `kinds: [worker]` on purpose so the alias stays exercised
 (`tests/e2e/personas.test.ts`) until the `remove-worker-aliases` story removes it.
 
+Likewise the workflows (in step with mpt-demo-team's `fixtures/team/workflows/`):
+`team/workflows/default` says `"type": "teammate"`, and `team/workflows/hotfix` keeps
+the deprecated `"type": "agent"` on purpose (also asserted in `tests/e2e/personas.test.ts`).
+
 | Here | From mpt-demo-team | Changes |
 |---|---|---|
 | `team/` | `fixtures/team/` | see below |

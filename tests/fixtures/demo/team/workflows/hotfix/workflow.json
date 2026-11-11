@@ -1,0 +1,6 @@
+{
+  "states": [
+    { "name": "fix", "type": "agent" },
+    { "name": "verify", "type": "manual" }
+  ]
+}

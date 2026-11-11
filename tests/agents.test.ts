@@ -19,7 +19,7 @@ function workItemFor(store: Store, taskId: string): string {
   return store.getActiveWorkItem(taskId)!.id;
 }
 
-// The default workflow: in_progress (agent) → review (manual).
+// The default workflow: in_progress (teammate) → review (manual).
 
 // --- Registration ---
 
@@ -187,7 +187,7 @@ test("state=COMPLETE advances to the next state and clears the lease", async () 
 });
 
 test("state=COMPLETE in the last state completes the task and admits the next one", async () => {
-  const soloAgent: WorkflowConfig = { states: [{ name: "work", type: "agent" }] };
+  const soloAgent: WorkflowConfig = { states: [{ name: "work", type: "teammate" }] };
   await withTeam({ workflows: { default: soloAgent } }, async ({ app, store }) => {
     store.registerMember("a1", "neo", "/tmp");
     store.createStory("s1", "S1", "D", "open", [], [

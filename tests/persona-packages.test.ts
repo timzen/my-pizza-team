@@ -317,7 +317,7 @@ test("cli: remove warns about references to the package's personas, which fall b
     try {
       fs.mkdirSync(path.join(env.teamDir, "workflows", "default"), { recursive: true });
       fs.writeFileSync(path.join(env.teamDir, "workflows", "default", "workflow.json"), JSON.stringify({
-        states: [{ name: "TODO", type: "manual" }, { name: "review", type: "agent", persona: "acme/reviewer" }, { name: "DONE", type: "manual" }],
+        states: [{ name: "TODO", type: "manual" }, { name: "review", type: "teammate", persona: "acme/reviewer" }, { name: "DONE", type: "manual" }],
       }));
       const r = await env.run("remove", dir);
       assertEquals(r.code, 0, r.text);

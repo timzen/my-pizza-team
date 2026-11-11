@@ -88,13 +88,17 @@ A workflow is an ordered list of **steps** (*states*) a story task passes throug
 e.g. `todo → in_progress → review → done` (`todo`/`done` are implicit buckets). Each
 step is one of two types:
 
-- **agent** — worked by teammates (each time a task enters it, it gets a new
+- **teammate** — worked by teammates (each time a task enters it, it gets a new
   [run](01-tasks-and-runs.md#runs-one-attempt-at-a-task)). It can pick a
   **persona** from the library — role framing put into the prompt for that step.
 - **manual** — worked by you or the assistant; moving the card onward *is* the
   completion (review gates, approvals).
 
-**Teammates never move tasks.** Finishing an agent step advances the task
+(The **teammate** type used to be called **agent**; a `workflow.json` that still
+says `"type": "agent"` works as before — see
+[Deprecated: agent state type](#deprecated-agent-state-type).)
+
+**Teammates never move tasks.** Finishing a teammate step advances the task
 automatically; you make the judgment moves (send to review, approve, send back for
 rework). There are no per-transition permissions to configure — just the step type.
 
@@ -105,9 +109,9 @@ appears while Stories are switched on — workflows only apply to stories.
 
 Create a workflow by name (it starts as `in_progress` → `review`). Open one to see
 its ordered steps and edit them: add/remove steps and set each step's **type**
-(**agent** or **manual**), or make it the default. There are no transitions or
+(**teammate** or **manual**), or make it the default. There are no transitions or
 permissions to configure — the pipeline is the ordered list, and the daemon advances
-agent steps automatically. Every story picks its workflow when it's created, and
+teammate steps automatically. Every story picks its workflow when it's created, and
 you can change it later (see [Changing a story's workflow](#changing-a-storys-workflow)).
 
 ### Deleting a workflow
@@ -133,19 +137,30 @@ ones, and tasks in a step both workflows share never block a switch.
 
 ### State personas
 
-Each **agent** step can pick a **persona** — role framing the teammate receives when
+Each **teammate** step can pick a **persona** — role framing the teammate receives when
 working that step (implementer, reviewer, CR-writer, …). On a workflow's page,
-**State Personas** has a picker per agent step; a change saves at once and applies
+**State Personas** has a picker per teammate step; a change saves at once and applies
 from the next time a teammate picks up a run. **edit** (or **view**, for a built-in or
 package persona) beside the picker opens the persona itself on
 [Config → Personas](06-personas.md). No persona means just a one-line "you're working
 in the … state" framing.
 
+### Deprecated: agent state type
+
+The **teammate** step type used to be called **agent**. A `workflow.json` state with
+`"type": "agent"` still works for now — it loads as `teammate`, with a one-time
+warning in the daemon log — but the old name will be removed in a future version.
+Nothing needs changing today: saving the workflow (**Edit States → Save**, or picking a
+state persona) writes `"type": "teammate"`. The API still accepts `"agent"` in a
+workflow you send, and `GET /api/workflows` reports `teammateCount` (its old name,
+`agentCount`, is still there too). See also
+[Deprecated: worker](06-personas.md#deprecated-worker).
+
 ## Reviewing work
 
-When a teammate finishes an agent step, the task advances to the next step. If that's
+When a teammate finishes a teammate step, the task advances to the next step. If that's
 a **manual** step (like `review`), it waits for you: review the work and any attached
 diffs, then **drag it forward** (approve → `done`) or **back** (send to rework) with a
-comment explaining what to fix. Moving it back into an agent step queues a fresh run,
+comment explaining what to fix. Moving it back into a teammate step queues a fresh run,
 and the teammate picks it up again with your comments in the prompt (see
 [Comments and the thread](01-tasks-and-runs.md#comments-and-the-thread)).

@@ -30,15 +30,24 @@ either disagrees with the code, the code is right and the doc is a bug.
 ```
 todo (implicit)  →  [ active states, ordered ]  →  done (implicit)
 
-WorkflowConfig = { states: [ { name, type: "agent" | "manual" } ] }
+WorkflowConfig = { states: [ { name, type: "teammate" | "manual" } ] }
 ```
 
 - **`todo` / `done`** are implicit buckets present in every workflow and never
   declared. `todo` is the admission queue; `done` is terminal. An active state may
   not be named `todo` or `done`.
-- **Agent state** — worked by teammates. Landing a task here enqueues a WorkItem.
+- **Teammate state** — worked by teammates. Landing a task here enqueues a WorkItem.
 - **Manual state** — worked by a human (or the leader). No WorkItem, no persona:
   moving the card onward *is* the completion (e.g. a review gate).
+
+The teammate type used to be called `agent`, the one place MPT said "agent" for
+"teammate". `"type": "agent"` is a **deprecated alias**
+(`DEPRECATED(worker→teammate)`, like the persona kind `worker` — "Personas"): a
+workflow.json that says it loads as `teammate` with one warning per run
+(`daemon/workflow-aliases.ts`, the map in `shared/types.ts`), a write body may still
+send it, and the file says `teammate` the next time it's saved — never rewritten on
+load. `GET /api/workflows` counts `teammateCount`, with `agentCount` as a deprecated
+duplicate.
 
 **Who moves tasks:**
 
@@ -46,7 +55,7 @@ WorkflowConfig = { states: [ { name, type: "agent" | "manual" } ] }
 |---|---|
 | **Teammate** | Claim, complete, fail, comment. **Never moves tasks.** |
 | **Daemon** | Two mechanical rules: **advance** (a COMPLETE WorkItem moves its task to the next state) and **admission** (below). |
-| **Human / leader** | Move any task to any position (rework, skip, shelve). Entering an agent state cancels any active WorkItem and enqueues a fresh one — re-entry ≡ first entry. |
+| **Human / leader** | Move any task to any position (rework, skip, shelve). Entering a teammate state cancels any active WorkItem and enqueues a fresh one — re-entry ≡ first entry. |
 
 **Admission (CONWIP, WIP = 1 per story).** The next task (story order) is pulled
 from `todo` into the first active state *only when the story has no task anywhere
@@ -84,7 +93,7 @@ harmless, since none of their tasks is in flight.
 persona, so neither daemon rule could move it — exactly the bespoke unhappy path
 the model avoids. Refusing the change up front keeps every task's position valid.
 
-Teammates are **generalists**: every teammate works every agent state, and the
+Teammates are **generalists**: every teammate works every teammate state, and the
 state persona does the specializing. With WIP = 1 per story there is no
 stage-level parallelism to exploit, and specialists would add a stall mode
 ("nobody works this state").
@@ -251,7 +260,7 @@ emits WorkItems — and its type is derived from that parent, never stored:
 
 | Parent | Type | Emits a WorkItem when |
 |---|---|---|
-| a **Story** (`stories/<id>.json`) | Board | its workflow position enters an agent state (first entry or rework) |
+| a **Story** (`stories/<id>.json`) | Board | its workflow position enters a teammate state (first entry or rework) |
 | a **Schedule** (`schedules/<id>.json`) | Scheduled | the 5-field cron fires |
 | a **Thought** (`thoughts/<id>.md`) | Triage | the triage sweep finds the note's text changed since its last analysis |
 | an **external source** (`parentKind: external`, `parentSource`) | External | its sync reports a new revision of the item (see "Work Sources" below) |
@@ -307,11 +316,11 @@ the `"task"` source.
 | `loadFromDisk`: admission + queue reconcile on startup | ✅ `sources/story.ts` | — | — | — | `reconcile` |
 | `enqueueFor`: title/directory | ✅ story's directory | default | ✅ note title, leader dir | default | `resolveItem` |
 | "once per revision" stamp (`triagedVersion`) | — | — | ✅ via `enqueueRevision` | — | `ctx.enqueueRevision` |
-| `isWorkItemEligible` | ✅ story active + ready, agent state | default | ✅ note active | ✅ `sources/task.ts` | `isEligible` |
+| `isWorkItemEligible` | ✅ story active + ready, teammate state | default | ✅ note active | ✅ `sources/task.ts` | `isEligible` |
 | `setWorkItemState` (advance + admission) | ✅ advance, new position returned | — | — (result is `propose_work`) | — | `onItemTerminal` |
 | claim prompt (`routes/agents.ts buildClaimPrompt` → `Store.buildPromptFor`, `prompt.ts`) | ✅ story + persona framing | base | ✅ triage prompt | base | `buildPrompt` (a triage-mode external item: the daemon's triage prompt) |
 | assignment row at claim (`claimWorkItem`) | ✅ recorded | — | — | — | `onItemClaimed` (release on terminal/cancel/force-fail is the daemon's, unconditional) |
-| `activateWorkDef` | ✅ enqueue in an agent state, else admission | nothing (default) | nothing (default) | ✅ enqueue | `onActivate` |
+| `activateWorkDef` | ✅ enqueue in a teammate state, else admission | nothing (default) | nothing (default) | ✅ enqueue | `onActivate` |
 | Run (`POST /api/work-defs/:id/enqueue` → `Store.runWorkDef`) | default | default | ✅ Triage now | ✅ refuse pending/in-flight | `run` |
 | features (`featureForWorkDef`, `isWorkDefVisible`, `activeFeatureItems`) | ⏳ `workDefType` | ⏳ | ⏳ (always on) | ⏳ | — |
 | routes: `propose_work` (agents.ts — any triage subject: a note's container or a triage-mode mirror), work-defs cron edit / triage-owned PUT·DELETE, `deleteSchedule` unparenting | — | ⏳ | ⏳ | — | — |
@@ -376,7 +385,7 @@ sweep a no-op — Triage now still works.
 **Story is a source too.** `daemon/sources/story.ts` (`StorySource`) owns the
 board's queue *policy*: CONWIP admission (WIP = 1 per story, `admitDependents`
 for `dependsOn`), every position change (leaving a position cancels the
-in-flight item; landing in an agent state enqueues one — re-entry ≡ first entry;
+in-flight item; landing in a teammate state enqueues one — re-entry ≡ first entry;
 the story's open/done follows its tasks), advancing on COMPLETE
 (`onItemTerminal`, whose `{ newStatus, completed }` is what the agent's
 state call returns), eligibility, the story-directory fallback, the persona +
@@ -751,7 +760,7 @@ see "Old spellings" below.)
 - **A pending WorkDef never gets a WorkItem, and the refusal lives in one place.**
   `enqueueFor` is already the single WorkItem creator, so it refuses a pending
   WorkDef — which covers Run, the scheduler, board admission, a move into an
-  agent state, boot-time reconcile, and re-enqueue, including any path added
+  teammate state, boot-time reconcile, and re-enqueue, including any path added
   later. The routes and the scheduler also check for pending so they can give a
   clear reason (a Run on a pending WorkDef is a 409 that says "activate it first";
   a pending cron child doesn't hold its schedule for readiness).
@@ -759,18 +768,18 @@ see "Old spellings" below.)
   `todo` task in order. If that task is pending, nothing is admitted and the story
   waits. Tasks in a story are *sequential*: step N+1 may assume step N's commit,
   so skipping past a pending task would run work out of order — the failure CONWIP
-  exists to prevent. A pending task dragged straight into an agent state keeps the
+  exists to prevent. A pending task dragged straight into a teammate state keeps the
   CONWIP token with no WorkItem, which is the same "hold" made visible on its card.
 - **Activating hands it to its parent's normal rule** rather than inventing a
   new one: a Solitary task is enqueued (the default for creating one;
   `enqueue: false` activates without running), a board task re-runs admission (or,
-  if it already sits in an agent state, gets its WorkItem there), and a Scheduled
+  if it already sits in a teammate state, gets its WorkItem there), and a Scheduled
   job waits for its next cron firing.
 - **Active means locked.** After activating, a PUT that touches the
   definition (title, goal, criteria, context, directory) is refused. The
   definition is what a WorkItem *ran*: editing it afterwards would make the thread
   and Inbox describe work nobody did. Revisions go where they already went —
-  a comment on the thread, then Run (or a move back into an agent state), so the
+  a comment on the thread, then Run (or a move back into a teammate state), so the
   next attempt's prompt carries the change on top of an unchanged definition. A
   scheduled job's cron lives on its Schedule, not the definition, so it stays
   editable.
@@ -1222,7 +1231,7 @@ teammate counts toward the floor. The leader is not part of the pool.
 ## Workflows
 
 Workflows live as directories under `workflows/` (`workflow.json` + a persona
-markdown file per agent state). A story must name its `workflow` at creation — the
+markdown file per teammate state). A story must name its `workflow` at creation — the
 UI offers a picker; there is no implicit selection. When no valid workflow exists on
 disk, the built-in `DEFAULT_CONFIG.workflows` (`in_progress` → `review`) is used.
 Files in an older transition-matrix shape are skipped rather than half-loaded.
@@ -1361,8 +1370,9 @@ the user's text, so a rename that broke them would be an outage for no gain. Eac
 alias is normalized on read (never by rewriting a file the user didn't save; saving
 writes the new spelling) and logs one deprecation warning per run naming the
 replacement. All alias handling sits in one marked place per layer — the maps and
-pure helpers in `shared/types.ts`, `daemon/personas/aliases.ts`, the UI's
-`currentPersonaId`, the harness's `teammate-flag.ts` — each tagged
+pure helpers in `shared/types.ts`, `daemon/personas/aliases.ts` (and
+`daemon/workflow-aliases.ts` for the workflow state type `agent` → `teammate`, "The
+Work Model"), the UI's `currentPersonaId`, the harness's `teammate-flag.ts` — each tagged
 `DEPRECATED(worker→teammate)`, so removing them later is mechanical.
 
 **Package personas** are namespaced by the package's package.json **`name`**,
@@ -1390,7 +1400,7 @@ Each consumer stores **a persona id**, never a body:
 
 | Consumer | Where the reference lives | Unset means |
 |---|---|---|
-| Workflow agent state | `workflow.json`: `{ "name": "review", "type": "agent", "persona": "reviewer" }` | no persona block — today's one-line state framing |
+| Workflow teammate state | `workflow.json`: `{ "name": "review", "type": "teammate", "persona": "reviewer" }` | no persona block — today's one-line state framing |
 | Triage (notes) | `config.json` `triage.persona` | `builtin:triage` |
 | Assistant | `config.json` `assistant.persona` | `builtin:assistant` |
 | Solitary / Scheduled WorkDef | `workdef.md` frontmatter `persona` | no persona block |
@@ -1720,7 +1730,7 @@ Smaller decisions made while building it:
     personas, so a package id is listed as "resolved by the daemon at startup"
     rather than reported missing.
 - **Workflow state personas on `PUT /api/config`** are checked like `PUT
-  /api/workflows/:name/states/:state` — a string, on an agent state, that resolves —
+  /api/workflows/:name/states/:state` — a string, on a teammate state, that resolves —
   but only when the reference *changed*. The config form re-sends every workflow on
   any save, so refusing an unchanged reference that went stale (a hand-deleted
   persona) would block unrelated edits; the claim-time fallback covers it.

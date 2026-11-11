@@ -157,6 +157,9 @@ export interface ThoughtGroup { id: string; title: string; }
 export interface WorkflowSummary {
   name: string;
   stateCount: number;
+  /** States of type `teammate` (absent from a daemon older than the agent→teammate rename). */
+  teammateCount?: number;
+  /** DEPRECATED(worker→teammate): remove in remove-worker-aliases — the old name of `teammateCount`. */
   agentCount: number;
   manualCount: number;
   isDefault: boolean;

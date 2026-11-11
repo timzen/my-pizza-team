@@ -17,9 +17,9 @@ import { StoryUpdateError } from "../daemon/store.ts";
 import type { WorkflowConfig } from "../shared/types.ts";
 
 /** `default`: build → review; `shared`: build → ship; `other`: just ship. */
-const DEFAULT: WorkflowConfig = { states: [{ name: "build", type: "agent" }, { name: "review", type: "manual" }] };
-const SHARED: WorkflowConfig = { states: [{ name: "build", type: "agent" }, { name: "ship", type: "agent" }] };
-const OTHER: WorkflowConfig = { states: [{ name: "ship", type: "agent" }] };
+const DEFAULT: WorkflowConfig = { states: [{ name: "build", type: "teammate" }, { name: "review", type: "manual" }] };
+const SHARED: WorkflowConfig = { states: [{ name: "build", type: "teammate" }, { name: "ship", type: "teammate" }] };
+const OTHER: WorkflowConfig = { states: [{ name: "ship", type: "teammate" }] };
 
 const TEAM: TeamOptions = {
   beforeApp: (store) => {

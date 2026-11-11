@@ -271,7 +271,7 @@ test("GET /api/teammate-pool reports the live pool", async () => {
 test("PUT /api/config also carries minTeammates (and keeps 0 meaningful)", async () => {
   await withTeam({ minTeammates: 0 }, async ({ app, config }) => {
     await registerLeader(app);
-    const workflows = { default: { states: [{ name: "in_progress", type: "agent" }] } };
+    const workflows = { default: { states: [{ name: "in_progress", type: "teammate" }] } };
     const res = await put(app, "/api/config", { defaultWorkflow: "default", workflows, minTeammates: 2 });
     assertEquals(res.status, 200);
     assertEquals(config.minTeammates, 2);

@@ -3,7 +3,7 @@
  *
  * A workflow is an ordered list of active states between the implicit `todo`
  * and `done` buckets (see docs/DESIGN.md "The Work Model"). There is no transition matrix: this module answers
- * position questions (what's active, what's next, is this an agent state) and
+ * position questions (what's active, what's next, is this a teammate state) and
  * the store applies the two mechanical rules (advance, admission). Humans may
  * move tasks anywhere, so there is no permission checking here either.
  */
@@ -20,9 +20,9 @@ export function isActiveState(wf: WorkflowConfig, status: string): boolean {
   return wf.states.some((s) => s.name === status);
 }
 
-/** Is this status an active state worked by agents (claim protocol applies)? */
-export function isAgentState(wf: WorkflowConfig, status: string): boolean {
-  return wf.states.some((s) => s.name === status && s.type === "agent");
+/** Is this status an active state worked by teammates (claim protocol applies)? */
+export function isTeammateState(wf: WorkflowConfig, status: string): boolean {
+  return wf.states.some((s) => s.name === status && s.type === "teammate");
 }
 
 /** The first active state (where admission places tasks), or null for an empty workflow. */
@@ -60,7 +60,7 @@ export function validateWorkflow(wf: WorkflowConfig): string | null {
   const seen = new Set<string>();
   for (const s of wf.states) {
     if (!s || typeof s.name !== "string" || !s.name) return "Every state needs a 'name'";
-    if (s.type !== "agent" && s.type !== "manual") return `State "${s.name}" needs type "agent" or "manual"`;
+    if (s.type !== "teammate" && s.type !== "manual") return `State "${s.name}" needs type "teammate" or "manual"`;
     if (s.name === TODO_STATE || s.name === DONE_STATE) return `State name "${s.name}" is reserved (implicit bucket)`;
     if (seen.has(s.name)) return `Duplicate state name "${s.name}"`;
     seen.add(s.name);

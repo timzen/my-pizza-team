@@ -144,7 +144,7 @@ sources") — posts its analysis with `propose_work` (src/tools.ts → `client.p
 returns a message the agent can act on, so a malformed proposal is a retry rather than
 a broken thread. The tool creates nothing — accepting is the author's decision.
 
-Rework needs no special path: a human moves the task back into an agent state,
+Rework needs no special path: a human moves the task back into a teammate state,
 which enqueues a fresh READY WorkItem, and the next poll discovers it like new
 work — with the human's comments in the prompt. "Giving up" is the agent
 composing a comment + `FAILED` (the `fail` tool); the task is left stuck for a

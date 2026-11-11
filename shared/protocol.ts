@@ -339,6 +339,17 @@ export interface DeletePersonaResponse { success: boolean; usedBy?: PersonaUsage
 export interface PersonaUsageResponse { usedBy: PersonaUsage[] }
 // POST /api/personas/:id/duplicate
 export interface DuplicatePersonaRequest { id?: string; title?: string }
+// GET /api/workflows — one summary per workflow: its state counts by type
+export interface WorkflowSummary {
+  name: string;
+  stateCount: number;
+  /** States of type `teammate`. */
+  teammateCount: number;
+  /** DEPRECATED(worker→teammate): remove in remove-worker-aliases — the old name of `teammateCount`, same value. */
+  agentCount: number;
+  manualCount: number;
+  isDefault: boolean;
+}
 // GET /api/workflows/:name/usage — the stories naming the workflow explicitly (archived ones aren't listed)
 export interface WorkflowStoryRef { id: string; title: string }
 export interface WorkflowUsageResponse { openStories: WorkflowStoryRef[]; doneStories: WorkflowStoryRef[] }

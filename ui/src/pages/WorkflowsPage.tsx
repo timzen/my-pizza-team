@@ -1,5 +1,5 @@
 /**
- * WorkflowsPage — Lists all workflows with summary info (state count, agent /
+ * WorkflowsPage — Lists all workflows with summary info (state count, teammate /
  * manual states, default status). Links to individual workflow detail pages.
  * Includes a "New Workflow" form that creates a workflow with default states.
  * Rendered as the Workflows tab of the Config page (`/config/workflows`;
@@ -17,14 +17,7 @@ import { Plus, ArrowRight } from "lucide-react";
 import { workflowPath } from "@/lib/config-tabs";
 import { FormError } from "@/components/ui/form-error";
 import { useAnnounce } from "@/hooks/useAnnounce";
-
-interface WorkflowSummary {
-  name: string;
-  stateCount: number;
-  agentCount: number;
-  manualCount: number;
-  isDefault: boolean;
-}
+import type { WorkflowSummary } from "@shared/protocol";
 
 interface ConfigData {
   port: number;
@@ -70,7 +63,7 @@ export function WorkflowsPage() {
     try {
       const newWorkflow = {
         states: [
-          { name: "in_progress", type: "agent" },
+          { name: "in_progress", type: "teammate" },
           { name: "review", type: "manual" },
         ],
       };
@@ -108,7 +101,7 @@ export function WorkflowsPage() {
               </div>
               <div className="flex items-center gap-4 text-sm text-muted-foreground">
                 <span>{wf.stateCount} states</span>
-                <span>{wf.agentCount} agent · {wf.manualCount} manual</span>
+                <span>{wf.teammateCount} teammate · {wf.manualCount} manual</span>
                 <ArrowRight className="h-4 w-4" />
               </div>
             </CardContent>
@@ -148,7 +141,7 @@ export function WorkflowsPage() {
           </div>
           {newName.trim() && (
             <p className="text-xs text-muted-foreground">
-              Will be created as: <code className="bg-muted px-1 py-0.5 rounded">{slugify(newName.trim())}</code> with states [in_progress · agent, review · manual]
+              Will be created as: <code className="bg-muted px-1 py-0.5 rounded">{slugify(newName.trim())}</code> with states [in_progress · teammate, review · manual]
             </p>
           )}
           <FormError id="new-workflow-error" className="text-xs">{error}</FormError>

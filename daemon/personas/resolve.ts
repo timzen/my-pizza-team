@@ -81,7 +81,7 @@ export function personaUsage(id: string, input: PersonaUsageInput): PersonaUsage
   const is = (ref: string | undefined | null): boolean => !!ref && normalizePersonaId(ref) === target;
   for (const [workflow, wf] of Object.entries(input.workflows).sort(([a], [b]) => a.localeCompare(b))) {
     for (const s of wf.states) {
-      if (s.type === "agent" && is(s.persona)) out.push({ kind: "workflow-state", workflow, state: s.name });
+      if (s.type === "teammate" && is(s.persona)) out.push({ kind: "workflow-state", workflow, state: s.name });
     }
   }
   if (is(input.config.triage?.persona)) out.push({ kind: "triage" });

@@ -119,7 +119,7 @@ test("builtin:worker resolves wherever a persona id is read: workflow state, tas
     resetPersonaAliasWarnings();
     // Workflow state.
     const wf = store.getWorkflows()["default"]!;
-    const agentState = wf.states.find((s) => s.type === "agent")!.name;
+    const agentState = wf.states.find((s) => s.type === "teammate")!.name;
     store.saveWorkflow("default", { states: wf.states.map((s) => s.name === agentState ? { ...s, persona: "builtin:worker" } : s) });
     const st = store.resolveStatePersona("default", agentState)!;
     assertEquals([st.id, st.fallbackFrom, st.via], ["builtin:teammate", undefined, "workflow-state"]);

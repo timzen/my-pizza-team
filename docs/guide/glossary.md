@@ -14,13 +14,6 @@ A file of `KEY=value` lines (`agentEnvFile`) whose variables every agent window 
 opens gets, read again at each spawn. See
 [Agent environment file](08-configuration.md#agent-environment-file).
 
-## Agent state
-
-A workflow step worked by teammates. Entering it gives the task a fresh
-[run](#run); finishing the run moves the task on. The other kind is a
-[manual state](#manual-state). See
-[Workflows](02-stories-and-workflows.md#workflows).
-
 ## Assistant
 
 The one agent that isn't a teammate: the [agent you chat with](04-assistant.md),
@@ -189,6 +182,14 @@ the Team tab, and closed only when you click its **Close**. See
 One of the AI agents in the team's pool that do the work. See
 [Teammates](03-teammates.md).
 
+## Teammate state
+
+A workflow step worked by teammates (`"type": "teammate"` in `workflow.json`; the
+old `"agent"` still works but is deprecated). Entering it gives the task a fresh
+[run](#run); finishing the run moves the task on. The other kind is a
+[manual state](#manual-state). See
+[Workflows](02-stories-and-workflows.md#workflows).
+
 ## Thread
 
 A task's comments and attachments. It belongs to the task, not the run, so it carries
@@ -216,8 +217,8 @@ actual unit teammates claim. Retrying always makes a fresh WorkItem.
 
 ## Workflow
 
-The ordered list of steps a story's tasks go through, each an
-[agent state](#agent-state) or a [manual state](#manual-state). See
+The ordered list of steps a story's tasks go through, each a
+[teammate state](#teammate-state) or a [manual state](#manual-state). See
 [Workflows](02-stories-and-workflows.md#workflows).
 
 A story's workflow can be changed later, unless a task is partway through a step

@@ -16,6 +16,7 @@ import * as path from "node:path";
 import type { TeamConfig, WorkflowConfig } from "../../shared/types.ts";
 import { listWorkDefs } from "../store/workdefs.ts";
 import { validateWorkflow } from "../workflow-engine.ts";
+import { normalizeWorkflowStateTypes } from "../workflow-aliases.ts";
 import type { PersonaUsageInput } from "./resolve.ts";
 
 /** Per-mirror persona overrides: every source kv's `persona:<defId>` key (`sources/<id>.json`). */
@@ -45,7 +46,8 @@ function readWorkflows(teamDir: string): Record<string, WorkflowConfig> {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
     try {
-      const wf = JSON.parse(fs.readFileSync(path.join(dir, entry.name, "workflow.json"), "utf8")) as WorkflowConfig;
+      // DEPRECATED(worker→teammate): remove in remove-worker-aliases — `type: "agent"` reads as `teammate`.
+      const wf = normalizeWorkflowStateTypes(JSON.parse(fs.readFileSync(path.join(dir, entry.name, "workflow.json"), "utf8")) as WorkflowConfig);
       if (validateWorkflow(wf) === null) out[entry.name] = wf;
     } catch { /* missing or malformed: no references */ }
   }

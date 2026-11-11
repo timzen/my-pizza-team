@@ -305,7 +305,7 @@ export interface TeammateConfig {
 /**
  * A workflow is an ordered list of **active states** between the implicit
  * `todo` and `done` buckets (see docs/DESIGN.md "The Work Model"). There is no transition
- * matrix: the daemon advances completed agent-state tasks to the next state
+ * matrix: the daemon advances completed teammate-state tasks to the next state
  * mechanically, admission pulls from `todo` (CONWIP), and humans/the leader
  * may move any task anywhere.
  */
@@ -313,18 +313,41 @@ export interface WorkflowConfig {
   states: WorkflowState[];
 }
 
+/** A workflow state's type: worked by teammates, or by a human/the leader. */
+export type WorkflowStateType = "teammate" | "manual";
+
+/** Every workflow state type, in the order the UI offers them. */
+export const WORKFLOW_STATE_TYPES: readonly WorkflowStateType[] = ["teammate", "manual"];
+
+// DEPRECATED(worker→teammate): remove in remove-worker-aliases.
+// The workflow state type `agent` was renamed to `teammate`. This map is the
+// only place the old spelling is known; the daemon (daemon/workflow-aliases.ts,
+// which also logs the one-time deprecation warning) reads it through
+// `canonicalWorkflowStateType`.
+
+/** Old workflow state `type` spellings → their canonical type. */
+export const LEGACY_WORKFLOW_STATE_TYPE_ALIASES: Readonly<Record<string, WorkflowStateType>> = { agent: "teammate" };
+
+/** A workflow state type in its canonical spelling (a legacy alias mapped), or null when it names no type. */
+export function canonicalWorkflowStateType(type: unknown): WorkflowStateType | null {
+  if (typeof type !== "string") return null;
+  if (Object.hasOwn(LEGACY_WORKFLOW_STATE_TYPE_ALIASES, type)) return LEGACY_WORKFLOW_STATE_TYPE_ALIASES[type]!;
+  return (WORKFLOW_STATE_TYPES as readonly string[]).includes(type) ? type as WorkflowStateType : null;
+}
+
 export interface WorkflowState {
   /** State name (must not be the reserved bucket names "todo"/"done"). */
   name: string;
   /**
-   * - `agent`: worked by teammates via the claim protocol (its task's WorkItem
-   *   is the in-flight unit; may name a `persona`).
+   * - `teammate`: worked by teammates via the claim protocol (its task's WorkItem
+   *   is the in-flight unit; may name a `persona`). Formerly `agent`, which
+   *   still loads as `teammate` (`LEGACY_WORKFLOW_STATE_TYPE_ALIASES`).
    * - `manual`: worked by a human/leader; moving the card onward is the
    *   completion. No WorkItem, no persona.
    */
-  type: "agent" | "manual";
+  type: WorkflowStateType;
   /**
-   * The persona id an agent state's teammate runs with (docs/DESIGN.md
+   * The persona id a teammate state's teammate runs with (docs/DESIGN.md
    * "Personas"). Unset: no persona block, just the one-line state framing.
    * Ignored (with a load warning) on a manual state.
    */
@@ -924,7 +947,7 @@ export const DEFAULT_CONFIG: TeamConfig = {
   workflows: {
     default: {
       states: [
-        { name: "in_progress", type: "agent" },
+        { name: "in_progress", type: "teammate" },
         { name: "review", type: "manual" },
       ],
     },

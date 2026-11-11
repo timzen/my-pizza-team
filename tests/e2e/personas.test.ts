@@ -59,6 +59,11 @@ test("personas: the library lists team, built-in and package personas; package o
   const kinds = Object.fromEntries(((await a.get("/api/personas")).body.personas as Json[]).map((p) => [p.id, p.kinds]));
   assertEquals([kinds["demo-coder"], kinds["mpt-personas-demo/careful-implementer"], kinds["mpt-source-demo-tracker/tracker-worker"]],
     [["teammate"], ["teammate"], ["teammate"]]);
+  // Likewise the demo's `hotfix` workflow keeps the deprecated state type `"agent"`
+  // (DEPRECATED(worker→teammate): remove in remove-worker-aliases): it loads as `teammate`.
+  assertEquals(((await a.get("/api/workflows/hotfix")).body.states as Json[]).map((s) => s.type), ["teammate", "manual"]);
+  const hotfix = ((await a.get("/api/workflows")).body as Json[]).find((w) => w.name === "hotfix");
+  assertEquals([hotfix.teammateCount, hotfix.agentCount, hotfix.manualCount], [1, 1, 1]);
   const plugins = (await a.get("/api/sources")).body.plugins as Json[];
   const personasOnly = plugins.filter((p) => String(p.spec).endsWith("mpt-personas-demo")).map((p) => [p.state, p.sources.length, p.personas.length]);
   assertEquals(personasOnly, [["loaded", 0, 3]], "mpt-personas-demo should load as a persona-only package");

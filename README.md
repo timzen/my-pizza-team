@@ -469,7 +469,7 @@ a File".
 ├── daemon.log           # a background daemon's output (daemon.log.1: the run before)
 ├── workflows/
 │   ├── default/
-│   │   └── workflow.json    # states; an agent state may name a "persona"
+│   │   └── workflow.json    # states; a teammate state may name a "persona"
 │   └── .deleted/        # deleted workflows' folders, kept as backups (<name>-<timestamp>/)
 ├── personas/            # the team persona library (personas/<id>.md)
 ├── stories/             # one file per story: order + status of its tasks (archived: archivedAt + synopsis)
@@ -503,14 +503,14 @@ staged work) and pushes if there's a remote. Turn it off with
 
 A workflow is an **ordered pipeline of active states** between the implicit `todo`
 and `done` buckets. There is no transition matrix: the daemon admits one task per
-story into the pipeline (CONWIP), advances completed agent work automatically, and
+story into the pipeline (CONWIP), advances completed teammate work automatically, and
 you can move any card anywhere. See
 [docs/DESIGN.md](docs/DESIGN.md#the-work-model).
 
 ```json
 {
   "states": [
-    { "name": "in_progress", "type": "agent" },
+    { "name": "in_progress", "type": "teammate" },
     { "name": "review", "type": "manual" }
   ]
 }
@@ -518,12 +518,12 @@ you can move any card anywhere. See
 
 | Type | Who works it | How it completes |
 |------|--------------|------------------|
-| `"agent"` | Teammates (claim → work → COMPLETE) | The daemon advances it automatically |
+| `"teammate"` | Teammates (claim → work → COMPLETE) | The daemon advances it automatically |
 | `"manual"` | You (or the assistant) | You move the card onward |
 
-When a task lands in an agent state the daemon enqueues a `READY` WorkItem for it;
+When a task lands in a teammate state the daemon enqueues a `READY` WorkItem for it;
 a teammate claims it and, on COMPLETE, the task advances. On FAILED it stays put
-until you move it (moving it back into an agent state enqueues a fresh attempt).
+until you move it (moving it back into a teammate state enqueues a fresh attempt).
 
 **Pending.** Any WorkDef can be created as pending (`pending: true`; **Save as
 pending** in the UI; the assistant's `add_task` / `create_task` / `create_schedule`
@@ -566,7 +566,7 @@ filters to **Never run** (count 0) — the work you haven't started. See
 
 **Personas.** How a teammate behaves is a **persona**: a markdown file in the team's
 persona library (`personas/<id>.md`) whose body is role framing injected into the
-prompt. Everything that needs one *references it by id* — an agent state
+prompt. Everything that needs one *references it by id* — a teammate state
 (`"persona"` in `workflow.json`), note triage (`triage.persona` in config.json), the
 assistant (`assistant.persona`), optionally a Solitary or Scheduled task
 (`persona` on the WorkDef), and a Work Source's items (a plugin's
@@ -604,16 +604,18 @@ naming the replacement:
 | `GET /api/personas?kind=worker` | `?kind=teammate` |
 | `builtin:worker` | `builtin:teammate` |
 | Pi's `--ppt-worker` (e.g. in a customized `harnesses.pi.teammate` template) | `--ppt-teammate` |
+| A workflow state's `"type": "agent"` (`workflow.json`, or a workflow sent to `PUT /api/config`) | `"type": "teammate"` |
+| `agentCount` in `GET /api/workflows` summaries | `teammateCount` |
 
-Existing persona files, references and templates need no change today; saving a
-persona writes the new spelling. The aliases will be removed in a future version, so
+Existing persona files, workflows, references and templates need no change today;
+saving a persona or a workflow writes the new spelling. The aliases will be removed in a future version, so
 switch to the new spellings when convenient.
 
 **In the web UI**, **Config → Personas** (`/config/personas`) is the library: search
 and tag filters, an origin badge (team / built-in / package), an editor showing the
 lint warnings, a read-only view with **Duplicate to edit** for built-in and package
 personas, and **Used by** (Delete is off while anything uses it). Wherever a persona
-is chosen — a workflow's agent states, Config → Triage, the assistant's chips (and
+is chosen — a workflow's teammate states, Config → Triage, the assistant's chips (and
 Config → General), a Solitary/Scheduled task's form and Details tab, a source's
 Personas section on Config → Sources, an item's override — it's a picker with an
 edit/view link. While a teammate works, a ✦ chip shows the persona it was given (Team

@@ -3,8 +3,8 @@
  *
  * A workflow is an ordered pipeline of active states between the implicit
  * `todo` and `done` buckets (see daemon docs/DESIGN.md "The Work Model"). This page renders
- * the pipeline, lets you edit the states (add/remove/reorder, agent|manual
- * type), and pick each agent state's **persona** from the library (docs/DESIGN.md
+ * the pipeline, lets you edit the states (add/remove/reorder, teammate|manual
+ * type), and pick each teammate state's **persona** from the library (docs/DESIGN.md
  * "Personas"): a picker per state, saved at once with `PUT
  * /api/workflows/:name/states/:state { persona }`, plus an edit/view link to
  * the persona itself on Config → Personas. Unset = no persona block, just the
@@ -62,7 +62,7 @@ export function WorkflowDetailPage() {
   if (!data) return <div className="text-muted-foreground">Workflow not found.</div>;
 
   const isDefault = configData?.defaultWorkflow === name;
-  const agentCount = data.states.filter(s => s.type === "agent").length;
+  const teammateCount = data.states.filter(s => s.type === "teammate").length;
 
   const handleSaved = () => {
     refetch();
@@ -79,7 +79,7 @@ export function WorkflowDetailPage() {
           <GitBranch className="h-5 w-5" />
           <h2 className="text-xl font-bold">{name}</h2>
           <span className="text-sm text-muted-foreground">
-            {data.states.length} states · {agentCount} agent · {data.states.length - agentCount} manual
+            {data.states.length} states · {teammateCount} teammate · {data.states.length - teammateCount} manual
             {isDefault && " · default"}
           </span>
         </div>
@@ -113,7 +113,7 @@ export function WorkflowDetailPage() {
         </div>
         <p className="text-xs text-muted-foreground mt-3">
           <span className="font-medium">todo</span> and <span className="font-medium">done</span> are implicit buckets.
-          Admission pulls one task per story from todo (CONWIP); completed agent work advances automatically;
+          Admission pulls one task per story from todo (CONWIP); completed teammate work advances automatically;
           tasks in <span className="font-medium">manual</span> states wait for you to move them.
         </p>
       </section>
@@ -123,13 +123,13 @@ export function WorkflowDetailPage() {
         <StatesEditor name={name!} workflow={data} config={configData} onSaved={handleSaved} />
       )}
 
-      {/* State personas (agent states only — manual states never get a prompt) */}
+      {/* State personas (teammate states only — manual states never get a prompt) */}
       <section>
         <h2 className="text-sm font-semibold mb-3 text-muted-foreground uppercase tracking-wide">
           State Personas
         </h2>
         <p className="text-xs text-muted-foreground mb-3">
-          The persona a teammate works with when it claims a task in each agent state — its role framing, injected
+          The persona a teammate works with when it claims a task in each teammate state — its role framing, injected
           into the prompt. Pick one from the library; write or customize them on{" "}
           <Link to={PERSONAS_TAB_PATH} className="text-primary underline">Personas</Link>. Applies to the next claim.
         </p>
@@ -193,7 +193,7 @@ function DeleteWorkflowButton({ name, defaultWorkflow, workflowCount, onError }:
 }
 
 /**
- * A persona picker per agent state (manual states never get a prompt). Each
+ * A persona picker per teammate state (manual states never get a prompt). Each
  * change saves at once; a refusal (e.g. an id that doesn't resolve) shows on
  * its row.
  */
@@ -201,7 +201,7 @@ function StatePersonas({ name, states, onSaved }: { name: string; states: Workfl
   const [saving, setSaving] = useState<string | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const announce = useAnnounce();
-  const agentStates = states.filter((s) => s.type === "agent");
+  const teammateStates = states.filter((s) => s.type === "teammate");
 
   const pick = async (state: string, persona: string | null) => {
     setSaving(state);
@@ -218,10 +218,10 @@ function StatePersonas({ name, states, onSaved }: { name: string; states: Workfl
     setSaving(null);
   };
 
-  if (agentStates.length === 0) return <p className="text-xs text-muted-foreground italic">No agent states.</p>;
+  if (teammateStates.length === 0) return <p className="text-xs text-muted-foreground italic">No teammate states.</p>;
   return (
     <div className="rounded-lg border border-border divide-y divide-border">
-      {agentStates.map((s) => (
+      {teammateStates.map((s) => (
         <div key={s.name} className="flex flex-wrap items-center gap-3 px-3 py-2">
           <span className="flex w-40 items-center gap-1.5 text-sm font-medium"><Bot className="h-3.5 w-3.5 text-muted-foreground" />{s.name.replace(/_/g, " ")}</span>
           <PersonaPicker
@@ -250,12 +250,12 @@ function BucketChip({ label }: { label: string }) {
   );
 }
 
-/** An active-state chip with its agent/manual type. */
+/** An active-state chip with its teammate/manual type. */
 function StateChip({ state }: { state: WorkflowState }) {
-  const isAgent = state.type === "agent";
+  const isTeammate = state.type === "teammate";
   return (
-    <span className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md border text-sm ${isAgent ? "border-blue-300 bg-blue-50 dark:bg-blue-950 dark:border-blue-800" : "border-amber-300 bg-amber-50 dark:bg-amber-950 dark:border-amber-800"}`}>
-      {isAgent ? <Bot className="h-3.5 w-3.5" /> : <User className="h-3.5 w-3.5" />}
+    <span className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md border text-sm ${isTeammate ? "border-blue-300 bg-blue-50 dark:bg-blue-950 dark:border-blue-800" : "border-amber-300 bg-amber-50 dark:bg-amber-950 dark:border-amber-800"}`}>
+      {isTeammate ? <Bot className="h-3.5 w-3.5" /> : <User className="h-3.5 w-3.5" />}
       {state.name.replace(/_/g, " ")}
       <Badge variant="outline" className="text-[10px] px-1 py-0">{state.type}</Badge>
     </span>
@@ -294,7 +294,7 @@ function StatesEditor({ name, workflow, config, onSaved }: {
   };
 
   const toggleType = (idx: number) => {
-    setStates(states.map((s, i) => i === idx ? { ...s, type: s.type === "agent" ? "manual" : "agent" } : s));
+    setStates(states.map((s, i) => i === idx ? { ...s, type: s.type === "teammate" ? "manual" : "teammate" } : s));
   };
 
   const remove = (idx: number) => setStates(states.filter((_, i) => i !== idx));
@@ -304,7 +304,7 @@ function StatesEditor({ name, workflow, config, onSaved }: {
     if (!slug) return;
     if (slug === "todo" || slug === "done") { setError(`"${slug}" is a reserved bucket name`); setNameInvalid(true); return; }
     if (states.some(s => s.name === slug)) { setError(`State "${slug}" already exists`); setNameInvalid(true); return; }
-    setStates([...states, { name: slug, type: "agent" }]);
+    setStates([...states, { name: slug, type: "teammate" }]);
     setNewState("");
     setError(null);
     setNameInvalid(false);
@@ -339,7 +339,7 @@ function StatesEditor({ name, workflow, config, onSaved }: {
           <span className="flex-1 text-sm font-medium">{s.name.replace(/_/g, " ")}</span>
           <Tooltip content="Toggle who works this state">
             <Button variant="outline" size="sm" onClick={() => toggleType(idx)}>
-              {s.type === "agent" ? <><Bot className="h-3.5 w-3.5 mr-1" />agent</> : <><User className="h-3.5 w-3.5 mr-1" />manual</>}
+              {s.type === "teammate" ? <><Bot className="h-3.5 w-3.5 mr-1" />teammate</> : <><User className="h-3.5 w-3.5 mr-1" />manual</>}
             </Button>
           </Tooltip>
           <IconButton className="h-7 w-7 text-destructive" onClick={() => remove(idx)} label={`Remove ${s.name.replace(/_/g, " ")}`}><Trash2 className="h-3.5 w-3.5" /></IconButton>

@@ -342,7 +342,7 @@ export class QueueStore {
     const def = getWorkDef(this.teamDir, wi.ref.workDefId);
     if (!def) return false;
     // A registered source decides for its own defs (hook: isEligible; Story:
-    // its story active and ready, the task in an agent state).
+    // its story active and ready, the task in a teammate state).
     const src = this.deps.sourceFor(def);
     if (src?.source.isEligible) return src.source.isEligible(def, src.ctx);
     // No hook (e.g. Scheduled): eligible while it exists.

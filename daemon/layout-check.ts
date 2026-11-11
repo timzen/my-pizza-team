@@ -24,7 +24,7 @@
  *     says `draft: true`;
  *   - a `context/` directory with no `context.migrated*` beside it (the context
  *     library), a `triage.md` while config.json sets no `triage.persona`, or a
- *     `workflows/<name>/<state>.md` instruction file for an agent state of that
+ *     `workflows/<name>/<state>.md` instruction file for a teammate state of that
  *     workflow that names no `persona` (0.36.x left those two alone, with a
  *     warning, once the persona was set);
  *   - a `state.db` from before the schema was versioned whose shape is older than
@@ -40,6 +40,7 @@ import * as path from "node:path";
 import { existsSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import {
+  canonicalWorkflowStateType,
   LEGACY_TEAM_DIR,
   PRE_CUTOFF_UPGRADE_MESSAGE,
   STATE_DB,
@@ -142,7 +143,9 @@ export function findPreCutoffLayout(teamDir: string): PreCutoffFinding[] {
     const wf = readJsonObject(path.join(wfDir, "workflow.json"));
     const states = Array.isArray(wf?.states) ? wf.states as Array<{ name?: unknown; type?: unknown; persona?: unknown }> : [];
     for (const state of states) {
-      if (!state || typeof state.name !== "string" || state.type !== "agent" || state.persona) continue;
+      // Raw file, so either spelling of the type (pre-0.36 files all say `agent`;
+      // DEPRECATED(worker→teammate): remove in remove-worker-aliases).
+      if (!state || typeof state.name !== "string" || canonicalWorkflowStateType(state.type) !== "teammate" || state.persona) continue;
       const md = path.join(wfDir, `${state.name}.md`);
       if (existsSync(md)) push(md, "a workflow state instruction file (replaced by the state's `persona`)");
     }

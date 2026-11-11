@@ -58,7 +58,7 @@ test("resolvePersona: found, missing → fallback with fallbackFrom, unset → n
 
 test("personaUsage finds every kind of reference", () => {
   const usedBy = personaUsage("p", {
-    workflows: { default: { states: [{ name: "code", type: "agent", persona: "p" }, { name: "qa", type: "manual", persona: "p" }] } },
+    workflows: { default: { states: [{ name: "code", type: "teammate", persona: "p" }, { name: "qa", type: "manual", persona: "p" }] } },
     config: { triage: { persona: "p" }, assistant: { persona: "p" }, sourcePersonas: { jira: { persona: "p", triagePersona: "p" } } },
     workDefs: [{ id: "w1", title: "W1", persona: "p" }, { id: "w2", title: "W2" }],
     mirrorOverrides: [{ workDefId: "m1", source: "jira", persona: "p" }],
@@ -102,8 +102,8 @@ test("Store: team personas round-trip through personas/<id>.md with frontmatter"
 test("Store: a state persona that doesn't resolve falls back to builtin:teammate", () => {
   return withTeam({}, ({ store }) => {
     const wf = store.getWorkflows()["default"]!;
-    store.saveWorkflow("default", { states: wf.states.map((s) => s.type === "agent" ? { ...s, persona: "gone" } : s) });
-    const agentState = wf.states.find((s) => s.type === "agent")!.name;
+    store.saveWorkflow("default", { states: wf.states.map((s) => s.type === "teammate" ? { ...s, persona: "gone" } : s) });
+    const agentState = wf.states.find((s) => s.type === "teammate")!.name;
     const r = store.resolveStatePersona("default", agentState)!;
     assertEquals([r.id, r.fallbackFrom, r.via], ["builtin:teammate", "gone", "workflow-state"]);
   });
@@ -211,7 +211,7 @@ test("routes: a persona in use can't be deleted (409 + usedBy); usage lists its 
   await withTeam({}, async ({ app, store }) => {
     await app.request("/api/personas", jsonInit("POST", { title: "Helper", content: "Help." }));
     await app.request("/api/assistant/persona", jsonInit("PUT", { personaId: "helper" }));
-    const agentState = store.getWorkflows()["default"]!.states.find((s) => s.type === "agent")!.name;
+    const agentState = store.getWorkflows()["default"]!.states.find((s) => s.type === "teammate")!.name;
     assertEquals((await app.request(`/api/workflows/default/states/${agentState}`, jsonInit("PUT", { persona: "helper" }))).status, 200);
     const del = await app.request("/api/personas/helper", jsonInit("DELETE"));
     assertEquals(del.status, 409);

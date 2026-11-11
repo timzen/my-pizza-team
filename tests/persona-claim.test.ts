@@ -156,7 +156,7 @@ test("claim: note triage uses triage.persona, else builtin:triage (via triage)",
 test("PUT /api/config: a workflow state's persona must resolve when it changes; a stale unchanged one is kept", async () => {
   await withTeam({}, async ({ app, store, teamDir }) => {
     const base = await (await app.request("/api/config")).json();
-    const withPersona = (persona: unknown, type = "agent") => ({
+    const withPersona = (persona: unknown, type = "teammate") => ({
       ...base,
       workflows: { ...base.workflows, default: { ...base.workflows.default, states: base.workflows.default.states.map((s: { name: string }) => s.name === "in_progress" ? { ...s, type, persona } : s) } },
     });

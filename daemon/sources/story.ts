@@ -9,11 +9,11 @@
  *   - admission (CONWIP, WIP = 1 per story), including a story's dependents
  *     when it stops blocking them (`dependsOn`);
  *   - every position change: leaving a position abandons the in-flight item,
- *     landing in an agent state enqueues one (re-entry ≡ first entry — the
+ *     landing in a teammate state enqueues one (re-entry ≡ first entry — the
  *     rework path), and the story's open/done status follows its tasks;
  *   - advancing the task when its item COMPLETEs (`onItemTerminal`);
  *   - eligibility: a READY item is handed out only while its story is active
- *     (not pending), ready, and the task still sits in an agent state;
+ *     (not pending), ready, and the task still sits in a teammate state;
  *   - the story's directory as the item's fallback (`resolveItem`);
  *   - the workflow persona + story framing in the prompt (`buildPrompt`);
  *   - admission and queue reconciliation on daemon load (`reconcile`).
@@ -27,7 +27,7 @@
 
 import { type Comment, DONE_STATE, type Story, TODO_STATE, type WorkDef, type WorkflowConfig, type WorkItem } from "../../shared/types.ts";
 import { buildWorkDefPrompt } from "../prompt.ts";
-import { firstActiveState, isActiveState, isAgentState, isValidPosition, nextState } from "../workflow-engine.ts";
+import { firstActiveState, isActiveState, isTeammateState, isValidPosition, nextState } from "../workflow-engine.ts";
 import { plural } from "./toggle.ts";
 import type { ItemTerminalOutcome, SourceContext, SourceToggle, WorkSource } from "./types.ts";
 
@@ -109,7 +109,7 @@ export class StorySource implements WorkSource {
 
   /**
    * On daemon load: run admission so every ready story has its one in-flight
-   * task (CONWIP), then reconcile the queue — every task in an agent state must
+   * task (CONWIP), then reconcile the queue — every task in a teammate state must
    * have an active (READY/IN_PROGRESS/MORIBUND) WorkItem (rebuilds after a
    * restart, a hand-edit, or a task admitted before the queue existed). Never
    * touches tasks in buckets/manual states, and never resurrects terminal items.
@@ -119,7 +119,7 @@ export class StorySource implements WorkSource {
     for (const story of this.deps.getStories()) {
       const wf = this.deps.getWorkflowForStory(story.id);
       for (const task of this.deps.getTasksForStory(story.id)) {
-        if (isAgentState(wf, task.status) && !this.ctx.hasActiveItem(task.id)) this.ctx.enqueue(task.id);
+        if (isTeammateState(wf, task.status) && !this.ctx.hasActiveItem(task.id)) this.ctx.enqueue(task.id);
       }
     }
   }
@@ -127,7 +127,7 @@ export class StorySource implements WorkSource {
   /**
    * A READY board item is handed out only while its story is active (a pending
    * story's in-flight item, already IN_PROGRESS, isn't READY and so finishes
-   * normally), ready, and the task still sits in an agent state. A board WorkDef
+   * normally), ready, and the task still sits in a teammate state. A board WorkDef
    * with no task row (its story is gone) is treated like a plain WorkDef:
    * eligible while it exists — what the daemon did before Story was a source.
    */
@@ -136,7 +136,7 @@ export class StorySource implements WorkSource {
     if (!task) return true;
     const story = this.deps.getStory(task.storyId);
     if (!story || story.pending || !this.deps.isStoryReady(story.id)) return false;
-    return isAgentState(this.deps.getWorkflowForStory(story.id), task.status);
+    return isTeammateState(this.deps.getWorkflowForStory(story.id), task.status);
   }
 
   /** A board WorkDef without its own directory runs in its story's. */
@@ -183,7 +183,7 @@ export class StorySource implements WorkSource {
   }
 
   /**
-   * A pending board task was activated: if it already sits in an agent state it
+   * A pending board task was activated: if it already sits in a teammate state it
    * is enqueued now; otherwise admission runs, so a pending task that was
    * holding the story's next slot is admitted. Returns its active item, if any.
    * (`enqueue: false` doesn't apply to the board: its position decides.)
@@ -192,7 +192,7 @@ export class StorySource implements WorkSource {
     const task = this.deps.getTask(def.id);
     if (!task) return null;
     const wf = this.deps.getWorkflowForStory(task.storyId);
-    if (isAgentState(wf, task.status)) {
+    if (isTeammateState(wf, task.status)) {
       const item = this.ctx.hasActiveItem(def.id) ? null : this.ctx.enqueue(def.id);
       if (item) return item;
     } else {
@@ -208,7 +208,7 @@ export class StorySource implements WorkSource {
    * open/done status in sync, and makes the queue reflect the new position.
    * All position changes flow through here.
    *
-   * Queue sync: landing in an agent state enqueues a READY item (unless one is
+   * Queue sync: landing in a teammate state enqueues a READY item (unless one is
    * already active). Leaving a position abandons the task's active item as
    * CANCELED — a position change out from under an in-flight attempt is a human
    * override. `keepWorkItem` skips that (the COMPLETE advance, whose item
@@ -225,7 +225,7 @@ export class StorySource implements WorkSource {
     const wf = this.deps.getWorkflowForStory(task.storyId);
 
     if (!keepWorkItem && before && before.status !== status) this.deps.cancelActiveItem(taskId);
-    if (isAgentState(wf, status) && !this.ctx.hasActiveItem(taskId)) this.ctx.enqueue(taskId);
+    if (isTeammateState(wf, status) && !this.ctx.hasActiveItem(taskId)) this.ctx.enqueue(taskId);
 
     if (status === DONE_STATE) {
       const tasks = this.deps.getTasksForStory(task.storyId);
@@ -239,7 +239,7 @@ export class StorySource implements WorkSource {
   /**
    * Judgment move (human or leader agent): put a task anywhere in its
    * workflow's positions. Any active WorkItem is abandoned (CANCELED) and,
-   * when entering an agent state, a fresh READY one is created — re-entry ≡
+   * when entering a teammate state, a fresh READY one is created — re-entry ≡
    * first entry (rework path). Runs admission excluding the moved task, so
    * shelving a task to `todo` doesn't bounce it straight back in.
    */
@@ -257,7 +257,7 @@ export class StorySource implements WorkSource {
   }
 
   /**
-   * Advance a task out of its current agent state to the next state (or
+   * Advance a task out of its current teammate state to the next state (or
    * `done`), then re-run admission (finishing the last state frees the CONWIP
    * token).
    */
@@ -297,7 +297,7 @@ export class StorySource implements WorkSource {
     // the task is activated (docs/DESIGN.md "Pending: Write, Review, Activate").
     if (this.deps.isPending(candidate.id)) return;
 
-    // setPosition enqueues the READY WorkItem when landing in an agent state.
+    // setPosition enqueues the READY WorkItem when landing in a teammate state.
     this.setPosition(candidate.id, first);
   }
 

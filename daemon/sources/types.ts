@@ -562,7 +562,7 @@ export interface WorkSource {
   /**
    * The daemon just loaded its state from disk (startup): bring the queue in
    * line with the source's own state. Story: run admission for every story,
-   * then make sure every task in an agent state has an active WorkItem.
+   * then make sure every task in a teammate state has an active WorkItem.
    * Default: nothing.
    */
   reconcile?(ctx: SourceContext): void;

@@ -39,6 +39,7 @@ import {
 import { normalizeDirectory } from "../../shared/directory.ts";
 import { writeFileAtomic } from "../../shared/atomic-write.ts";
 import { validateWorkflow } from "../workflow-engine.ts";
+import { normalizeWorkflowStateTypes } from "../workflow-aliases.ts";
 import { listWorkDefs, getWorkDef, saveWorkDef, deleteWorkDef, workDefDir } from "./workdefs.ts";
 import type { StoreDomainContext } from "./domain.ts";
 
@@ -181,7 +182,9 @@ export class BoardStore {
         const wfFile = path.join(wfDir, "workflow.json");
         if (!existsSync(wfFile)) continue;
         try {
-          const wf: WorkflowConfig = JSON.parse(fs.readFileSync(wfFile, "utf8"));
+          // DEPRECATED(worker→teammate): remove in remove-worker-aliases — a state
+          // `type: "agent"` loads as `teammate` (the file isn't rewritten).
+          const wf: WorkflowConfig = normalizeWorkflowStateTypes(JSON.parse(fs.readFileSync(wfFile, "utf8")));
           // Only accept the ordered-states shape (see docs/DESIGN.md "The Work Model");
           // malformed or legacy transition-matrix files are skipped.
           if (validateWorkflow(wf) === null) {
@@ -330,7 +333,7 @@ export class BoardStore {
 
     // Let each source bring the queue in line with its own state (hook:
     // reconcile). Story: admission so every ready story has its one in-flight
-    // task (CONWIP), then an active WorkItem for every task in an agent state.
+    // task (CONWIP), then an active WorkItem for every task in a teammate state.
     this.deps.reconcileSources();
   }
 
@@ -735,7 +738,7 @@ export class BoardStore {
   /**
    * Judgment move (human or leader agent): put a task anywhere in its
    * workflow's positions. Re-entry ≡ first entry: any active WorkItem is
-   * abandoned and entering an agent state enqueues a fresh one (the board
+   * abandoned and entering a teammate state enqueues a fresh one (the board
    * policy lives in daemon/sources/story.ts).
    */
   moveTask(taskId: string, newStatus: string): { ok: boolean; error?: string } {

@@ -135,7 +135,7 @@ test("a pending board task holds its story's slot until activated", async () => 
   });
 });
 
-test("a pending board task moved into an agent state gets no WorkItem until activated", async () => {
+test("a pending board task moved into a teammate state gets no WorkItem until activated", async () => {
   await withTeam({}, async ({ app, store }) => {
     store.createStory("m", "M", "d", "open", [], []);
     const added = await (await post(app, "/api/stories/m/tasks", { title: "T", description: "d", pending: true })).json();

@@ -875,9 +875,11 @@ function registerListWorkflows(pi: ExtensionAPI, client: DaemonClient): void {
         if (workflows.length === 0) {
           return { content: [{ type: "text", text: "No workflows found." }], details: undefined };
         }
-        const lines = workflows.map((w) =>
-          `- ${w.name}${w.isDefault ? " (default)" : ""} — ${w.stateCount} states (${w.agentCount} agent, ${w.manualCount} manual)`
-        );
+        const lines = workflows.map((w) => {
+          // DEPRECATED(worker→teammate): remove in remove-worker-aliases — an older daemon sends only `agentCount`.
+          const teammates = w.teammateCount ?? w.agentCount;
+          return `- ${w.name}${w.isDefault ? " (default)" : ""} — ${w.stateCount} states (${teammates} teammate, ${w.manualCount} manual)`;
+        });
         return {
           content: [{ type: "text", text: `Workflows:\n${lines.join("\n")}` }],
           details: { workflows },

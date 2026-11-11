@@ -18,8 +18,9 @@ import { enabledFeatures, featureSources, featureUsage, resolveFeaturesUpdate } 
 import { agentsOnOtherTerminal, resolveTemplates } from "../spawner.ts";
 import { externalSourceViews } from "./sources.ts";
 import { validateWorkflow } from "../workflow-engine.ts";
+import { normalizeWorkflowStateTypes } from "../workflow-aliases.ts";
 import { WorkflowDeleteError, DELETED_WORKFLOWS_DIR } from "../store.ts";
-import type { DeleteWorkflowResponse, WorkflowUsageResponse } from "../../shared/protocol.ts";
+import type { DeleteWorkflowResponse, WorkflowSummary, WorkflowUsageResponse } from "../../shared/protocol.ts";
 import { execFile } from "node:child_process";
 import * as path from "node:path";
 import { promisify } from "node:util";
@@ -192,7 +193,11 @@ export function registerSharedRoutes(ctx: RouteContext): void {
       const featureSettings = resolveFeaturesUpdate(config, body, store);
       if ("error" in featureSettings) return fail(c, featureSettings.status, featureSettings.error);
 
-      // Workflows (structure and each agent state's `persona`) are validated up
+      // DEPRECATED(worker→teammate): remove in remove-worker-aliases — a state
+      // `type: "agent"` in the body is accepted as `teammate` (and saved as such).
+      body.workflows = Object.fromEntries(Object.entries(body.workflows).map(([name, wf]) => [name, normalizeWorkflowStateTypes(wf)]));
+
+      // Workflows (structure and each teammate state's `persona`) are validated up
       // front too, so a refused save writes nothing.
       for (const [name, wf] of Object.entries(body.workflows)) {
         // workflows/.deleted/ holds deleted workflows' backups (BoardStore.deleteWorkflow).
@@ -374,8 +379,13 @@ export function registerSharedRoutes(ctx: RouteContext): void {
   app.get("/api/workflows", (c) => {
     const workflows = store.getWorkflows();
     const summaries = Object.entries(workflows).map(([name, wf]) => {
-      const agentCount = wf.states.filter((s) => s.type === "agent").length;
-      return { name, stateCount: wf.states.length, agentCount, manualCount: wf.states.length - agentCount, isDefault: name === config.defaultWorkflow };
+      const teammateCount = wf.states.filter((s) => s.type === "teammate").length;
+      return {
+        name, stateCount: wf.states.length, teammateCount,
+        // DEPRECATED(worker→teammate): remove in remove-worker-aliases — the old name of `teammateCount`.
+        agentCount: teammateCount,
+        manualCount: wf.states.length - teammateCount, isDefault: name === config.defaultWorkflow,
+      } satisfies WorkflowSummary;
     });
     return c.json(summaries);
   });
@@ -468,7 +478,7 @@ function resolveHarnessSettings(
 
 /**
  * Why a workflow's state `persona` references are refused, or null. A persona
- * must be a string; one that *changed* must be on an agent state (manual states
+ * must be a string; one that *changed* must be on a teammate state (manual states
  * have no teammate) and must resolve — a typo at the point of entry is a 400, like
  * `PUT /api/workflows/:name/states/:state`. An unchanged reference that has
  * since gone stale is accepted (the config form re-sends every workflow on any
@@ -480,7 +490,7 @@ function statePersonaError(store: RouteContext["store"], name: string, wf: Workf
     if (st.persona === undefined || st.persona === null || st.persona === "") continue;
     if (typeof st.persona !== "string") return `State "${st.name}": persona must be a persona id`;
     if (st.persona === current?.states.find((s) => s.name === st.name)?.persona) continue;
-    if (st.type !== "agent") return `State "${st.name}" is manual; only agent states have a persona`;
+    if (st.type !== "teammate") return `State "${st.name}" is manual; only teammate states have a persona`;
     if (!store.getPersona(st.persona)) return `State "${st.name}": persona "${st.persona}" doesn't exist`;
   }
   return null;

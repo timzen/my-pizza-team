@@ -1,7 +1,7 @@
 /**
  * PersonaPicker — Choose a persona by id from the library, with an "edit" (or
  * "view", for read-only personas) link to its page. Every place that *selects*
- * a persona uses this: workflow agent states, Triage, the Assistant, Solitary
+ * a persona uses this: workflow teammate states, Triage, the Assistant, Solitary
  * and Scheduled tasks, Work Sources, and a mirrored item's override
  * (docs/DESIGN.md "References: select, don't embed").
  *

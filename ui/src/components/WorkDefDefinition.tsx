@@ -74,7 +74,7 @@ function activateHint(type: WorkDefDefinitionData["type"]): string {
 
 /** How to revise active work: the thread carries the change, a re-run applies it. */
 function lockedHint(type: WorkDefDefinitionData["type"]): string {
-  if (type === "Board") return "To revise it, add a comment on the Thread and move the task back into an agent state.";
+  if (type === "Board") return "To revise it, add a comment on the Thread and move the task back into a teammate state.";
   return "To revise the work, add a comment on the Thread and run it again.";
 }
 

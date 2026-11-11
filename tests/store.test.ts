@@ -57,7 +57,7 @@ test("Store: admission places the first task and enqueues a READY WorkItem", () 
     ]);
 
     const retrieved = store.getTasksForStory("story-tasks");
-    // CONWIP: the first task is admitted into the first agent state; the second waits in todo.
+    // CONWIP: the first task is admitted into the first teammate state; the second waits in todo.
     assertEquals(retrieved[0]!.status, "in_progress");
     assertEquals(retrieved[1]!.status, "todo");
 
@@ -555,7 +555,7 @@ test("Store: judgment move validation + rework re-enqueues", () => {
 
     assertEquals(store.moveTask("wf-test-1", "nonsense").ok, false);
 
-    // Rework: move back into the agent state → a fresh READY WorkItem.
+    // Rework: move back into the teammate state → a fresh READY WorkItem.
     assertEquals(store.moveTask("wf-test-1", "in_progress").ok, true);
     assertEquals(store.getActiveWorkItem("wf-test-1")!.state, "READY");
 

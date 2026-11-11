@@ -32,7 +32,7 @@ wires only that role's behavior:
 - `--ppt-lead` (or a `.my-pizza-team/` config in cwd) → **leader**.
 
 ### 3. Autonomous work is a claim/done loop
-A teammate polls the daemon for a task sitting `ready` in an agent state, claims
+A teammate polls the daemon for a task sitting `ready` in a teammate state, claims
 it (a lease), sends the daemon-assembled prompt to its own Pi agent, and on
 completion marks it done — the **daemon** advances the task; teammates never move
 tasks (see the daemon's docs/DESIGN.md "The Work Model"). If it can't proceed it uses the
@@ -176,7 +176,7 @@ disabled — enable them in Config (features.stories)".
 
 ### Teammate work loop
 ```
-1. Poll   GET /api/agents/next-work        → a ready agent-state task (or { dismiss })
+1. Poll   GET /api/agents/next-work        → a ready teammate-state task (or { dismiss })
 2. Claim  POST /api/agents/claim/:id       → lease + state-persona prompt
 3. Execute (send the prompt to the Pi agent)
 4. Done   POST /api/agents/done/:id        → daemon advances state, stores result

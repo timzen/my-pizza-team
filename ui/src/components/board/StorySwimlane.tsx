@@ -3,7 +3,7 @@
  * Groups tasks by workflow state into columns. Each column is a drop target:
  * dragging a card into another column performs a judgment move
  * (POST /api/tasks/:id/move) — the daemon abandons any active WorkItem and
- * enqueues a fresh one on entry to an agent state.
+ * enqueues a fresh one on entry to a teammate state.
  * Drops only accept tasks from the same story (the drag MIME type carries the
  * story id, so foreign cards don't even highlight). The implicit todo/done
  * bucket columns can be hidden per story (persisted in localStorage) to give

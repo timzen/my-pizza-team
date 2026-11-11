@@ -68,7 +68,7 @@ export function registerTaskRoutes(ctx: RouteContext): void {
     const task = store.getTask(taskId);
     if (!task) return fail(c, 404, `Task "${taskId}" not found`);
     // Judgment moves are unrestricted: a human (or the leader agent) may put a
-    // task anywhere in its workflow. Entering an agent state resets substatus
+    // task anywhere in its workflow. Entering a teammate state resets substatus
     // to `ready` and clears the lease (rework path; see docs/DESIGN.md "The Work Model").
     const moved = store.moveTask(taskId, body.status);
     if (!moved.ok) return fail(c, 400, moved.error);
