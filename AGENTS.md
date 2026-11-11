@@ -89,7 +89,8 @@ Gates — run before you consider a change done:
 ```bash
 npm run check            # typecheck + generated files (version, shared constants) in step
 npm test                 # fast suite (node:test)
-npm run test:e2e         # slow suite: real git, tmux, shell
+npm run test:e2e         # slow suite: real git, tmux, shell, a scripted (model-free) Pi
+npm run test:all         # npm test + npm run test:e2e
 npm run typecheck:ext    # the Pi extension
 npm run test:ext         # the Pi extension's suites
 (cd ui && npx tsc -b && npx eslint .)   # the web UI: types, lint (incl. jsx-a11y)

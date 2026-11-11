@@ -1,0 +1,31 @@
+{
+  "issues": [
+    {
+      "id": "DEMO-1",
+      "title": "Add GET /todos/:id",
+      "body": "The todo API can list, create, toggle, and delete todos but not fetch one. Add `GET /todos/:id` to src/index.ts: return the todo as JSON, or 404 with `{ \"error\": \"not found\" }` (like DELETE) when the id doesn't exist.",
+      "acceptanceCriteria": "- `GET /todos/:id` returns the matching todo\n- Unknown ids return 404\n- A test covers both cases and `npm test` passes",
+      "status": "open",
+      "updatedAt": "2024-06-01T10:00:00Z",
+      "comments": []
+    },
+    {
+      "id": "DEMO-2",
+      "title": "Validate empty titles",
+      "body": "`POST /todos` rejects a missing or empty title, but accepts a whitespace-only one (`\"   \"`). Trim the title, reject a blank one with 400 `{ \"error\": \"title is required\" }`, and store the trimmed title.",
+      "acceptanceCriteria": "- Whitespace-only titles return 400\n- Titles are stored trimmed\n- A test covers the validation and `npm test` passes",
+      "status": "open",
+      "updatedAt": "2024-06-01T10:05:00Z",
+      "comments": []
+    },
+    {
+      "id": "DEMO-3",
+      "title": "Customer request: due dates and overdue reminders",
+      "body": "From a customer call: \"I keep forgetting things on my list. Could todos have a due date, and could the API tell me what's overdue?\" Nobody has scoped this yet. Triage it against the todo API in src/index.ts: what's the smallest useful change, should it be one task or a small story, and is anything recurring (e.g. a nightly overdue check) worth scheduling?",
+      "status": "open",
+      "mode": "triage",
+      "updatedAt": "2024-06-01T10:10:00Z",
+      "comments": []
+    }
+  ]
+}

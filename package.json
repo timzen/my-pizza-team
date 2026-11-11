@@ -41,6 +41,7 @@
     "prepack": "npm run build",
     "test": "node --test --test-concurrency=1 'tests/*.test.ts'",
     "test:e2e": "node --test --test-concurrency=1 'tests/e2e/*.test.ts'",
+    "test:all": "npm test && npm run test:e2e",
     "test:a11y": "npm run ui:build && node --test --test-concurrency=1 'tests/a11y/*.test.ts'",
     "typecheck": "tsc -p tsconfig.json",
     "check": "npm run typecheck && npm run sync-version -- --check && npm run sync-shared -- --check",

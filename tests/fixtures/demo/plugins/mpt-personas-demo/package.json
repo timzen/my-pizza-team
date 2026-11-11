@@ -1,0 +1,8 @@
+{
+  "name": "mpt-personas-demo",
+  "version": "0.1.0",
+  "description": "Example my-pizza-team persona package: a careful implementer, a careful reviewer, and a tracker triager (personas only, no sources, no build)",
+  "private": true,
+  "license": "MIT",
+  "mpt": { "personas": ["personas/*.md"] }
+}

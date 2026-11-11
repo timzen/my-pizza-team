@@ -2954,4 +2954,7 @@ protocol bump — a harness that never reports simply shows no numbers.
   stand-in: `tests/fixtures/fake-acp-agent.ts` for ACP, and for Pi a scripted
   provider (`tests/fixtures/pi-scripted-provider.ts`) loaded into a real `pi` with
   the real extension, so the whole leader/teammate path runs without a model call.
+  The demo team's end-to-end flow (the tracker plugin, personas, the leader and a
+  teammate finishing its story) runs this way too, in `tests/e2e/` on a copy of the
+  demo fixtures (`tests/fixtures/demo/`), so it has a pass/fail verdict in seconds.
   Whether a teammate does good work is exercised by hand with `mpt-demo-team`.

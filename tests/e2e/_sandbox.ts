@@ -251,6 +251,10 @@ export async function sandbox(label = "e2e", opts: SandboxOptions = {}): Promise
       if (hasTmux()) {
         try { await run("tmux", ["kill-server"], env, projectDir); } catch { /* none running */ }
       }
+      // Agents in those windows (or in a herdr server's panes) exit in their own time,
+      // and a Pi's MPT extension tidies its permission config in the project as it
+      // goes — which would recreate the directory removed below. So wait them out first.
+      try { await reapProcessesIn(root); } catch { /* best effort */ }
       for (const dir of [root, tmuxDir]) {
         try { await fs.promises.rm(dir, { recursive: true, force: true }); } catch { /* */ }
       }
@@ -258,6 +262,41 @@ export async function sandbox(label = "e2e", opts: SandboxOptions = {}): Promise
   };
 
   return sb;
+}
+
+/**
+ * The pids of processes (other than this one) whose working directory is inside
+ * `dir`. Read from Linux's /proc; elsewhere there is no cheap way, so none.
+ */
+function processesIn(dir: string): number[] {
+  if (!existsSync("/proc/self/cwd")) return [];
+  let real: string;
+  try { real = fs.realpathSync(dir); } catch { return []; }
+  const pids: number[] = [];
+  for (const name of fs.readdirSync("/proc")) {
+    if (!/^\d+$/.test(name) || Number(name) === process.pid) continue;
+    try {
+      const cwd = fs.readlinkSync(`/proc/${name}/cwd`);
+      if (cwd === real || cwd.startsWith(real + path.sep)) pids.push(Number(name));
+    } catch { /* gone, or not ours */ }
+  }
+  return pids;
+}
+
+/**
+ * Wait for every process still working inside the sandbox to exit — a few seconds,
+ * then SIGTERM, then SIGKILL — so none writes into it after teardown removes it.
+ */
+async function reapProcessesIn(dir: string): Promise<void> {
+  const gone = async (ms: number) => {
+    const deadline = Date.now() + ms;
+    while (processesIn(dir).length > 0 && Date.now() < deadline) await new Promise((r) => setTimeout(r, 50));
+    return processesIn(dir).length === 0;
+  };
+  if (await gone(3000)) return;
+  for (const pid of processesIn(dir)) try { process.kill(pid, "SIGTERM"); } catch { /* already gone */ }
+  if (await gone(2000)) return;
+  for (const pid of processesIn(dir)) try { process.kill(pid, "SIGKILL"); } catch { /* already gone */ }
 }
 
 /** Everything a sandbox leaves on disk, so tests can prove teardown happened. */

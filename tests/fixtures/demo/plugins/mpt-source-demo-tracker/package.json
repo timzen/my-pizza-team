@@ -1,0 +1,10 @@
+{
+  "name": "mpt-source-demo-tracker",
+  "version": "0.1.0",
+  "description": "Example my-pizza-team Work Source plugin: a fake, offline issue tracker backed by a JSON file",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "mpt": { "sources": ["./index.js"], "personas": ["personas/*.md"] },
+  "peerDependencies": { "my-pizza-team": "*" }
+}

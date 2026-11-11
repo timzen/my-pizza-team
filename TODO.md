@@ -195,8 +195,8 @@ A Work Source (or one of its items) can declare `mode: "triage"`: the read-only
 mirror is the triage subject, a new revision is the turn, and proposals are decided on
 the mirror's Triage tab (docs/DESIGN.md "External sources" — "Triage mode"; docs/guide/07-sources.md
 "Triage-mode sources" and docs/PLUGINS.md "Writing a Work Source plugin"). Tests:
-tests/external-triage.test.ts; demo: mpt-demo-team's demo-tracker plugin (`DEMO-3`,
-checked by `run-e2e.sh`). What's left:
+tests/external-triage.test.ts, tests/e2e/demo-tracker.test.ts; demo: mpt-demo-team's
+demo-tracker plugin (`DEMO-3`). What's left:
 
 - **Proposal write-back to the external system.** Analyses and decisions live only
   in MPT: they aren't comments, so `onComment` never sees them, and there is no hook

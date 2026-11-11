@@ -1,0 +1,8 @@
+{
+  "id": "old-story",
+  "title": "A nested folder-per-story leftover",
+  "description": "Older than anything the migrations handled; the daemon must NOT report it.",
+  "status": "done",
+  "dependsOn": [],
+  "tasks": []
+}

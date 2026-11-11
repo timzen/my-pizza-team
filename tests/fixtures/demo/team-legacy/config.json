@@ -1,0 +1,11 @@
+{
+  "defaultWorkflow": "default",
+  "tmuxSession": "__SESSION__",
+  "maxTeammates": 0,
+  "autosave": {
+    "flushIntervalMinutes": 30,
+    "commitIntervalHours": 24,
+    "commitMessage": "mpt-demo: checkpoint {timestamp}",
+    "autoCommit": false
+  }
+}

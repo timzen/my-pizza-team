@@ -913,7 +913,8 @@ Gates — all must pass before a commit:
 ```bash
 npm run check            # type-check daemon/, cli/, runtime/, shared/, scripts/, tests/ + generated files in step
 npm test                 # fast suite (seconds; node:test, Node >=24)
-npm run test:e2e         # real git, tmux, herdr (when installed), shell — before pushing
+npm run test:e2e         # real git, tmux, herdr (when installed), shell, a scripted Pi — before pushing
+npm run test:all         # npm test, then npm run test:e2e
 npm run typecheck:ext    # the Pi extension
 npm run test:ext         # the Pi extension's suites
 (cd ui && npx tsc -b && npx eslint .)   # the web UI (lint includes jsx-a11y)

@@ -1,0 +1,36 @@
+{
+  "defaultWorkflow": "default",
+  "tmuxSession": "__SESSION__",
+  "maxTeammates": 2,
+  "minTeammates": 0,
+  "autosave": {
+    "flushIntervalMinutes": 30,
+    "commitIntervalHours": 24,
+    "commitMessage": "mpt-demo: checkpoint {timestamp}",
+    "autoCommit": false
+  },
+  "teammates": {
+    "nouns": [
+      "ripley",
+      "deckard"
+    ]
+  },
+  "packages": [
+    {
+      "source": "../../plugins/mpt-source-demo-tracker",
+      "config": {
+        "file": "../../tracker/tracker.json",
+        "directory": "__DEMO_PROJECT__",
+        "intervalSeconds": 1
+      }
+    },
+    {
+      "source": "../../plugins/mpt-personas-demo"
+    }
+  ],
+  "sourcePersonas": {
+    "demo-tracker": {
+      "triagePersona": "mpt-personas-demo/tracker-triager"
+    }
+  }
+}
