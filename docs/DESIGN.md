@@ -2899,6 +2899,13 @@ in words (`teammateSummary`: name · status · model · work · persona · conte
 cost), so a keyboard or screen-reader user gets what hovering shows
 (docs/ACCESSIBILITY.md).
 
+In the Team tab the icon has a column of its own: a circle as tall as the row's
+lines (the collapsed rail's avatar circle, a little larger), with the row's text
+stacked to its right, so you scan the list for status down one edge instead of
+hunting for a small glyph at the start of the first line. It stays gray — the
+shape carries the meaning, and a bigger icon doesn't need a color to be found.
+Spawn rows (pending, failed) use the same column for their clock and warning.
+
 Beside the name each row shows the **model** the teammate is running (its name;
 provider/id on hover), and beside the directory the two numbers Pi's own footer
 shows:

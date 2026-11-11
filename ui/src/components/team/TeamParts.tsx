@@ -1,6 +1,7 @@
 /**
  * TeamParts — The rows and avatars the Team tab and the dock's collapsed rail
- * are built from: an agent row (status icon, model, current work and the
+ * are built from: an agent row (status icon in a full-height circle on the
+ * left — the rail avatar's circle, shared as IconCircle — then model, current work and the
  * persona it's working with — a chip linking to the persona, docs/DESIGN.md
  * "The in-flight persona" — directory, context fill and session cost; reset /
  * dismiss; teammates link to their live view), an
@@ -114,6 +115,20 @@ export function SessionStats({ teammate, className }: { teammate: Teammate; clas
 }
 
 /**
+ * The round, bordered frame a row's or avatar's leading icon sits in — the
+ * collapsed rail's avatar and the Team tab rows' left column share it, so the
+ * two read as the same thing at two sizes. `className` sets the size and any
+ * border override (selected).
+ */
+function IconCircle({ className, children }: { className?: string; children: React.ReactNode }) {
+  return (
+    <div className={cn("flex shrink-0 items-center justify-center rounded-full border border-border bg-background", className)}>
+      {children}
+    </div>
+  );
+}
+
+/**
  * A circle with the status icon (collapsed rail). Teammates link to their view.
  * `tooltipSide` points the hint toward the center (default "right", a left dock's).
  */
@@ -121,9 +136,9 @@ export function TeammateAvatar({ teammate, selected, tooltipSide = "right" }: { 
   const to = viewPath(teammate);
   const summary = teammateSummary(teammate);
   const circle = (
-    <div className={`h-8 w-8 rounded-full flex items-center justify-center bg-background border ${selected ? "border-primary ring-2 ring-primary/30" : "border-border"} ${teammate.status === "offline" ? "opacity-50" : ""}`}>
+    <IconCircle className={cn("h-8 w-8", selected && "border-primary ring-2 ring-primary/30", teammate.status === "offline" && "opacity-50")}>
       <StatusIcon teammate={teammate} className="h-4 w-4" />
-    </div>
+    </IconCircle>
   );
   // A link is named by the summary (and says where it goes); a plain avatar is
   // focusable so the keyboard can read the same hint.
@@ -140,7 +155,10 @@ export function TeammateAvatar({ teammate, selected, tooltipSide = "right" }: { 
     );
 }
 
-/** A pending spawn request row with a cancel button (expanded sidebar). */
+/** The Team tab rows' left column: its circle and the icon in it (the rail's avatar is smaller). */
+const ROW_CIRCLE = "h-9 w-9";
+const ROW_ICON = "h-5 w-5 shrink-0";
+
 /**
  * A spawn the daemon attempted and couldn't finish.
  *
@@ -150,63 +168,72 @@ export function TeammateAvatar({ teammate, selected, tooltipSide = "right" }: { 
 export function FailedSpawnRow({ failure, onDismiss }: { failure: FailedSpawn; onDismiss: (id: string) => void }) {
   const dir = dirName(failure.cwd);
   return (
-    <div className="group rounded-md border border-destructive/50 bg-destructive/5 p-2.5">
-      <div className="flex items-center gap-2">
-        <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-destructive" role="img" aria-label="Spawn failed" />
-        <span className="truncate text-sm font-medium">{failure.name || "(unnamed)"}</span>
-        <Tooltip content="Dismiss this failure" describe={false}>
-          <button
-            onClick={() => onDismiss(failure.id)}
-            className="p-0.5 text-muted-foreground opacity-0 transition-opacity hover:text-destructive group-hover:opacity-100 focus-visible:opacity-100"
-            aria-label="Dismiss this failure"
-          >
-            <X className="h-3.5 w-3.5" />
-          </button>
-        </Tooltip>
-      </div>
-      <p className="mt-1 text-[11px] text-destructive">{failure.error || "spawn failed"}</p>
-      {(dir || failure.cwd) && (
-        <div className="mt-1.5 flex flex-wrap items-center gap-1">
-          <Tooltip content={failure.cwd ?? undefined}>
-            <Badge variant="secondary" className="flex max-w-full items-center gap-1 font-mono text-[10px]">
-              <FolderOpen className="h-2.5 w-2.5 shrink-0" />
-              <span className="truncate">{dir || failure.cwd}</span>
-            </Badge>
+    <div className="group flex items-center gap-2.5 rounded-md border border-destructive/50 bg-destructive/5 p-2.5">
+      <IconCircle className={ROW_CIRCLE}>
+        <AlertTriangle className={cn(ROW_ICON, "text-destructive")} role="img" aria-label="Spawn failed" />
+      </IconCircle>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2">
+          <span className="truncate text-sm font-medium">{failure.name || "(unnamed)"}</span>
+          <Tooltip content="Dismiss this failure" describe={false}>
+            <button
+              onClick={() => onDismiss(failure.id)}
+              className="p-0.5 text-muted-foreground opacity-0 transition-opacity hover:text-destructive group-hover:opacity-100 focus-visible:opacity-100"
+              aria-label="Dismiss this failure"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
           </Tooltip>
         </div>
-      )}
+        <p className="mt-1 text-[11px] text-destructive">{failure.error || "spawn failed"}</p>
+        {(dir || failure.cwd) && (
+          <div className="mt-1.5 flex flex-wrap items-center gap-1">
+            <Tooltip content={failure.cwd ?? undefined}>
+              <Badge variant="secondary" className="flex max-w-full items-center gap-1 font-mono text-[10px]">
+                <FolderOpen className="h-2.5 w-2.5 shrink-0" />
+                <span className="truncate">{dir || failure.cwd}</span>
+              </Badge>
+            </Tooltip>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
 
+/** A pending spawn request row with a cancel button (expanded sidebar). */
 export function SpawnRequestRow({ request, onCancel }: { request: SpawnRequest; onCancel: (id: string) => void }) {
   const dir = dirName(request.cwd);
   return (
-    <div className="group rounded-md border border-dashed border-amber-500/50 bg-amber-500/5 p-2.5">
-      <div className="flex items-center gap-2">
-        <Clock className="h-3.5 w-3.5 shrink-0 text-amber-600 animate-pulse" />
-        <span className="font-medium text-sm truncate flex-1">{request.name || "(unnamed)"}</span>
-        <Tooltip content="Cancel spawn request" describe={false}>
-          <button
-            onClick={() => onCancel(request.id)}
-            className="text-muted-foreground hover:text-destructive p-0.5 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
-            aria-label="Cancel spawn request"
-          >
-            <X className="h-3.5 w-3.5" />
-          </button>
-        </Tooltip>
-      </div>
-      <p className="text-[11px] text-muted-foreground mt-1">pending · waiting to be started</p>
-      {(dir || request.cwd) && (
-        <div className="flex items-center gap-1 mt-1.5 flex-wrap">
-          <Tooltip content={request.cwd ?? undefined}>
-            <Badge variant="secondary" className="text-[10px] font-mono flex items-center gap-1 max-w-full">
-              <FolderOpen className="h-2.5 w-2.5 shrink-0" />
-              <span className="truncate">{dir || request.cwd}</span>
-            </Badge>
+    <div className="group flex items-center gap-2.5 rounded-md border border-dashed border-amber-500/50 bg-amber-500/5 p-2.5">
+      <IconCircle className={ROW_CIRCLE}>
+        <Clock className={cn(ROW_ICON, "text-amber-600 animate-pulse")} />
+      </IconCircle>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2">
+          <span className="font-medium text-sm truncate flex-1">{request.name || "(unnamed)"}</span>
+          <Tooltip content="Cancel spawn request" describe={false}>
+            <button
+              onClick={() => onCancel(request.id)}
+              className="text-muted-foreground hover:text-destructive p-0.5 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
+              aria-label="Cancel spawn request"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
           </Tooltip>
         </div>
-      )}
+        <p className="text-[11px] text-muted-foreground mt-1">pending · waiting to be started</p>
+        {(dir || request.cwd) && (
+          <div className="flex items-center gap-1 mt-1.5 flex-wrap">
+            <Tooltip content={request.cwd ?? undefined}>
+              <Badge variant="secondary" className="text-[10px] font-mono flex items-center gap-1 max-w-full">
+                <FolderOpen className="h-2.5 w-2.5 shrink-0" />
+                <span className="truncate">{dir || request.cwd}</span>
+              </Badge>
+            </Tooltip>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -238,88 +265,95 @@ export function TeammateRow({
   // — nesting buttons inside an <a> would be invalid.
   return (
     <div
-      className={`group relative rounded-md border p-2.5 ${
+      className={`group relative flex items-center gap-2.5 rounded-md border p-2.5 ${
         selected ? "border-primary bg-accent" : "border-border bg-background"
       } ${to ? "hover:border-primary/50" : ""} ${teammate.status === "offline" ? "opacity-60" : ""}`}
     >
-      <div className="flex items-center gap-2">
-        <Tooltip content={statusLabel(teammate.status)} describe={false}>
-          <span className="shrink-0">
-            <StatusIcon teammate={teammate} className="h-3.5 w-3.5 text-muted-foreground" />
-          </span>
-        </Tooltip>
-        {skewReason && (
-          <Tooltip content={skewReason} describe={false}>
-            <span className="relative z-10 shrink-0">
-              <AlertTriangle className="h-3.5 w-3.5 text-amber-600" role="img" aria-label={skewReason} />
-            </span>
-          </Tooltip>
-        )}
-        {to ? (
-          // The link's tooltip is the whole row in words, so a keyboard user
-          // gets the hints (model, context, cost) the row's parts show on hover.
-          <Tooltip content={`Watch · ${teammateSummary(teammate)}`} describe={false}>
-            <Link to={to} className="font-medium text-sm truncate flex-1 after:absolute after:inset-0 after:content-['']" aria-label={`Watch ${teammateSummary(teammate)}`}>
-              {teammate.name}
-            </Link>
-          </Tooltip>
-        ) : (
-          <span className="font-medium text-sm truncate flex-1">{teammate.name}</span>
-        )}
-        <ModelName teammate={teammate} className="relative z-10 max-w-[45%] shrink" />
-        {teammate.harness && teammate.harness !== "pi" && (
-          <Tooltip content={`${teammate.harness} teammate (experimental, via mpt agent)`}>
-            <span className="shrink-0 rounded border border-border px-1 text-[10px] text-muted-foreground">
-              {teammate.harness}
-            </span>
-          </Tooltip>
-        )}
-        {/* Collapsed until hover/focus, so they don't hold space the model needs;
-            on hover they take the model's place (it truncates). */}
-        {(onDismiss || onReset) && (
-        <div className="relative z-10 hidden items-center gap-0.5 group-hover:flex group-focus-within:flex">
-          {/* Reset types Pi's /new; an ACP teammate already starts each item in a fresh session. */}
-          {onReset && (!teammate.harness || teammate.harness === "pi") && (
-            <Tooltip content="Reset session (clears context window)">
-              <button onClick={() => onReset(teammate)} className="text-muted-foreground hover:text-foreground p-0.5" aria-label={`Reset ${teammate.name}'s session`}>
-                <RotateCcw className="h-3.5 w-3.5" />
-              </button>
+      {/* The status, as tall as the row's lines, so a glance down the list reads it. */}
+      <Tooltip content={statusLabel(teammate.status)} describe={false}>
+        <span className="shrink-0">
+          <IconCircle className={ROW_CIRCLE}>
+            <StatusIcon teammate={teammate} className={cn(ROW_ICON, "text-muted-foreground")} />
+          </IconCircle>
+        </span>
+      </Tooltip>
+
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2">
+          {skewReason && (
+            <Tooltip content={skewReason} describe={false}>
+              <span className="relative z-10 shrink-0">
+                <AlertTriangle className="h-3.5 w-3.5 text-amber-600" role="img" aria-label={skewReason} />
+              </span>
             </Tooltip>
           )}
-          {onDismiss && (
-            <Tooltip content="Dismiss teammate" describe={false}>
-              <button onClick={() => onDismiss(teammate.id)} className="text-muted-foreground hover:text-destructive p-0.5" aria-label={`Dismiss ${teammate.name}`}>
-                <Trash2 className="h-3.5 w-3.5" />
-              </button>
+          {to ? (
+            // The link's tooltip is the whole row in words, so a keyboard user
+            // gets the hints (model, context, cost) the row's parts show on hover.
+            <Tooltip content={`Watch · ${teammateSummary(teammate)}`} describe={false}>
+              <Link to={to} className="font-medium text-sm truncate flex-1 after:absolute after:inset-0 after:content-['']" aria-label={`Watch ${teammateSummary(teammate)}`}>
+                {teammate.name}
+              </Link>
             </Tooltip>
+          ) : (
+            <span className="font-medium text-sm truncate flex-1">{teammate.name}</span>
+          )}
+          <ModelName teammate={teammate} className="relative z-10 max-w-[45%] shrink" />
+          {teammate.harness && teammate.harness !== "pi" && (
+            <Tooltip content={`${teammate.harness} teammate (experimental, via mpt agent)`}>
+              <span className="shrink-0 rounded border border-border px-1 text-[10px] text-muted-foreground">
+                {teammate.harness}
+              </span>
+            </Tooltip>
+          )}
+          {/* Collapsed until hover/focus, so they don't hold space the model needs;
+              on hover they take the model's place (it truncates). */}
+          {(onDismiss || onReset) && (
+          <div className="relative z-10 hidden items-center gap-0.5 group-hover:flex group-focus-within:flex">
+            {/* Reset types Pi's /new; an ACP teammate already starts each item in a fresh session. */}
+            {onReset && (!teammate.harness || teammate.harness === "pi") && (
+              <Tooltip content="Reset session (clears context window)">
+                <button onClick={() => onReset(teammate)} className="text-muted-foreground hover:text-foreground p-0.5" aria-label={`Reset ${teammate.name}'s session`}>
+                  <RotateCcw className="h-3.5 w-3.5" />
+                </button>
+              </Tooltip>
+            )}
+            {onDismiss && (
+              <Tooltip content="Dismiss teammate" describe={false}>
+                <button onClick={() => onDismiss(teammate.id)} className="text-muted-foreground hover:text-destructive p-0.5" aria-label={`Dismiss ${teammate.name}`}>
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              </Tooltip>
+            )}
+          </div>
           )}
         </div>
+
+        {(teammate.currentWork || teammate.persona) && (
+          <div className="mt-1 flex min-w-0 items-center gap-1.5">
+            {teammate.currentWork && (
+              <p className="min-w-0 truncate text-xs text-muted-foreground" title={teammate.currentWork}>⚙️ {teammate.currentWork}</p>
+            )}
+            {/* Above the row's stretched link, so the chip opens the persona, not the teammate. */}
+            <PersonaChip persona={teammate.persona} className="relative z-10 shrink-0 max-w-[50%]" />
+          </div>
+        )}
+
+        {(dir || teammate.session) && (
+          <div className="flex items-center gap-1 mt-1.5">
+            {dir && (
+              <Tooltip content={directory ?? undefined}>
+                {/* `shrink` overrides the Badge's shrink-0, so a long folder truncates instead of pushing the stats out. */}
+                <Badge variant="secondary" className="text-[10px] font-mono flex min-w-0 shrink items-center gap-1">
+                  <FolderOpen className="h-2.5 w-2.5 shrink-0" />
+                  <span className="truncate">{dir}</span>
+                </Badge>
+              </Tooltip>
+            )}
+            <SessionStats teammate={teammate} className="ml-auto" />
+          </div>
         )}
       </div>
-
-      {(teammate.currentWork || teammate.persona) && (
-        <div className="mt-1 flex min-w-0 items-center gap-1.5">
-          {teammate.currentWork && (
-            <p className="min-w-0 truncate text-xs text-muted-foreground" title={teammate.currentWork}>⚙️ {teammate.currentWork}</p>
-          )}
-          {/* Above the row's stretched link, so the chip opens the persona, not the teammate. */}
-          <PersonaChip persona={teammate.persona} className="relative z-10 shrink-0 max-w-[50%]" />
-        </div>
-      )}
-
-      {(dir || teammate.session) && (
-        <div className="flex items-center gap-1 mt-1.5">
-          {dir && (
-            <Tooltip content={directory ?? undefined}>
-              <Badge variant="secondary" className="text-[10px] font-mono flex min-w-0 items-center gap-1">
-                <FolderOpen className="h-2.5 w-2.5 shrink-0" />
-                <span className="truncate">{dir}</span>
-              </Badge>
-            </Tooltip>
-          )}
-          <SessionStats teammate={teammate} className="ml-auto" />
-        </div>
-      )}
     </div>
   );
 }

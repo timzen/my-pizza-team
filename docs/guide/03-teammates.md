@@ -38,7 +38,7 @@ Teammates live in the **Team** tab of the dock (beside the **Assistant** tab),
 on every page — the teammate pool (the assistant isn't listed: it's the agent you talk
 to on the Assistant tab). Each row shows:
 
-- its status — the icon *is* the status:
+- its status, in the circle down the row's left side — the icon *is* the status:
   - **person**: pairing with you
   - **bot**: waiting for work
   - **spinning loader**: working
