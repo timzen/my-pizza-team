@@ -1,0 +1,5 @@
+{
+  "states": [
+    { "name": "awaiting_approval", "type": "teammate", "persona": "approval-watcher", "completion": "poll", "pollEvery": "1m", "pollTimeout": "1h", "onTimeout": "manual" }
+  ]
+}

@@ -30,13 +30,20 @@ either disagrees with the code, the code is right and the doc is a bug.
 ```
 todo (implicit)  →  [ active states, ordered ]  →  done (implicit)
 
-WorkflowConfig = { states: [ { name, type: "teammate" | "manual" } ] }
+WorkflowConfig = { states: [ { name, type: "teammate" | "manual",
+                                persona?, completion?: "once" | "poll",
+                                pollEvery?, pollTimeout?, onTimeout?: "manual" | "fail" } ] }
 ```
 
 - **`todo` / `done`** are implicit buckets present in every workflow and never
   declared. `todo` is the admission queue; `done` is terminal. An active state may
   not be named `todo` or `done`.
 - **Teammate state** — worked by teammates. Landing a task here enqueues a WorkItem.
+  Its **completion** says when the state is finished: `once` (the default) — one
+  run, done or failed; or `poll` — a series of one-shot checks, each ending done,
+  failed or **wait** ("not yet"), the daemon queuing the next check after
+  `pollEvery` until one is done or `pollTimeout` runs out (see "Polling States").
+  Either way a WorkItem is one run: a poll state repeats WorkItems, it never keeps one open.
 - **Manual state** — worked by a human (or the leader). No WorkItem, no persona:
   moving the card onward *is* the completion (e.g. a review gate).
 
@@ -260,6 +267,36 @@ outside a poll state, for a pending task or story, and while the team isn't read
 — with the probe's reason in `readiness` rather than queuing a check that would
 fail. A timed-out task's extra check doesn't resume polling; moving the task back
 into the state does (it restarts the clock).
+
+**The example: a CR state.** The demo team (mpt-demo-team `fixtures/team/`, and
+MPT's copy in `tests/fixtures/demo/team/`) ships it as the `cr-review` workflow —
+MPT has no built-in workflows to put it in:
+
+```json
+{ "states": [
+  { "name": "in_progress",   "type": "teammate", "persona": "demo-coder" },
+  { "name": "leader_review", "type": "manual" },
+  { "name": "cr", "type": "teammate", "persona": "cr",
+    "completion": "poll", "pollEvery": "15m", "pollTimeout": "7d", "onTimeout": "manual" }
+] }
+```
+
+with a `cr` persona (`personas/cr.md`) that is the contract in words: each run is
+one check; no CR for this task yet → create it and post its id to the thread;
+otherwise read its comments and approval status; unaddressed comments → address
+them, post a revision and a summary; approved → done; waiting on reviewers or a
+revision just posted → wait with a one-line reason; rejected or abandoned → fail
+with why. It names `cr` only as the example tool — the same persona fits any code
+review system. Beside it, the cheap `approval-poll` workflow (`pollEvery: "1m"`,
+persona `approval-watcher`: "wait until `approved.txt` exists in your working
+directory, then done") stands an external signal in for a review, so the demo and
+the e2e suite can watch a poll state without one: `tests/e2e/poll-flow.test.ts`
+runs it on a scripted Pi — a check waits; with readiness forced not-ready
+(`POST /api/readiness`) Check now is refused and the due check is held; on
+recovery exactly one check runs; the signal file plus Check now finishes the task.
+
+*Deferred:* a cheap per-state "did anything change?" command run before a model
+is started, so a check with nothing new costs no tokens (TODO.md).
 
 ## Work Matching: Directory Affinity
 
@@ -2304,10 +2341,20 @@ so a harness can report too.
   work; one that can't launch confirms nothing. A hung probe is timed out.
 - **Gating applies only while an agent is online.** With none connected the queue
   simply waits; readiness is about connected-but-unable, not absent.
-- **Only the scheduler — and automatic retries — are gated.** Solitary and board
-  work are human-initiated and still run (and may fail visibly). A retry of an
-  errored session (see "Errored Sessions Retry") waits for ready before it's
-  handed out.
+- **Only the scheduler, automatic retries and poll checks are gated** — the work
+  the daemon starts on its own clock. Solitary and board work are human-initiated
+  and still run (and may fail visibly). A retry of an errored session (see "Errored
+  Sessions Retry") waits for ready before it's handed out.
+- **A poll state's next check is held exactly like a Schedule** (see "Polling
+  States"): a check that falls due while not ready isn't queued; the task's poll
+  record is marked `heldForReadiness` (with the probe's reason, for the card), as
+  the Schedule is; on recovery **exactly one** check runs — missed intervals
+  collapse, as missed cron occurrences do — and the rhythm restarts from its end.
+  Both go through the same gate, `ctx.readiness.canEnqueueNow()`. One addition
+  schedules don't need: a poll state's `pollTimeout` is **never applied while
+  held** — the recovery check runs first, and the timeout applies only if it also
+  waits — so an outage can't time a task out. **Check now** is refused while not
+  ready, with the reason, rather than queuing a check that would fail.
 
 The motivating case: a cloud desktop whose credentials expire overnight shouldn't
 wake up to a pile of FAILED cron runs.
@@ -3085,4 +3132,7 @@ protocol bump — a harness that never reports simply shows no numbers.
   The demo team's end-to-end flow (the tracker plugin, personas, the leader and a
   teammate finishing its story) runs this way too, in `tests/e2e/` on a copy of the
   demo fixtures (`tests/fixtures/demo/`), so it has a pass/fail verdict in seconds.
+  The poll-state flow (`poll-flow`) is the one slow exception, about two minutes:
+  its readiness hold needs a check to fall due for real (`pollEvery`'s 1m minimum
+  on the daemon's 30s tick), and a test-only clock would leave that path untested.
   Whether a teammate does good work is exercised by hand with `mpt-demo-team`.

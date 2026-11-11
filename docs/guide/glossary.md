@@ -143,7 +143,8 @@ The home page tab of work in flight: at risk, waiting, and working
 ## Readiness probe
 
 A shell command the daemon runs every 30 seconds to ask "can this machine work right
-now?". While it fails, scheduled jobs and automatic retries wait. See
+now?". While it fails, scheduled jobs, automatic retries and a
+[polling step](#polling-step)'s next check wait (held, then run once on recovery). See
 [Readiness probe](08-configuration.md#readiness-probe).
 
 ## Run

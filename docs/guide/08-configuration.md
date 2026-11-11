@@ -74,7 +74,10 @@ ready; anything else means not ready, and its first line of output is the reason
 While not ready, **scheduled** jobs are held instead of run — and when it recovers,
 each held job runs once (not once per missed tick). Story tasks and standalone tasks
 still run. With no probe, the team is always ready. Automatic
-[retries](01-tasks-and-runs.md#retries) also wait for the probe to pass.
+[retries](01-tasks-and-runs.md#retries) also wait for the probe to pass, and so
+does a [polling step](02-stories-and-workflows.md#polling-steps)'s next check: it's
+held the same way (the card says **Held · team not ready**), runs once on recovery,
+and its time limit doesn't run out while held.
 
 ## Agent environment file
 

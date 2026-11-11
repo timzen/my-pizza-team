@@ -200,6 +200,37 @@ while the team isn't ready, and the reason shows beside the button.
 
 On a **manual** step these fields do nothing; the daemon log warns about them.
 
+#### Example: a CR step
+
+A step that drives a code review to approval. The workflow — implement, a manual
+look by you, then the CR step polling every 15 minutes for up to a week:
+
+```json
+{ "states": [
+  { "name": "in_progress",   "type": "teammate", "persona": "demo-coder" },
+  { "name": "leader_review", "type": "manual" },
+  { "name": "cr", "type": "teammate", "persona": "cr",
+    "completion": "poll", "pollEvery": "15m", "pollTimeout": "7d", "onTimeout": "manual" }
+] }
+```
+
+The `cr` step's persona spells out one check:
+
+- If no CR exists for this task yet, create it and post its id to the thread.
+- Otherwise read its comments and approval status.
+- If there are unaddressed comments, address them, post a revision and post a summary.
+- When it's approved, finish **done**. If it's waiting on reviewers, or a revision
+  was just posted, finish **wait** with a one-line reason.
+- If it can't proceed — the CR was rejected or abandoned — finish **fail** with why.
+
+It names `cr` only as an example: the same persona works with whatever review tool
+your project uses. The demo team (mpt-demo-team) ships this workflow as
+`cr-review` with the persona as `cr`, plus a quick one to try polling without a
+code review: the pending **Release Sign-off** story on the `approval-poll` workflow
+waits, a check a minute, until a file `approved.txt` exists in the demo project.
+Activate the story, watch its card say **Waiting**, create the file, and press
+**Check now** on the task's page to finish it.
+
 ### Deprecated: agent state type
 
 The **teammate** step type used to be called **agent**. A `workflow.json` state with

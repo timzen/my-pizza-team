@@ -45,9 +45,11 @@ test("personas: the library lists team, built-in and package personas; package o
 
   const library = ((await a.get("/api/personas")).body.personas as Json[]).map((p) => `${p.id}:${p.origin.kind}:${p.readOnly}`).sort();
   assertEquals(library, [
+    "approval-watcher:team:false",
     "builtin:assistant:builtin:true",
     "builtin:teammate:builtin:true",
     "builtin:triage:builtin:true",
+    "cr:team:false",
     "demo-coder:team:false",
     "mpt-personas-demo/careful-implementer:package:true",
     "mpt-personas-demo/careful-reviewer:package:true",
@@ -77,7 +79,10 @@ test("personas: the library lists team, built-in and package personas; package o
   // A persona in use can't be deleted.
   assertEquals((await a.del("/api/personas/demo-coder")).status, 409);
 
-  assertEquals(await usedBy(a, "demo-coder"), ["workflow-state:in_progress"]);
+  // in_progress of both the default workflow and the cr-review example.
+  assertEquals(await usedBy(a, "demo-coder"), ["workflow-state:in_progress", "workflow-state:in_progress"]);
+  assertEquals(await usedBy(a, "cr"), ["workflow-state:cr"]);
+  assertEquals(await usedBy(a, "approval-watcher"), ["workflow-state:awaiting_approval"]);
   assertEquals(await usedBy(a, REVIEWER), ["workdef:audit-project-dependencies"]);
   assertEquals(await usedBy(a, "mpt-personas-demo%2Ftracker-triager"), [`source-setting:${TRACKER}`]);
   const tracker = ((await a.get("/api/sources")).body.sources as Json[]).find((s) => s.id === TRACKER);

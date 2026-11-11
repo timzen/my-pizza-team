@@ -1,0 +1,13 @@
+{
+  "id": "release-signoff",
+  "title": "Release Sign-off (poll demo)",
+  "description": "A polling-state example: the task waits, one cheap check at a time, until someone creates approved.txt in the demo project. Starts pending; activate it to watch the card wait (Check now runs a check immediately).",
+  "status": "open",
+  "dependsOn": [],
+  "directory": "__DEMO_PROJECT__",
+  "pending": true,
+  "workflow": "approval-poll",
+  "tasks": [
+    { "id": "release-signoff-1", "status": "todo" }
+  ]
+}

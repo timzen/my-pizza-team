@@ -96,6 +96,20 @@ number. Delete an item when it's done.
   `mpt-services`. Use exact targets (`=<session>`) throughout, updating the argv
   assertions in `tests/tmux.test.ts` / `tests/spawner.test.ts`.
 
+## Polling states — built (docs/DESIGN.md "Polling States")
+
+- **A cheap "did anything change?" pre-check per poll state (deferred):** today every
+  check of a `completion: "poll"` state starts a teammate and a model session, even
+  when nothing happened since the last wait (a CR with no new comments or votes).
+  A state could name a shell command (e.g. `changedCheck`) the daemon runs before
+  queuing the check — exit 0 "something changed" → queue the check as now; exit 1
+  "nothing new" → count it as a wait without a model (a `[wait]` comment from the
+  daemon, `lastCheckAt` advanced), so `pollTimeout` still applies. Needs: where it
+  runs (the story directory, with the readiness probe's timeout and `sh -c` rules —
+  `daemon/readiness.ts` `runProbe`), what it may read of the thread (e.g. the last
+  check's time in an env var), and how its output reaches the next real check's
+  prompt. Not part of the polling-states story.
+
 ## Work Sources as plugins — package loading — built
 
 Third-party Work Sources load from plugin packages declared per team in

@@ -525,6 +525,22 @@ When a task lands in a teammate state the daemon enqueues a `READY` WorkItem for
 a teammate claims it and, on COMPLETE, the task advances. On FAILED it stays put
 until you move it (moving it back into a teammate state enqueues a fresh attempt).
 
+**Polling states.** A teammate state can finish on an outside signal instead
+(`"completion": "poll"`, with `pollEvery`, `pollTimeout`, `onTimeout`): each run is
+one check that ends done, failed or **wait** (WorkItem `WAITED`, "not yet"), and the
+daemon queues the next check after `pollEvery`, held while the readiness probe says
+not ready (exactly one on recovery, like a Schedule; the timeout never runs out while
+held). **Check now** (`POST /api/tasks/:id/check-now`) runs one at once. The example
+is a CR state — create the CR, answer comments, finish when approved:
+
+```json
+{ "name": "cr", "type": "teammate", "persona": "cr", "completion": "poll", "pollEvery": "15m", "pollTimeout": "7d", "onTimeout": "manual" }
+```
+
+See [docs/DESIGN.md](docs/DESIGN.md#polling-states) and the guide's
+[Polling steps](docs/guide/02-stories-and-workflows.md#polling-steps); the demo team
+(mpt-demo-team) ships it as the `cr-review` workflow with a `cr` persona.
+
 **Pending.** Any WorkDef can be created as pending (`pending: true`; **Save as
 pending** in the UI; the assistant's `add_task` / `create_task` / `create_schedule`
 take `pending` too). A pending WorkDef is editable and never gets a WorkItem — a

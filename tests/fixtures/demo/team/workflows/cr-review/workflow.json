@@ -1,0 +1,7 @@
+{
+  "states": [
+    { "name": "in_progress", "type": "teammate", "persona": "demo-coder" },
+    { "name": "leader_review", "type": "manual" },
+    { "name": "cr", "type": "teammate", "persona": "cr", "completion": "poll", "pollEvery": "15m", "pollTimeout": "7d", "onTimeout": "manual" }
+  ]
+}

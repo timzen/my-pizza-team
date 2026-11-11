@@ -5,7 +5,7 @@ Copied from the **mpt-demo-team** repo (`fixtures/` and `plugins/`, at its commi
 checks its `run-e2e.sh` made run here as node:test suites with a verdict (see
 `tests/e2e/_demo.ts` for how a sandbox lays this out, and the suites that use it:
 `legacy-layout`, `pending-workdefs`, `demo-tracker`, `personas`, `assistant-start`,
-`team-flow`).
+`team-flow`, `poll-flow`).
 
 The persona files were re-synced at `4696995` ("Personas: kinds: [teammate]"): every
 persona says `kinds: [teammate]` except `plugins/mpt-source-demo-tracker/personas/tracker-worker.md`,
@@ -15,6 +15,13 @@ which keeps the deprecated `kinds: [worker]` on purpose so the alias stays exerc
 Likewise the workflows (in step with mpt-demo-team's `fixtures/team/workflows/`):
 `team/workflows/default` says `"type": "teammate"`, and `team/workflows/hotfix` keeps
 the deprecated `"type": "agent"` on purpose (also asserted in `tests/e2e/personas.test.ts`).
+
+The polling-state example (mpt-demo-team's, copied as-is): the `cr-review` workflow
+(`in_progress` → `leader_review` → a `cr` poll state) with its `personas/cr.md`, and
+the cheap `approval-poll` workflow with `personas/approval-watcher.md` and the pending
+`release-signoff` story (task `release-signoff-1`) that `tests/e2e/poll-flow.test.ts`
+activates — it waits until `approved.txt` exists in the project directory. The story
+is pending, so the other suites never run it.
 
 | Here | From mpt-demo-team | Changes |
 |---|---|---|
