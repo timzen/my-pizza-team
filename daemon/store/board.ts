@@ -126,6 +126,9 @@ function pollRecordOf(value: unknown): TaskPollRecord | undefined {
   const record: TaskPollRecord = { state: v.state, startedAt: v.startedAt, checks: typeof v.checks === "number" && v.checks >= 0 ? Math.floor(v.checks) : 0 };
   if (typeof v.lastCheckAt === "string") record.lastCheckAt = v.lastCheckAt;
   if (typeof v.lastWaitReason === "string") record.lastWaitReason = v.lastWaitReason;
+  if (v.heldForReadiness === true) record.heldForReadiness = true;
+  if (typeof v.heldReason === "string") record.heldReason = v.heldReason;
+  if (typeof v.timedOutAt === "string") record.timedOutAt = v.timedOutAt;
   return record;
 }
 

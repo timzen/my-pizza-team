@@ -12,7 +12,7 @@
  */
 
 import type {
-  Comment, FeaturesConfig, Member, MemberSessionStats, Persona, PersonaKind, PersonaRef, PersonaUsage, ThreadEntry, Thought, ThoughtGroup,
+  Comment, FeaturesConfig, PollTimeoutAction, TaskPollRecord, Member, MemberSessionStats, Persona, PersonaKind, PersonaRef, PersonaUsage, ThreadEntry, Thought, ThoughtGroup,
   TriageBadge, TriageOutcome, TriageProposalState, TriageSkipReason, WorkflowConfig, WorkItemState,
 } from "./types.ts";
 import type {
@@ -115,7 +115,27 @@ export interface TaskView {
   description?: string;
   assignee: string | null;
   tokenUsage?: { totalCostUsd: number; totalInputTokens: number; totalOutputTokens: number };
+  /** Set while the task sits in a poll state (docs/DESIGN.md "Polling States"). */
+  poll?: TaskPollView;
 }
+
+/**
+ * A poll-state task's status: its poll record (shared/types.ts
+ * `TaskPollRecord`) plus, while polling, when the next check is due.
+ */
+export interface TaskPollView extends TaskPollRecord {
+  /** When the next check is due (ISO); unset while one is in flight, or polling has stopped. */
+  nextCheckAt?: string;
+  /** When `pollTimeout` runs out (ISO). */
+  timeoutAt: string;
+  onTimeout: PollTimeoutAction;
+}
+
+// POST /api/tasks/:taskId/check-now — queue one check of a poll-state task now.
+// 200 { success, workItem: { id } }; 404 unknown task; 409 not a poll state, a
+// check already queued/running, pending, or the team not ready (then `readiness`
+// carries the probe's reason).
+export interface CheckNowResponse { success: boolean; workItem?: { id: string }; error?: string; readiness?: string }
 
 // POST /api/tasks/:taskId/comment
 export interface PostCommentRequest { from: string; body: string; attachments?: Array<{ name: string; size: number; type: string }> }

@@ -421,6 +421,21 @@ export interface TaskPollRecord {
   lastWaitReason?: string;
   /** How many checks have ended with wait in this state. */
   checks: number;
+  /**
+   * A check came due (or the timeout decision did) while the team's readiness
+   * probe said not ready, so it is held rather than queued — as a Schedule's
+   * `heldForReadiness`. On recovery exactly one check runs and this clears.
+   * While held, `pollTimeout` is never applied.
+   */
+  heldForReadiness?: boolean;
+  /** The readiness probe's reason while held (for display). */
+  heldReason?: string;
+  /**
+   * When `pollTimeout` ran out and `onTimeout` applied (ISO): polling has
+   * stopped. With `manual` the task waits for a human; with `fail` its last
+   * check was failed.
+   */
+  timedOutAt?: string;
 }
 export const TODO_STATE = "todo";
 export const DONE_STATE = "done";

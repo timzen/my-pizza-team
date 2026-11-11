@@ -41,6 +41,12 @@ function isSafeId(id: string): boolean {
 export function registerStoryRoutes(ctx: RouteContext): void {
   const { app, store } = ctx;
 
+  /** A poll-state task's `poll` field (docs/DESIGN.md "Polling States"), or nothing. */
+  const pollView = (taskId: string) => {
+    const poll = store.getTaskPollStatus(taskId);
+    return poll ? { poll } : {};
+  };
+
   app.get("/api/stories", (c) => {
     const stories = store.getStories();
     return c.json({
@@ -56,7 +62,7 @@ export function registerStoryRoutes(ctx: RouteContext): void {
             const assignment = store.getAssignment(task.id);
             const tokenSummary = store.getTokenUsageSummary({ workDefId: task.id });
             const activeItem = store.getActiveWorkItem(task.id);
-            return { id: task.id, seq: task.seq, title: task.title, status: task.status, pending: store.isPending(task.id), workItemState: activeItem?.state ?? null, description: task.description, assignee: assignment?.memberId || null, tokenUsage: tokenSummary || undefined };
+            return { id: task.id, seq: task.seq, title: task.title, status: task.status, pending: store.isPending(task.id), workItemState: activeItem?.state ?? null, description: task.description, assignee: assignment?.memberId || null, tokenUsage: tokenSummary || undefined, ...pollView(task.id) };
           }),
         };
       }),

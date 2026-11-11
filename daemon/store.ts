@@ -90,7 +90,7 @@ import { DEFAULT_SYNC_EVERY_MS, DEFAULT_SYNC_TIMEOUT_MS, SyncRunner, type SyncSt
 import { SCHEDULE_SOURCE_ID, scheduleSource } from "./sources/schedule.ts";
 import { runSolitary, taskSource } from "./sources/task.ts";
 import { ThoughtSource } from "./sources/thought.ts";
-import { StorySource } from "./sources/story.ts";
+import { type CheckNowResult, StorySource, type TaskPollStatus } from "./sources/story.ts";
 import { enqueueRevision, kvRevisionCursor } from "./sources/revision.ts";
 import { fileSourceKv } from "./store/source-kv.ts";
 import { commitTeamDir } from "./store/git-sync.ts";
@@ -266,6 +266,9 @@ export class Store {
     releaseAssignment: (taskId) => this.releaseTask(taskId),
     getStatePersona: (workflow, state) => this.getStatePersona(workflow, state),
     getComments: (defId) => this.commentsForWorkDef(defId),
+    getReadinessReason: () => this.teamReadiness && !this.teamReadiness.ready ? this.teamReadiness.reason : undefined,
+    addDaemonComment: (taskId, body) => this.addCommentForRef({ workDefId: taskId }, "daemon", body),
+    failWaitedCheck: (taskId) => this.queue.failLatestWaitedItem(taskId),
   });
 
   /** The stories not yet done, as `{ id, title }` (a triage prompt's "Open Stories"). */
@@ -821,7 +824,7 @@ export class Store {
    * neither advances nor fails. The daemon posts no comment — the agent's
    * `[wait]` comment is its record, as for done and fail.
    */
-  waitWorkItem(id: string, reason: string): { ok: boolean; error?: string; poll?: TaskPollRecord } {
+  waitWorkItem(id: string, reason: string, now: Date = new Date()): { ok: boolean; error?: string; poll?: TaskPollRecord } {
     const item = this.getWorkItem(id);
     if (!item) return { ok: false, error: "WorkItem not found" };
     if (item.state !== "IN_PROGRESS" && item.state !== "MORIBUND") {
@@ -834,7 +837,7 @@ export class Store {
     }
     const res = this.queue.waitWorkItem(id);
     if (!res.ok) return res;
-    const poll = this.storySource.recordWait(task.id, reason) ?? undefined;
+    const poll = this.storySource.recordWait(task.id, reason, now) ?? undefined;
     return { ok: true, poll };
   }
 
@@ -845,6 +848,30 @@ export class Store {
    */
   completionFor(workDefId: string): WorkflowStateCompletion {
     return this.storySource.pollSettingsFor(workDefId) ? "poll" : "once";
+  }
+
+  /**
+   * Run the poll schedule now (docs/DESIGN.md "Polling States"): queue due
+   * checks, hold them while the team isn't ready, apply timed-out states'
+   * `onTimeout`. The Story source's daemon tick runs it every 30s; this is the
+   * synchronous seam tests use (with an injected `now`).
+   */
+  runPollChecks(now: Date = new Date()): void {
+    this.storySource.runPollChecks(now);
+  }
+
+  /**
+   * **Check now** for a poll-state task (`POST /api/tasks/:id/check-now`):
+   * queue one check immediately if none is in flight; refused (with the probe's
+   * reason) while the team isn't ready.
+   */
+  checkTaskNow(taskId: string): CheckNowResult {
+    return this.storySource.checkNow(taskId);
+  }
+
+  /** A poll-state task's poll status for display (next check, hold, timeout), or null. */
+  getTaskPollStatus(taskId: string): TaskPollStatus | null {
+    return this.storySource.pollStatusFor(taskId);
   }
 
   /** Tell the item's source it reached a terminal state (hook: onItemTerminal). */

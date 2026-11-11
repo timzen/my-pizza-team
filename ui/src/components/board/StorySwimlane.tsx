@@ -20,6 +20,7 @@ import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Link } from "react-router-dom";
 import { TaskCard } from "./TaskCard";
+import type { TaskPollView } from "@shared/protocol";
 import { taskDragType } from "./task-drag";
 import { Archive, ChevronDown, ChevronRight, Hourglass, Play, Plus, FoldHorizontal, UnfoldHorizontal } from "lucide-react";
 import { apiPost } from "@/hooks/useApi";
@@ -46,6 +47,8 @@ interface StoryData {
     description?: string;
     assignee: string | null;
     tokenUsage?: { totalCostUsd: number };
+    /** Poll status while the task sits in a poll state. */
+    poll?: TaskPollView;
   }>;
 }
 

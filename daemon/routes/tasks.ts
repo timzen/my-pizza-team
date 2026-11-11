@@ -1,7 +1,8 @@
 /**
  * daemon/routes/tasks.ts — Task CRUD, move, and reorder routes.
  *
- * Used by the web UI for task management (edit, delete, move status, reorder).
+ * Used by the web UI for task management (edit, delete, move status, reorder,
+ * and a poll state's Check now).
  * Attachments, comments, and token usage are ref-scoped and live on the WorkDef —
  * see `routes/work-defs.ts` and the note at the bottom of this file.
  */
@@ -14,7 +15,7 @@ import { contextFieldRefusal } from "./personas.ts";
 import type {
   CreateTaskRequest, CreateTaskResponse,
   DeleteTaskResponse, MoveTaskRequest, MoveTaskResponse,
-  ReorderTasksRequest, ReorderTasksResponse,
+  ReorderTasksRequest, ReorderTasksResponse, CheckNowResponse,
 } from "../../shared/protocol.ts";
 
 export function registerTaskRoutes(ctx: RouteContext): void {
@@ -73,6 +74,20 @@ export function registerTaskRoutes(ctx: RouteContext): void {
     const moved = store.moveTask(taskId, body.status);
     if (!moved.ok) return fail(c, 400, moved.error);
     return c.json({ success: true } satisfies MoveTaskResponse);
+  });
+
+  // ─── Check now (poll states) ───────────────────────────────────────
+  //
+  // Queue one check of a poll-state task immediately, outside its rhythm
+  // (docs/DESIGN.md "Polling States"). 409 when a check is already queued or
+  // running, the task isn't in a poll state or is pending, or the team isn't
+  // ready — then `readiness` carries the probe's reason instead of a check
+  // being queued that would fail.
+
+  app.post("/api/tasks/:taskId/check-now", (c) => {
+    const res = store.checkTaskNow(c.req.param("taskId"));
+    if (!res.ok) return fail(c, res.notFound ? 404 : 409, res.error, res.readiness ? { readiness: res.readiness } : undefined);
+    return c.json({ success: true, workItem: { id: res.workItem.id } } satisfies CheckNowResponse);
   });
 
   // ─── Comments, attachments, token usage ───────────────────────────

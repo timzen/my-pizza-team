@@ -9,7 +9,9 @@
  * default; the Inbox deep-links to `?tab=thread`. The board-specific concerns
  * layered on top are the story breadcrumb, the workflow status + move buttons,
  * and delete (which routes through the task endpoint so the story's task list +
- * CONWIP token are cleaned up).
+ * CONWIP token are cleaned up). A task in a poll state shows its poll status
+ * (lib/poll-status.ts) and a **Check now** button (`POST /api/tasks/:id/check-now`;
+ * docs/DESIGN.md "Polling States").
  *
  * The definition is `WorkDefDefinition`: a **pending** task can be edited and
  * activated (it holds its place in the story until then); an active one is
@@ -38,7 +40,8 @@ import { DetailPageLayout, DetailPageMessage } from "@/components/TabbedPageLayo
 import { Trash2 } from "lucide-react";
 import { BackButton } from "@/components/ui/back-button";
 import type { Comment } from "@shared/types";
-import type { StoryView, WorkDefView } from "@shared/protocol";
+import type { CheckNowResponse, StoryView, WorkDefView } from "@shared/protocol";
+import { pollChip } from "@/lib/poll-status";
 import { Tooltip } from "@/components/ui/tooltip";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import { useConfirm } from "@/components/ui/confirm-dialog";
@@ -93,6 +96,15 @@ export function TaskDetailPage() {
     const res = await apiPost<{ success: boolean; error?: string }>(`/api/tasks/${encodeURIComponent(taskId)}/move`, { status: targetStatus });
     if (!res.success) { setEditError(res.error || "Failed to move"); return; }
     announce(`Moved to ${targetStatus.replace(/_/g, " ")}`);
+    refetchStories();
+  };
+
+  const checkNow = async () => {
+    if (!taskId) return;
+    setEditError("");
+    const res = await apiPost<CheckNowResponse>(`/api/tasks/${encodeURIComponent(taskId)}/check-now`, {});
+    if (!res.success) { setEditError(res.error || "Couldn't queue a check"); return; }
+    announce("Check queued");
     refetchStories();
   };
 
@@ -163,6 +175,18 @@ export function TaskDetailPage() {
                 {target.replace(/_/g, " ")}
               </Button>
             ))}
+          </div>
+        )}
+
+        {/* Poll state: what it's doing between checks, and Check now. */}
+        {task.poll && (
+          <div className="flex items-center justify-end gap-2 flex-wrap">
+            <span className="text-xs text-muted-foreground">
+              {pollChip(task.poll)?.title ?? (task.workItemState ? "A check is queued or running." : "Polling.")}
+            </span>
+            <Button type="button" size="sm" variant="outline" onClick={checkNow} disabled={!!task.workItemState}>
+              Check now
+            </Button>
           </div>
         )}
 

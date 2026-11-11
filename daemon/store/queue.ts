@@ -467,6 +467,23 @@ export class QueueStore {
   }
 
   /**
+   * A poll state's `onTimeout: "fail"` (docs/DESIGN.md "Polling States"): the
+   * WorkDef's latest item — its last check, which ended WAITED — becomes
+   * FAILED, unread (the outcome *is* news), and its source is told. No item is
+   * created: the timeout fails the check that last ran rather than inventing a
+   * run. False (nothing changed) when the latest item isn't WAITED.
+   */
+  failLatestWaitedItem(workDefId: string): boolean {
+    const row = this.db.prepare("SELECT id, state FROM work_items WHERE work_def_id = ? ORDER BY enqueued_at DESC, rowid DESC LIMIT 1")
+      .get(workDefId) as { id: string; state: WorkItemState } | undefined;
+    if (!row || row.state !== "WAITED") return false;
+    this.setWorkItemStateRow(row.id, "FAILED");
+    this.markWorkItemRead(row.id, false);
+    this.notifyItemTerminal(row.id);
+    return true;
+  }
+
+  /**
    * Tell the item's source it reached a terminal state (hook: onItemTerminal):
    * COMPLETE/FAILED from the agent, and CANCELED / force-FAILED from a person
    * or a board move. A synchronous hook's outcome (e.g. a board task's new position) is

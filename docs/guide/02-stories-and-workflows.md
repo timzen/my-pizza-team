@@ -174,11 +174,23 @@ posted". A wait doesn't move or fail the task, and isn't news: it doesn't land i
 your Inbox. The task records when it entered the step, when it was last checked,
 the last wait reason, and how many checks waited.
 
-On a **manual** step these fields do nothing; the daemon log warns about them.
+After a wait the daemon queues the next check once `pollEvery` has passed — one at
+a time, never a pile of them. On the board the task's card says when (**next check
+in 12m**). If the team's [readiness probe](glossary.md#readiness-probe) says it isn't ready when a
+check is due, the check is **held** (the card says so, with the probe's reason)
+and runs once when the team recovers — one check, however many intervals were
+missed. The time limit never runs out on a held check: after recovery one final
+check runs first.
 
-*Not yet:* the daemon doesn't queue the next check on its own yet (nor apply
-`pollTimeout`). Until it does, a task whose check waited stays in the step until you
-move it; moving it back into the step runs a fresh check.
+When `pollTimeout` runs out after a check that waited, polling stops with a
+`[timeout]` comment on the thread: with `"manual"` the card says **needs you** —
+move the task on if it's done, or back into the step to poll again (that restarts
+the clock); with `"fail"` the last check is marked failed and lands in your Inbox.
+
+**Check now** on the task's page runs a check right away, if none is queued or
+running. It's refused while the team isn't ready, with the reason.
+
+On a **manual** step these fields do nothing; the daemon log warns about them.
 
 ### Deprecated: agent state type
 

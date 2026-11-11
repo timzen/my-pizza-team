@@ -220,15 +220,43 @@ it. On boot, the Story source's reconcile doesn't re-enqueue a poll-state task w
 latest item is `WAITED`: when the next check runs is the poll schedule's call, not a
 restart's.
 
-**Readiness gating** works as for schedules (see "Readiness Gating"): a due check
-is queued only while the team's readiness probe says ready, otherwise held; on
-recovery exactly one check runs, not a backlog, and the time limit never fails a
-task while its check is held.
+**The poll schedule** runs on the daemon tick (the Story source's `tick`, every
+30s; `StorySource.runPollChecks`) — no timer per task. A task is *polling* while its
+record is for the state it sits in, it hasn't timed out, its latest item is
+`WAITED` and none is in flight; its story isn't pending (nor waiting on a
+dependency) and it isn't pending itself. Then, at each tick:
 
-*Status:* the config, its validation, the wait outcome, the poll prompt and the poll
-record are in. The poll scheduler — queuing the next check after `pollEvery`, the
-readiness hold, and `pollTimeout`/`onTimeout` — is not yet; until it lands, a waited
-task stays in its state until a human moves it (moving it back in runs a check).
+- a check is **due** at the last check's end + `pollEvery`, and is queued as a new
+  WorkItem through the normal enqueue path (so persona, story directory, CONWIP and
+  claim work as for any item). **At most one** check is in flight per task;
+- **readiness gating** works as for schedules (see "Readiness Gating", the same
+  `canEnqueueNow` gate — so it applies only while a teammate is online): a due
+  check while not ready isn't queued; the record is marked `heldForReadiness` with
+  the probe's reason (`heldReason`, for display) and retried every tick. On
+  recovery **exactly one** check is queued — missed intervals collapse — and the
+  rhythm resumes from that check's end. A check that ran clears any hold;
+- **timeout:** once `startedAt` + `pollTimeout` has passed and the last check
+  waited, `onTimeout` applies and `timedOutAt` stops polling. `fail` turns that
+  last check's WorkItem from `WAITED` into `FAILED` (unread, so it reaches the
+  Inbox) — failing the check that last ran rather than inventing a run — so the
+  task is stuck as after any failed run; `manual` leaves it for a human. Either way
+  the daemon posts a `[timeout]` comment (the agent can't: none is running). The
+  timeout is **never applied while held**: a timeout that falls due while not ready
+  holds too, and on recovery one final check runs first; the timeout applies only
+  if that check also waits (a done check advances as usual).
+
+Polling stops when the task leaves the state (its record goes), its check is
+canceled or failed (the latest item is no longer `WAITED`), or the story goes
+pending; a story switched to a workflow without the state is guarded by the
+workflow-switch check. A daemon restart resumes from the persisted record: a check
+that came due while the daemon was down is simply due, once.
+
+**Check now** (`POST /api/tasks/:id/check-now`, the task page's button) queues a
+check immediately, outside the rhythm, if none is in flight. It is refused (409)
+outside a poll state, for a pending task or story, and while the team isn't ready
+— with the probe's reason in `readiness` rather than queuing a check that would
+fail. A timed-out task's extra check doesn't resume polling; moving the task back
+into the state does (it restarts the clock).
 
 ## Work Matching: Directory Affinity
 

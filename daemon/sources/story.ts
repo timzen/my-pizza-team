@@ -14,7 +14,9 @@
  *   - advancing the task when its item COMPLETEs (`onItemTerminal`);
  *   - poll states (docs/DESIGN.md "Polling States"): a fresh poll record when a
  *     task lands in one, the wait outcome (`recordWait` — the task stays put),
- *     and the poll framing of the prompt;
+ *     the poll framing of the prompt, and the poll schedule on the daemon tick
+ *     (`runPollChecks`: the next check after `pollEvery`, the readiness hold,
+ *     `pollTimeout`/`onTimeout`) plus **Check now** (`checkNow`);
  *   - eligibility: a READY item is handed out only while its story is active
  *     (not pending), ready, and the task still sits in a teammate state;
  *   - the story's directory as the item's fallback (`resolveItem`);
@@ -81,6 +83,39 @@ export interface StorySourceDeps {
   /** The persona body a workflow state names (resolved through the persona library), if any. */
   getStatePersona(workflow: string | undefined, state: string): string | undefined;
   getComments(defId: string): Comment[];
+  /** The readiness probe's reason while the team is not ready (undefined when ready or unreported). */
+  getReadinessReason(): string | undefined;
+  /** Post a daemon comment on a task's thread (a poll timeout's record). */
+  addDaemonComment(taskId: string, body: string): void;
+  /**
+   * `onTimeout: "fail"`: turn the task's latest WorkItem — its last check,
+   * WAITED — into FAILED (unread, so it surfaces in the Inbox), leaving the
+   * task stuck as for any failed run. False when the latest item isn't WAITED.
+   */
+  failWaitedCheck(taskId: string): boolean;
+}
+
+/** The outcome of **Check now** (`StorySource.checkNow`). */
+export type CheckNowResult =
+  | { ok: true; workItem: WorkItem }
+  /** `notFound`: no such task; `readiness`: refused because the team isn't ready (the probe's reason). */
+  | { ok: false; error: string; notFound?: boolean; readiness?: string };
+
+/** A board task's poll status, for display (`StorySource.pollStatusFor`). */
+export interface TaskPollStatus extends TaskPollRecord {
+  /** When the next check is due (ISO), while polling is on and no check is in flight. */
+  nextCheckAt?: string;
+  /** When `pollTimeout` runs out (ISO): `startedAt` + `pollTimeout`. */
+  timeoutAt: string;
+  onTimeout: PollSettings["onTimeout"];
+}
+
+/** A duration for a comment: "7d", "2h", "15m" (the largest whole unit; else minutes). */
+function formatSpan(ms: number): string {
+  for (const [unit, size] of [["d", 86_400_000], ["h", 3_600_000]] as const) {
+    if (ms >= size && ms % size === 0) return `${ms / size}${unit}`;
+  }
+  return `${Math.round(ms / 60_000)}m`;
 }
 
 export class StorySource implements WorkSource {
@@ -114,6 +149,11 @@ export class StorySource implements WorkSource {
 
   init(ctx: SourceContext): void {
     this.context = ctx;
+  }
+
+  /** The daemon tick (every 30s): the poll schedule (`runPollChecks`). */
+  tick(_ctx: SourceContext, now: Date): void {
+    this.runPollChecks(now);
   }
 
   // ─── Hooks ───
@@ -244,9 +284,150 @@ export class StorySource implements WorkSource {
     if (!task) return null;
     const at = now.toISOString();
     const base = task.poll?.state === task.status ? task.poll : { state: task.status, startedAt: at, checks: 0 };
-    const record: TaskPollRecord = { ...base, lastCheckAt: at, lastWaitReason: reason, checks: base.checks + 1 };
+    // A check that ran isn't held: drop any hold left by a check queued some
+    // other way (Run, Check now), so the rhythm restarts from this check's end.
+    const { heldForReadiness: _held, heldReason: _reason, ...rest } = base;
+    const record: TaskPollRecord = { ...rest, lastCheckAt: at, lastWaitReason: reason, checks: base.checks + 1 };
     this.deps.writeTaskPoll(taskId, record);
     return record;
+  }
+
+  /**
+   * The poll schedule, run on the daemon tick (docs/DESIGN.md "Polling
+   * States"). For each task polling in a poll state — its record is for the
+   * state it sits in, it hasn't timed out, its latest item WAITED, and none is
+   * in flight — decide, as of `now`:
+   *   - **due**: last check's end + `pollEvery` has passed → queue one check
+   *     through the normal enqueue path (`ctx.enqueue`);
+   *   - **timed out**: `startedAt` + `pollTimeout` has passed → apply `onTimeout`;
+   *   - **not ready** (the daemon's `readiness.canEnqueueNow`, the same gate
+   *     schedules use): neither — the task is marked `heldForReadiness` with
+   *     the probe's reason. A held task is retried every tick; on recovery it
+   *     gets **exactly one** check (missed intervals collapse), and the timeout
+   *     is never applied while held: the recovery check runs first, and the
+   *     timeout applies only if that check also waits.
+   * A task stops polling when it leaves the state (its record goes), its story
+   * goes pending or loses readiness, it is pending, or its latest item isn't
+   * WAITED (canceled, failed — or a check in flight). Time the daemon was down
+   * just makes a check due once. Nothing here keeps a timer per task.
+   */
+  runPollChecks(now: Date = new Date()): void {
+    for (const story of this.deps.getStories()) {
+      if (story.pending || !this.deps.isStoryReady(story.id)) continue;
+      const wf = this.deps.getWorkflowForStory(story.id);
+      for (const task of this.deps.getTasksForStory(story.id)) {
+        const settings = pollSettings(wf, task.status);
+        if (settings) this.pollTask(task, settings, now);
+      }
+    }
+  }
+
+  /** One task's turn of the poll schedule (see `runPollChecks`). */
+  private pollTask(task: BoardTask, settings: PollSettings, now: Date): void {
+    const rec = task.poll;
+    if (!rec || rec.state !== task.status || rec.timedOutAt) return;
+    if (this.deps.isPending(task.id) || this.ctx.hasActiveItem(task.id)) return; // one check in flight at most
+    if (this.deps.getLatestItemState(task.id) !== "WAITED") return;
+
+    const nowMs = now.getTime();
+    const held = rec.heldForReadiness === true;
+    const timeUp = nowMs >= Date.parse(rec.startedAt) + settings.pollTimeoutMs;
+    const due = nowMs >= Date.parse(rec.lastCheckAt ?? rec.startedAt) + settings.pollEveryMs;
+    if (!held && !timeUp && !due) return;
+
+    // Readiness gating, as a Schedule holds its firing (docs/DESIGN.md
+    // "Readiness Gating"): hold, and keep the probe's reason for display. The
+    // timeout decision is deferred too — never applied while held.
+    if (!this.ctx.readiness.canEnqueueNow()) {
+      const reason = this.deps.getReadinessReason() ?? "the team isn't ready";
+      if (!held || rec.heldReason !== reason) this.deps.writeTaskPoll(task.id, { ...rec, heldForReadiness: true, heldReason: reason });
+      return;
+    }
+
+    // Ready. Not held and out of time: the last check waited, so apply onTimeout.
+    // Held (even out of time): run the one recovery check first.
+    if (timeUp && !held) {
+      this.applyPollTimeout(task, rec, settings, now);
+      return;
+    }
+    this.queueCheck(task.id, rec);
+  }
+
+  /** Queue one check and clear any readiness hold (the rhythm resumes from its end). */
+  private queueCheck(taskId: string, rec: TaskPollRecord): WorkItem | null {
+    const item = this.ctx.enqueue(taskId);
+    if (item && (rec.heldForReadiness || rec.heldReason !== undefined)) {
+      const { heldForReadiness: _held, heldReason: _reason, ...rest } = rec;
+      this.deps.writeTaskPoll(taskId, rest);
+    }
+    return item;
+  }
+
+  /**
+   * `pollTimeout` ran out on a task whose last check waited: stop polling
+   * (`timedOutAt`), post the daemon's `[timeout]` comment, and apply
+   * `onTimeout` — `fail` fails that last check (the task is stuck, as for any
+   * failed run); `manual` leaves it in the state for a human to move on or fail.
+   */
+  private applyPollTimeout(task: BoardTask, rec: TaskPollRecord, settings: PollSettings, now: Date): void {
+    this.deps.writeTaskPoll(task.id, { ...rec, timedOutAt: now.toISOString() });
+    const span = formatSpan(settings.pollTimeoutMs);
+    const checks = `${rec.checks} check${rec.checks === 1 ? "" : "s"}`;
+    const last = rec.lastWaitReason ? ` Last wait: ${rec.lastWaitReason}` : "";
+    if (settings.onTimeout === "fail") {
+      this.deps.addDaemonComment(task.id, `[timeout] "${task.status}" didn't finish within its poll timeout (${span}, ${checks}); the task is failed.${last}`);
+      this.deps.failWaitedCheck(task.id);
+    } else {
+      this.deps.addDaemonComment(task.id,
+        `[timeout] "${task.status}" didn't finish within its poll timeout (${span}, ${checks}); polling has stopped. ` +
+        `It needs a human: move it on if it's done, or back into the state to poll again.${last}`);
+    }
+  }
+
+  /**
+   * **Check now** (a human): queue one check of a poll-state task immediately,
+   * outside its rhythm. Refused when it isn't a board task in a poll state, a
+   * check is already queued or running (one in flight at most), the task or its
+   * story is pending, or the team isn't ready — then with the probe's reason,
+   * rather than queuing a check that would fail. A timed-out task's extra check
+   * doesn't resume polling (moving it back into the state does).
+   */
+  checkNow(taskId: string): CheckNowResult {
+    const task = this.deps.getTask(taskId);
+    if (!task) return { ok: false, error: `Task "${taskId}" not found`, notFound: true };
+    if (!this.pollSettingsFor(taskId)) return { ok: false, error: `"${task.status}" isn't a poll state` };
+    const story = this.deps.getStory(task.storyId);
+    if (!story || story.pending) return { ok: false, error: "The story is pending" };
+    if (this.deps.isPending(taskId)) return { ok: false, error: "The task is pending" };
+    if (this.ctx.hasActiveItem(taskId)) return { ok: false, error: "A check is already queued or running" };
+    if (!this.ctx.readiness.canEnqueueNow()) {
+      const reason = this.deps.getReadinessReason() ?? "the team isn't ready";
+      return { ok: false, error: `The team isn't ready: ${reason}`, readiness: reason };
+    }
+    const rec = task.poll?.state === task.status ? task.poll : { state: task.status, startedAt: new Date().toISOString(), checks: 0 };
+    if (!task.poll || task.poll.state !== task.status) this.deps.writeTaskPoll(taskId, rec);
+    const item = this.queueCheck(taskId, rec);
+    return item ? { ok: true, workItem: item } : { ok: false, error: "The check couldn't be queued" };
+  }
+
+  /**
+   * A task's poll status for display (the board chip, the task page): its
+   * record plus when the next check is due and when the timeout runs out. Null
+   * when it isn't in a poll state (or has no record for it).
+   */
+  pollStatusFor(taskId: string): TaskPollStatus | null {
+    const task = this.deps.getTask(taskId);
+    const settings = task ? this.pollSettingsFor(taskId) : null;
+    if (!task || !settings || !task.poll || task.poll.state !== task.status) return null;
+    const rec = task.poll;
+    const status: TaskPollStatus = {
+      ...rec,
+      timeoutAt: new Date(Date.parse(rec.startedAt) + settings.pollTimeoutMs).toISOString(),
+      onTimeout: settings.onTimeout,
+    };
+    const polling = !rec.timedOutAt && !this.ctx.hasActiveItem(taskId) && this.deps.getLatestItemState(taskId) === "WAITED";
+    if (polling) status.nextCheckAt = new Date(Date.parse(rec.lastCheckAt ?? rec.startedAt) + settings.pollEveryMs).toISOString();
+    return status;
   }
 
   // ─── Board policy (the Store's board methods delegate here) ───
