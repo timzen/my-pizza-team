@@ -13,8 +13,9 @@
  */
 
 import { TranscriptView } from "./TranscriptView";
-import { PairComposer, type ComposerDraft } from "./PairComposer";
+import { PairComposer } from "./PairComposer";
 import { isRunning } from "@/lib/transcript-types";
+import { pairComposerKey, type ComposerDraft } from "@/lib/assistant-draft";
 import type { TranscriptStreamState } from "@/hooks/useTranscriptStream";
 
 export function AgentTerminal({
@@ -37,7 +38,9 @@ export function AgentTerminal({
       <div className="min-h-0 flex-1">
         <TranscriptView entries={stream.entries} empty={empty} />
       </div>
-      {canSend && <PairComposer memberId={memberId} running={isRunning(stream.entries)} recipient={recipient} draft={draft} />}
+      {/* Keyed by agent + draft source: another teammate (or source) is a fresh
+          composer, so no text carries across (lib/assistant-draft.ts). */}
+      {canSend && <PairComposer key={pairComposerKey(memberId, !!draft)} memberId={memberId} running={isRunning(stream.entries)} recipient={recipient} draft={draft} />}
     </div>
   );
 }

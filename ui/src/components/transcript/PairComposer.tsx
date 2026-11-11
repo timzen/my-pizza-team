@@ -20,7 +20,9 @@
  * The text is its own state for a teammate. The assistant's terminal passes
  * `draft` instead — the assistant's shared draft (lib/assistant-draft.ts), so
  * what was typed in the docked chat is here at Full page and back again. It
- * mounts with the cursor after any carried-over text.
+ * mounts with the cursor after any carried-over text. One source per
+ * instance: AgentTerminal keys it by agent and source (`pairComposerKey`), so
+ * a mounted composer never swaps one for the other or serves another agent.
  */
 
 import { useLayoutEffect, useRef, useState } from "react";
@@ -29,14 +31,11 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { FullEditorButton, useFullEditor } from "@/components/ui/full-editor";
 import { editorCommandSeed } from "@/lib/editorPrefs";
-import { placeCursorAtEnd } from "@/lib/assistant-draft";
+import { composerSource, placeCursorAtEnd, type ComposerDraft } from "@/lib/assistant-draft";
 import { Send, Zap } from "lucide-react";
 import { Tooltip } from "@/components/ui/tooltip";
 import { FormError } from "@/components/ui/form-error";
 import { useAnnounce } from "@/hooks/useAnnounce";
-
-/** A draft held outside the composer, `[text, setText]` (the assistant's shared one). */
-export type ComposerDraft = [string, (value: string) => void];
 
 export function PairComposer({ memberId, running, recipient = "the teammate", draft }: {
   memberId: string;
@@ -46,8 +45,9 @@ export function PairComposer({ memberId, running, recipient = "the teammate", dr
   /** Keep the text here instead of in local state (the assistant's shared draft). */
   draft?: ComposerDraft;
 }) {
+  // Always called (hook order), used only without a `draft`.
   const local = useState("");
-  const [text, setText] = draft ?? local;
+  const [text, setText] = composerSource(draft, local);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   // A carried-over draft continues where it left off.
   useLayoutEffect(() => {

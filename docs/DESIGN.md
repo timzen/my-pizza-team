@@ -2310,6 +2310,11 @@ resume an old conversation with its context intact.
    text typed but not sent must not vanish with it. Sending from either clears it.
    It's text only (neither composer takes attachments; a chat quote stays the
    chat's), and the assistant's only — a teammate's pair composer keeps its own.
+   Each pair composer has one source for its whole life: `AgentTerminal` keys
+   it by agent and source (`pairComposerKey`), so moving from one teammate's
+   page to another's, or between a teammate and the assistant, is a fresh
+   composer — text typed for one is never shown to, or sent to, another. A
+   failed send keeps the text (and its error) to retry.
 9. **Terminal view is the teammate pipeline, not a copy of it.** The leader wires
    its session with the same `attachTranscriptMirror` a teammate uses
    (harnesses/pi/src/session-transcript.ts), the daemon stores and streams it
