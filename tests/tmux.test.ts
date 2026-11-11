@@ -81,7 +81,7 @@ test("a cwd with spaces reaches tmux intact", () => {
   // The regression this file exists for.
   const { exec, calls } = fakeTmux([{ ok: true }]); // has-session → exists
   spawnWindow(
-    { session: "mpt", window: "swift-ripley", cwd: "/Users/t/My Project", command: "pi --ppt-worker" },
+    { session: "mpt", window: "swift-ripley", cwd: "/Users/t/My Project", command: "pi --ppt-teammate" },
     exec,
   );
   const sendKeysCall = calls.find((c) => c[0] === "send-keys")!;

@@ -342,12 +342,12 @@ test("pending: create as pending, read, edit, and activate hit the WorkDef route
 test("personas: listPersonas reads the library; WorkDef create/update carry the persona id", async () => {
   await withServer(null, async (url, calls) => {
     const c = client(url);
-    await c.listPersonas("worker");
+    await c.listPersonas("teammate");
     await c.listPersonas();
     await c.createWorkDef({ title: "W", goal: "g", persona: "reviewer" });
     await c.updateWorkDef("wd", { persona: null });
     assert.deepStrictEqual(calls.map((x) => `${x.method} ${x.url}`), [
-      "GET /api/personas?kind=worker",
+      "GET /api/personas?kind=teammate",
       "GET /api/personas",
       "POST /api/work-defs",
       "PUT /api/work-defs/wd",

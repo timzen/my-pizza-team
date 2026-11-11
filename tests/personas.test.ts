@@ -25,7 +25,7 @@ import { parsePersonaId, type Persona } from "../shared/types.ts";
 
 test("persona ids: team slug, builtin:<name>, and <package>/<id> split on the last '/'", () => {
   assertEquals(parsePersonaId("reviewer"), { kind: "team" });
-  assertEquals(parsePersonaId("builtin:worker"), { kind: "builtin", name: "worker" });
+  assertEquals(parsePersonaId("builtin:teammate"), { kind: "builtin", name: "teammate" });
   assertEquals(parsePersonaId("@acme/mpt-personas/reviewer"), { kind: "package", packageName: "@acme/mpt-personas", name: "reviewer" });
   assertEquals(parsePersonaId("Bad Id").kind, "invalid");
   assertEquals(parsePersonaId("pkg/").kind, "invalid");
@@ -36,7 +36,7 @@ test("built-ins wrap today's defaults unchanged, and lint clean", () => {
   const byId = new Map(listBuiltinPersonas().map((p) => [p.id, p]));
   assertEquals(byId.get("builtin:assistant")!.content, DEFAULT_ASSISTANT_PERSONA);
   assertEquals(byId.get("builtin:triage")!.content, DEFAULT_TRIAGE_INSTRUCTIONS);
-  assertExists(byId.get("builtin:worker"));
+  assertExists(byId.get("builtin:teammate"));
   for (const p of byId.values()) {
     assertEquals(p.readOnly, true);
     assertEquals(validatePersonaMarkdown(p.content).errors, []);
@@ -47,13 +47,13 @@ test("resolvePersona: found, missing → fallback with fallbackFrom, unset → n
   const lib: Record<string, Persona> = Object.fromEntries(listBuiltinPersonas().map((p) => [p.id, p]));
   lib["reviewer"] = { id: "reviewer", title: "Reviewer", description: "", tags: [], content: "Review.", origin: { kind: "team" }, readOnly: false };
   const lookup = (id: string) => lib[id] ?? null;
-  const found = resolvePersona(lookup, "reviewer", { via: "workflow-state", fallback: "builtin:worker" })!;
+  const found = resolvePersona(lookup, "reviewer", { via: "workflow-state", fallback: "builtin:teammate" })!;
   assertEquals([found.id, found.body, found.via, found.fallbackFrom], ["reviewer", "Review.", "workflow-state", undefined]);
-  const missing = resolvePersona(lookup, "reviewr", { via: "workflow-state", fallback: "builtin:worker" })!;
-  assertEquals([missing.id, missing.fallbackFrom], ["builtin:worker", "reviewr"]);
+  const missing = resolvePersona(lookup, "reviewr", { via: "workflow-state", fallback: "builtin:teammate" })!;
+  assertEquals([missing.id, missing.fallbackFrom], ["builtin:teammate", "reviewr"]);
   assertEquals(resolvePersona(lookup, "reviewr", { via: "task", fallback: null }), null);
-  assertEquals(resolvePersona(lookup, undefined, { via: "task", fallback: "builtin:worker" }), null);
-  assertEquals(personaRefOf(missing), { id: "builtin:worker", title: lib["builtin:worker"]!.title, origin: "builtin", via: "workflow-state", fallbackFrom: "reviewr" });
+  assertEquals(resolvePersona(lookup, undefined, { via: "task", fallback: "builtin:teammate" }), null);
+  assertEquals(personaRefOf(missing), { id: "builtin:teammate", title: lib["builtin:teammate"]!.title, origin: "builtin", via: "workflow-state", fallbackFrom: "reviewr" });
 });
 
 test("personaUsage finds every kind of reference", () => {
@@ -78,13 +78,13 @@ test("personaUsage finds every kind of reference", () => {
 
 test("Store: team personas round-trip through personas/<id>.md with frontmatter", () => {
   return withTeam({}, ({ store, teamDir }) => {
-    const res = store.createPersona({ title: "Code Reviewer", description: "Reads diffs", tags: ["review"], kinds: ["worker"], content: "Never edit code." });
+    const res = store.createPersona({ title: "Code Reviewer", description: "Reads diffs", tags: ["review"], kinds: ["teammate"], content: "Never edit code." });
     assertEquals(res.ok, true);
     const p = res.ok ? res.persona : null;
     assertEquals(p!.id, "code-reviewer");
     assertEquals(p!.origin, { kind: "team" });
     const raw = fs.readFileSync(path.join(teamDir, "personas", "code-reviewer.md"), "utf8");
-    assertStringIncludes(raw, "title: Code Reviewer\ndescription: Reads diffs\ntags: [review]\nkinds: [worker]\n---\nNever edit code.");
+    assertStringIncludes(raw, "title: Code Reviewer\ndescription: Reads diffs\ntags: [review]\nkinds: [teammate]\n---\nNever edit code.");
     assertEquals(store.getPersona("code-reviewer")!.content, "Never edit code.");
     // Same title again: -2.
     const again = store.createPersona({ title: "Code Reviewer", content: "x" });
@@ -95,17 +95,17 @@ test("Store: team personas round-trip through personas/<id>.md with frontmatter"
     // The library lists team, then built-ins.
     const ids = store.listPersonas().map((x) => x.id);
     assertEquals(ids.slice(0, 2), ["code-reviewer", "code-reviewer-2"]);
-    assertEquals(ids.includes("builtin:worker"), true);
+    assertEquals(ids.includes("builtin:teammate"), true);
   });
 });
 
-test("Store: a state persona that doesn't resolve falls back to builtin:worker", () => {
+test("Store: a state persona that doesn't resolve falls back to builtin:teammate", () => {
   return withTeam({}, ({ store }) => {
     const wf = store.getWorkflows()["default"]!;
     store.saveWorkflow("default", { states: wf.states.map((s) => s.type === "agent" ? { ...s, persona: "gone" } : s) });
     const agentState = wf.states.find((s) => s.type === "agent")!.name;
     const r = store.resolveStatePersona("default", agentState)!;
-    assertEquals([r.id, r.fallbackFrom, r.via], ["builtin:worker", "gone", "workflow-state"]);
+    assertEquals([r.id, r.fallbackFrom, r.via], ["builtin:teammate", "gone", "workflow-state"]);
   });
 });
 
@@ -137,7 +137,7 @@ test("Store: recordWorkItemPersona snapshots the persona on the WorkItem (claim-
     const item = store.getWorkItems({ states: ["READY"] }).items.find((wi) => wi.ref.workDefId === def.id)!;
     assertEquals(item.persona, undefined);
     store.registerMember("a1", "swift-neo", "/tmp");
-    const resolved = store.resolvePersona(def.persona, { via: "task", fallback: "builtin:worker" })!;
+    const resolved = store.resolvePersona(def.persona, { via: "task", fallback: "builtin:teammate" })!;
     assertEquals(store.claimWorkItem(item.id, "a1", personaRefOf(resolved)), true);
     assertEquals(store.getWorkItem(item.id)!.persona, { id: "solo-worker", title: "Solo worker", origin: "team", via: "task" });
     // Editing or deleting the persona later rewrites nothing recorded.
@@ -155,11 +155,11 @@ test("routes: create/read/update/delete a team persona; saves are linted", async
     const bad = await app.request("/api/personas", jsonInit("POST", { title: "Bad", content: "```\nunclosed" }));
     assertEquals(bad.status, 400);
     assertEquals((await bad.json()).errors.length, 1);
-    const created = await app.request("/api/personas", jsonInit("POST", { title: "Reviewer", content: "# Review\n\nRead it.", kinds: ["worker", "nonsense"] }));
+    const created = await app.request("/api/personas", jsonInit("POST", { title: "Reviewer", content: "# Review\n\nRead it.", kinds: ["teammate", "nonsense"] }));
     assertEquals(created.status, 201);
     const body = await created.json();
     assertEquals(body.persona.id, "reviewer");
-    assertEquals(body.persona.kinds, ["worker"]);
+    assertEquals(body.persona.kinds, ["teammate"]);
     assertEquals(body.warnings.length, 1); // the shallow heading
 
     const got = await (await app.request("/api/personas/reviewer")).json();
@@ -179,7 +179,7 @@ test("routes: create/read/update/delete a team persona; saves are linted", async
 test("routes: built-in and package personas are read-only; duplicate copies them into the team", async () => {
   await withTeam({}, async ({ app, store }) => {
     store.packagePersonas.register({ name: "acme", identity: "/tmp/acme" }, [{ name: "reviewer", raw: "Acme review." }]);
-    for (const id of ["builtin:worker", "acme/reviewer"]) {
+    for (const id of ["builtin:teammate", "acme/reviewer"]) {
       const enc = encodeURIComponent(id);
       assertEquals((await app.request(`/api/personas/${enc}`, jsonInit("PUT", { content: "x" }))).status, 409);
       assertEquals((await app.request(`/api/personas/${enc}`, jsonInit("DELETE"))).status, 409);
@@ -243,8 +243,8 @@ test("routes: Solitary/Scheduled WorkDefs take an optional persona; board tasks 
     assertEquals((await app.request("/api/work-defs", jsonInit("POST", { title: "T", goal: "g", persona: "nope" }))).status, 400);
     const solo = (await (await app.request("/api/work-defs", jsonInit("POST", { title: "Solo", goal: "g", persona: "night-owl", enqueue: false }))).json()).workDef;
     assertEquals(solo.persona, "night-owl");
-    const sched = (await (await app.request("/api/work-defs", jsonInit("POST", { title: "Nightly", goal: "g", type: "Scheduled", cron: "0 3 * * *", persona: "builtin:worker" }))).json()).workDef;
-    assertEquals(sched.persona, "builtin:worker");
+    const sched = (await (await app.request("/api/work-defs", jsonInit("POST", { title: "Nightly", goal: "g", type: "Scheduled", cron: "0 3 * * *", persona: "builtin:teammate" }))).json()).workDef;
+    assertEquals(sched.persona, "builtin:teammate");
     // Not part of the locked definition: an active def's persona can change, and be cleared.
     assertEquals((await app.request(`/api/work-defs/${sched.id}`, jsonInit("PUT", { persona: "night-owl" }))).status, 200);
     assertEquals(store.getWorkDef(sched.id)!.persona, "night-owl");
@@ -266,11 +266,11 @@ test("routes: the work-item and agent views carry the persona snapshot", async (
     const def = store.createWorkDef({ title: "Solo", goal: "g", acceptanceCriteria: "" });
     const item = store.getWorkItems({ states: ["READY"] }).items.find((wi) => wi.ref.workDefId === def.id)!;
     store.registerMember("a1", "swift-neo", "/tmp");
-    store.claimWorkItem(item.id, "a1", { id: "builtin:worker", title: "Worker (built-in)", origin: "builtin", via: "task" });
+    store.claimWorkItem(item.id, "a1", { id: "builtin:teammate", title: "Teammate (built-in)", origin: "builtin", via: "task" });
     const items = (await (await app.request("/api/work-items?state=IN_PROGRESS")).json()).items;
-    assertEquals(items[0].persona, { id: "builtin:worker", title: "Worker (built-in)", origin: "builtin", via: "task" });
+    assertEquals(items[0].persona, { id: "builtin:teammate", title: "Teammate (built-in)", origin: "builtin", via: "task" });
     const agents = (await (await app.request("/api/agents")).json()).agents;
-    assertEquals(agents[0].persona.id, "builtin:worker");
+    assertEquals(agents[0].persona.id, "builtin:teammate");
     assertEquals(agents[0].workItemId, item.id);
   });
 });

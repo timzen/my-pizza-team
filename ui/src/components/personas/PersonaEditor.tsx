@@ -39,7 +39,7 @@ interface Props {
 
 /** What each kind hint means, shown beside its checkbox. */
 const KIND_HINT: Record<PersonaKind, string> = {
-  worker: "listed first on workflow states, tasks, schedules and sources",
+  teammate: "listed first on workflow states, tasks, schedules and sources",
   triage: "listed first by the triage pickers",
   assistant: "offered as an assistant chip",
 };

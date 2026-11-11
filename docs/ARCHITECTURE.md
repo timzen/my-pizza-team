@@ -195,7 +195,8 @@ Activating re-runs admission; its waiting READY items become eligible again.
   - `sources/thought.ts` — The built-in Thought (auto-triage) source, `ThoughtSource`: the sweep as its `tick` (every `triage.intervalMinutes`; no timer when triage is off), `triageNow`, `statusFor`, `ensureWorkDef`, and the hooks — `resolveItem` (note title, leader directory), `isEligible` (note active), `buildPrompt` (`buildTriagePrompt`), `run` (= Triage now). Store reads come in as `ThoughtSourceDeps`.
 - `workflow-engine.ts` — Position logic: `activeStateNames`, `isAgentState`, `firstActiveState`, `nextState`, `boardColumns`, `isValidPosition`, `validateWorkflow`.
 - `personas/` — The persona library (DESIGN.md "Personas: One Library, Selected by Reference"):
-  - `personas/builtins.ts` — The read-only `builtin:assistant` / `builtin:triage` / `builtin:worker` (`DEFAULT_ASSISTANT_PERSONA`, `DEFAULT_TRIAGE_INSTRUCTIONS`, `DEFAULT_WORKER_PERSONA`; the first two re-exported from `routes/assistant.ts` / `prompt.ts`).
+  - `personas/builtins.ts` — The read-only `builtin:assistant` / `builtin:triage` / `builtin:teammate` (`DEFAULT_ASSISTANT_PERSONA`, `DEFAULT_TRIAGE_INSTRUCTIONS`, `DEFAULT_TEAMMATE_PERSONA`; the first two re-exported from `routes/assistant.ts` / `prompt.ts`).
+  - `personas/aliases.ts` — DEPRECATED(worker→teammate): `normalizePersonaKind` (`worker` → `teammate`) and `normalizePersonaId` (`builtin:worker` → `builtin:teammate`), each logging a one-time deprecation warning; the maps are `shared/types.ts` `LEGACY_PERSONA_KIND_ALIASES` / `LEGACY_PERSONA_ID_ALIASES`. Used by `normalizeKinds`, `getBuiltinPersona` and `personaUsage`.
   - `personas/library.ts` — Team persona files (`personas/<id>.md`): list/read/write/delete, `parsePersonaFile`, `freeTeamPersonaId` (`-2`… on collision), `normalizeKinds`.
   - `personas/packages.ts` — `PackagePersonas`: the registry of package personas (`<package.json name>/<id>`, read-only; lint warnings/errors reported, a lint error marks `lintError` but still loads; a second package with the same name is refused). Fed by the plugin loader (`Store.registerPackagePersonas`, the loader's `PluginHost` seam); `validatePackage` and `mpt plugins doctor` run the same checks on a scratch registry.
   - `personas/usage-disk.ts` — The "Used by" inputs read from a team dir without a Store (`readPersonaUsageInput`: workflows, WorkDefs, `listMirrorPersonaOverrides`), for `mpt plugins remove`'s in-use warning; the Store uses `listMirrorPersonaOverrides` too.
@@ -466,7 +467,7 @@ with no root source).
 ### harnesses/pi/
 
 A **pure HTTP client** of the daemon with no server-side code; it owns no state.
-Roles are chosen by flag: `--ppt-lead` (leader) or `--ppt-worker` (teammate), with
+Roles are chosen by flag: `--ppt-lead` (leader) or `--ppt-teammate` (teammate; `src/teammate-flag.ts`, the deprecated `--ppt-worker` still accepted with a one-time warning), with
 `--ppt-name`, `--ppt-daemon`, and the window's location `--ppt-terminal`, `--ppt-terminal-session`,
 `--ppt-terminal-window`, `--ppt-terminal-handle` (`src/terminal.ts`; the older `--ppt-tmux-session`/`--ppt-tmux-window`
 still accepted), relayed as metadata via `terminalMetadata` and never interpreted.
@@ -475,6 +476,7 @@ still accepted), relayed as metadata via `terminalMetadata` and never interprete
 src/
 ├── index.ts        — Role detection, flag registration, teammate commands, wiring
 ├── terminal.ts     — The --ppt-terminal* (and older --ppt-tmux-*) flags and the opaque window metadata they become
+├── teammate-flag.ts — The --ppt-teammate flag and its deprecated alias --ppt-worker (one-time warning)
 ├── leader.ts       — Leader: registration, /ppt-* commands (daemon calls only — it never runs tmux), the chat mirror, the transcript mirror
 ├── teammate.ts     — TeammateLoop: poll → claim → run the prompt → comment → set state; pairing and fresh sessions
 ├── chat.ts         — ChatMirror: daemon inbox → Pi (via `onDeliver`: steer, or the message's queue/steer mode), Pi prose → bubbles, terminal input → chat
@@ -872,7 +874,7 @@ entries in the module map).
   migrated them; a team still in that layout is refused — DESIGN.md "Upgrading
   from before 0.36.0").
 - **Ids:** team `<slug>` (`TEAM_PERSONA_ID_PATTERN`), built-in
-  `builtin:{assistant,triage,worker}`, package `<package.json name>/<id>`
+  `builtin:{assistant,triage,teammate}` (`builtin:worker` is a deprecated alias of `builtin:teammate`), package `<package.json name>/<id>`
   (`parsePersonaId`, split on the last `/`).
 - **Modules:** `daemon/personas/` (see the module map) and `daemon/routes/personas.ts`.
 - **Prompt paths:** `Store.resolveWorkPersona(def)` is each kind's chain in one
@@ -880,8 +882,8 @@ entries in the module map).
   one-line state framing), note triage →
   `resolveTriagePersona` (`triage.persona`, else `builtin:triage`), Solitary /
   Scheduled → the WorkDef's `persona` (via `task` / `schedule`; none = no persona
-  block), a mirror → `resolveMirrorPersona` (see "Work Source personas" below). A worker
-  reference that doesn't resolve → `builtin:worker`. `POST /api/agents/claim`
+  block), a mirror → `resolveMirrorPersona` (see "Work Source personas" below). A teammate
+  reference that doesn't resolve → `builtin:teammate`. `POST /api/agents/claim`
   resolves it once, passes the `PersonaRef` to `claimWorkItem` (the snapshot) and
   the body to the base prompt (`buildWorkDefPrompt`'s `## Your Role` block); the
   Story source rebuilds board prompts through `getStatePersona` (delegating to
@@ -890,7 +892,7 @@ entries in the module map).
   (`buildPromptFor(def, base, persona)` → `ExternalTriage.buildPrompt`). The assistant's system prompt resolves
   `assistant.persona` (→ `builtin:assistant`). Missing references are logged once
   per id per run (`[personas] … names persona 'x', which doesn't exist — using
-  builtin:worker`). `PUT /api/config` checks each workflow state's `persona` when
+  builtin:teammate`). `PUT /api/config` checks each workflow state's `persona` when
   it changed (a string, an agent state, resolves).
 - **Work Source personas** (`daemon/sources/persona.ts`, pure; DESIGN.md "Work
   Source personas"): `mirrorPersonaPick` walks a mirror's chain — kv
@@ -899,7 +901,7 @@ entries in the module map).
   `workdef`) → `sourcePersonas.<id>.persona` / `.triagePersona` (via
   `source-setting`, `PUT /api/sources/:id/persona` → `Store.setSourcePersona`,
   never a re-init) → `WorkSource.defaultPersona` / `.triagePersona` (via
-  `source-default`) → none (work; a stale id → `builtin:worker`) or required
+  `source-default`) → none (work; a stale id → `builtin:teammate`) or required
   (triage; a stale id → `builtin:triage`). **The triage requirement:**
   `Store.sourcePersonaProblem` (`triagePersonaProblem`) — a source with `mode:
   "triage"` whose source-level triage persona is missing or doesn't resolve — is
@@ -1103,7 +1105,7 @@ Every route reads its JSON body with `readBody` and answers errors with `fail`
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/personas[?kind=worker\|triage\|assistant]` | The whole library (team, built-in, package); `kind` lists hinted personas first |
+| GET | `/api/personas[?kind=teammate\|triage\|assistant]` | The whole library (team, built-in, package); `kind` lists hinted personas first (`kind=worker` is a deprecated alias of `teammate`) |
 | POST | `/api/personas` | Create a team persona (`id` optional — from the title, `-2`… on collision); linted: errors → 400, `warnings` returned |
 | GET | `/api/personas/:id` | `{ persona, usedBy }` (`:id` is `{.+}`: package ids contain `/`) |
 | PUT | `/api/personas/:id` | Update a team persona (linted); 409 for a read-only (built-in/package) one |
@@ -1123,7 +1125,7 @@ The Welcome checklist (DESIGN.md "First run: a checklist, not a tour"; `daemon/o
 | GET | `/api/onboarding` | `OnboardingResponse`: `steps` (`[{ id, done, at? }]` in order — `leaderOnline` (a leader is online), `teammateOnline` (a pool teammate online, or any WorkItem ever claimed), `firstTaskCreated` (an authored WorkDef; a note's triage container and an external mirror don't count), `firstRunStarted` (a WorkItem claimed: IN_PROGRESS/MORIBUND/COMPLETE/FAILED), `firstRunReviewed` (a COMPLETE/FAILED item marked read), `assistantUsed` (any user chat message; `at` = the first), `thoughtCaptured` (any note, archived included; `at` = the oldest)), `complete`, `visible` (show the card: reopened, or not dismissed, not completed and no history), `hasHistory` (≥ 3 finished runs), `dismissedAt` / `reopenedAt` / `completedAt` (ISO or null), `sampleTask` (`{ title, goal, acceptanceCriteria, directory — the leader's, else null —, persona: "builtin:worker" }`, null while `tasks` is off). The first response with every step done stores `completedAt` |
 | POST | `/api/onboarding/dismiss` | Store `dismissedAt`, clear `reopenedAt`; returns the `OnboardingResponse` |
 | POST | `/api/onboarding/reopen` | Store `reopenedAt`, clear `dismissedAt` (the card shows even for a complete team or one with history); returns the `OnboardingResponse` |
-| POST | `/api/onboarding/sample-task` | The card's Run: `{ title?, goal?, acceptanceCriteria?, directory? }` (each defaults to `sampleTask`'s) → a Solitary WorkDef with `builtin:worker`, enqueued; `201 { success, workDefId, workItemId }`. 400 when there's no `directory` and no leader online; 403 while `tasks` is off |
+| POST | `/api/onboarding/sample-task` | The card's Run: `{ title?, goal?, acceptanceCriteria?, directory? }` (each defaults to `sampleTask`'s) → a Solitary WorkDef with `builtin:teammate`, enqueued; `201 { success, workDefId, workItemId }`. 400 when there's no `directory` and no leader online; 403 while `tasks` is off |
 | GET/POST | `/api/thoughts` | List (`?status=`) with groups / create (auto-placed unless x/y given) |
 | GET/PATCH/DELETE | `/api/thoughts/:id` | Get / partial update / hard delete |
 | POST | `/api/thoughts/positions` | Batch geometry for one gesture |

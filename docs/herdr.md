@@ -161,7 +161,7 @@ Copilot's hooks, installed with `herdr integration install` — report the pane'
 session (`pane.report_agent_session`, with the Pi session file). herdr saves it in
 `session.json`, and on restart, with `[session] resume_agents_on_restore` (default
 true), types the agent's resume command into the restored pane itself: for Pi,
-`pi --session <file>` (verified). That drops mpt's flags (`--ppt-worker`,
+`pi --session <file>` (verified). That drops mpt's flags (`--ppt-teammate`,
 `--ppt-name`, …), and a bare Pi in the team directory comes up as the *leader*. After
 a reboot that once gave a team three ghost leaders answering every chat message,
 while the real teammates never came back. herdr 0.9.5 has no per-pane opt-out (the

@@ -51,7 +51,7 @@ export function WorkDefPersona({ def, onChanged }: { def: WorkDefDefinitionData;
       <>
         <PersonaPicker
           id="workdef-persona"
-          kind="worker"
+          kind="teammate"
           value={def.persona ?? null}
           onChange={(persona) => save(`/api/work-defs/${id}`, { persona })}
           noneLabel="No persona"
@@ -69,7 +69,7 @@ export function WorkDefPersona({ def, onChanged }: { def: WorkDefDefinitionData;
       <>
         <PersonaPicker
           id="mirror-persona"
-          kind={mirror.mode === "triage" ? "triage" : "worker"}
+          kind={mirror.mode === "triage" ? "triage" : "teammate"}
           value={mirror.personaOverride ?? null}
           onChange={(persona) => save(`/api/work-defs/${id}/persona`, { persona })}
           noneLabel={def.persona ? `${mirror.sourceLabel}'s suggestion (${def.persona})` : `${mirror.sourceLabel}'s setting`}

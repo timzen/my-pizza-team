@@ -34,7 +34,7 @@ export const ONBOARDING_COMPLETED_KEY = "onboarding.completedAt";
 export const ONBOARDING_HISTORY_RUNS = 3;
 
 /** The built-in persona the sample task runs with. */
-export const SAMPLE_TASK_PERSONA = "builtin:worker";
+export const SAMPLE_TASK_PERSONA = "builtin:teammate";
 
 /** The facts the steps are derived from — what `collectOnboardingFacts` reads. */
 export interface OnboardingFacts {
@@ -125,7 +125,7 @@ export function deriveOnboarding(
 /**
  * The sample task: "Summarize this project", in the leader's directory (null
  * when no leader is online — the card then asks for one), with the built-in
- * worker persona. Only a prefill: nothing is created until the user clicks Run.
+ * teammate persona. Only a prefill: nothing is created until the user clicks Run.
  */
 export function sampleTaskFor(store: Store): OnboardingSampleTask {
   return {

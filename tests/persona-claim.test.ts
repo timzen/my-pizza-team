@@ -76,16 +76,16 @@ test("claim: a Solitary task without a persona gets no persona block and no snap
   }, WITH_MEMBER);
 });
 
-test("claim: a persona that no longer resolves falls back to builtin:worker (never fails the claim)", async () => {
+test("claim: a persona that no longer resolves falls back to builtin:teammate (never fails the claim)", async () => {
   await withTeam({}, async ({ app, store }) => {
     store.createPersona({ title: "Gone", content: "Soon deleted." });
     const def = store.createWorkDef({ title: "Orphan", goal: "g", acceptanceCriteria: "", persona: "gone" });
     store.deletePersona("gone");
     const { prompt, itemId } = await claim(app, store, def.id);
-    const worker = store.getPersona("builtin:worker")!;
-    assertStringIncludes(prompt, `## Your Role\n\n${worker.content.trim().split("\n")[0]}`);
+    const teammate = store.getPersona("builtin:teammate")!;
+    assertStringIncludes(prompt, `## Your Role\n\n${teammate.content.trim().split("\n")[0]}`);
     assertEquals(store.getWorkItem(itemId)!.persona, {
-      id: "builtin:worker", title: worker.title, origin: "builtin", via: "task", fallbackFrom: "gone",
+      id: "builtin:teammate", title: teammate.title, origin: "builtin", via: "task", fallbackFrom: "gone",
     });
   }, WITH_MEMBER);
 });
@@ -169,7 +169,7 @@ test("PUT /api/config: a workflow state's persona must resolve when it changes; 
     assertEquals((await app.request("/api/config", jsonInit("PUT", withPersona("implementer")))).status, 200);
     assertEquals(store.getWorkflows().default!.states.find((s) => s.name === "in_progress")!.persona, "implementer");
     // Manual states have no teammate, so a newly set persona there is refused.
-    assertEquals((await app.request("/api/config", jsonInit("PUT", withPersona("builtin:worker", "manual")))).status, 400);
+    assertEquals((await app.request("/api/config", jsonInit("PUT", withPersona("builtin:teammate", "manual")))).status, 400);
 
     // The persona is deleted out from under the workflow (a hand edit): saving the
     // rest of the config still works, and the stale reference is left for the fallback.

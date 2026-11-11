@@ -8,15 +8,19 @@
  *
  * - `builtin:assistant` — `DEFAULT_ASSISTANT_PERSONA`, when no `assistant.persona` is set
  * - `builtin:triage`    — `DEFAULT_TRIAGE_INSTRUCTIONS`, when no `triage.persona` is set
- * - `builtin:worker`    — a generic worker framing; only the fallback for a worker
- *   reference that doesn't resolve, and a starting point to duplicate
+ * - `builtin:teammate`  — a generic teammate framing; only the fallback for a
+ *   teammate's persona reference that doesn't resolve, and a starting point to
+ *   duplicate. Its former id `builtin:worker` still resolves to it (a deprecated
+ *   alias; daemon/personas/aliases.ts).
  *
  * The constants are re-exported from their former homes (routes/assistant.ts,
- * prompt.ts) for the prompt tests. This module imports nothing from the daemon,
- * so either of those can import it without a cycle.
+ * prompt.ts) for the prompt tests. This module imports nothing from the daemon
+ * but the (dependency-free) alias helpers, so either of those can import it
+ * without a cycle.
  */
 
 import type { BuiltinPersonaId, Persona, PersonaKind } from "../../shared/types.ts";
+import { normalizePersonaId } from "./aliases.ts";
 
 /**
  * The default assistant persona. When no persona is selected, the daemon
@@ -55,21 +59,21 @@ author decides. Keep your analysis short: what you think this note is, then your
 proposals.`;
 
 /**
- * The generic worker framing: today's one-line "You are working in the … state"
+ * The generic teammate framing: today's one-line "You are working in the … state"
  * text, generalized so it reads correctly outside a workflow state too.
  */
-export const DEFAULT_WORKER_PERSONA = `You are a teammate working on the task below. Do the work it describes, following the conventions of the project you are working in.`;
+export const DEFAULT_TEAMMATE_PERSONA = `You are a teammate working on the task below. Do the work it describes, following the conventions of the project you are working in.`;
 
 /** A built-in's definition (its id, frontmatter, and body). */
 interface BuiltinDef { id: BuiltinPersonaId; title: string; description: string; kinds: PersonaKind[]; content: string }
 
 const BUILTINS: readonly BuiltinDef[] = [
   {
-    id: "builtin:worker",
-    title: "Worker (built-in)",
-    description: "Generic worker framing; stands in for a worker persona that doesn't resolve.",
-    kinds: ["worker"],
-    content: DEFAULT_WORKER_PERSONA,
+    id: "builtin:teammate",
+    title: "Teammate (built-in)",
+    description: "Generic teammate framing; stands in for a teammate persona that doesn't resolve.",
+    kinds: ["teammate"],
+    content: DEFAULT_TEAMMATE_PERSONA,
   },
   {
     id: "builtin:triage",
@@ -92,9 +96,14 @@ export function listBuiltinPersonas(): Persona[] {
   return BUILTINS.map(toPersona);
 }
 
-/** One built-in persona by id, or null when `id` names none. */
+/**
+ * One built-in persona by id, or null when `id` names none. A deprecated id
+ * (`builtin:worker`) resolves to its replacement — this is the one lookup every
+ * built-in reference goes through (the Store's `getPersona`, `mpt plugins doctor`).
+ */
 export function getBuiltinPersona(id: string): Persona | null {
-  const def = BUILTINS.find((b) => b.id === id);
+  const canonical = normalizePersonaId(id); // DEPRECATED(worker→teammate): remove in remove-worker-aliases
+  const def = BUILTINS.find((b) => b.id === canonical);
   return def ? toPersona(def) : null;
 }
 

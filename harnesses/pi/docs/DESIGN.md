@@ -27,7 +27,7 @@ reasoned-about adapter between Pi and the daemon.
 ### 2. Role detection at session start
 A single extension entry point (`index.ts`) picks a role from flags / config and
 wires only that role's behavior:
-- `--ppt-worker` → **teammate** loop.
+- `--ppt-teammate` → **teammate** loop (`--ppt-worker` is a deprecated alias, warned once).
 - `--ppt-assistant` → **retired** (the leader is the chat agent; the flag only warns).
 - `--ppt-lead` (or a `.my-pizza-team/` config in cwd) → **leader**.
 

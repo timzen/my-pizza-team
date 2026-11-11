@@ -1,7 +1,8 @@
 // pi-pizza-team extension entry point
 //
 // Role detection logic:
-// 1. If --ppt-worker flag → Teammate (autonomous agent)
+// 1. If --ppt-teammate flag (or its deprecated alias --ppt-worker; teammate-flag.ts)
+//    → Teammate (autonomous agent)
 // 2. If --ppt-lead flag OR .my-pizza-team/config.json exists → Leader, which is
 //    also the agent you chat with (see chat.ts; there is no separate assistant)
 // 3. Otherwise → Inactive (only /ppt-help available)
@@ -25,6 +26,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { TEAM_DIR, LEGACY_TEAM_DIR, DEFAULT_DAEMON_URL, PRE_CUTOFF_UPGRADE_MESSAGE } from "./shared/types.js";
 import { DaemonClient } from "./runtime/client.js";
 import { readTerminalMetadata, registerTerminalFlags } from "./terminal.js";
+import { readTeammateFlag, registerTeammateFlags } from "./teammate-flag.js";
 import { summarizeRun, hasUsage } from "./runtime/usage.js";
 import { readSessionStats, sameStats, type SessionStats } from "./runtime/session-stats.js";
 
@@ -54,11 +56,7 @@ const HARNESS_VERSION = readHarnessVersion();
 export default function (pi: ExtensionAPI) {
   // ─── Flag Registration ─────────────────────────────────────────────
 
-  pi.registerFlag("ppt-worker", {
-    description: "Run as a pi-pizza-team teammate",
-    type: "boolean",
-    default: false,
-  });
+  registerTeammateFlags(pi);
 
   pi.registerFlag("ppt-lead", {
     description: "Run as the team's assistant, the agent you chat with (connect to daemon via --ppt-daemon or auto-detect)",
@@ -97,7 +95,7 @@ export default function (pi: ExtensionAPI) {
   pi.on("session_start", async (_event, ctx) => {
     const cwd = ctx.cwd;
 
-    const isWorker = pi.getFlag("ppt-worker") as boolean;
+    const { teammate: isTeammate, deprecation } = readTeammateFlag(pi);
     const isAssistant = pi.getFlag("ppt-assistant") as boolean;
     const isLead = pi.getFlag("ppt-lead") as boolean;
     const pptDaemon = (pi.getFlag("ppt-daemon") as string) || "";
@@ -124,7 +122,11 @@ export default function (pi: ExtensionAPI) {
 
     // ─── TEAMMATE ROLE ─────────────────────────────────────────────
 
-    if (isWorker) {
+    if (isTeammate) {
+      if (deprecation) {
+        if (ctx.hasUI) ctx.ui.notify(deprecation, "warning");
+        else console.warn(deprecation);
+      }
       const memberId = agentName || process.env.TMUX_PANE || `teammate-${Date.now()}`;
       const client = new DaemonClient(daemonUrl, memberId, { harnessVersion: HARNESS_VERSION });
       // All teammates are generalists biased by their working directory (the pi

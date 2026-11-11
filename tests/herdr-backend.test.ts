@@ -154,13 +154,13 @@ test("openWindow in an existing workspace: tab create with cwd, label, env, no f
   // Make the server's next ids something a predictor would get wrong.
   h.workspaces[0]!.n = 41;
   h.calls.length = 0;
-  const opened = t.openWindow({ session: "team", window: "swift-ripley", cwd: "/p/x", command: "pi --ppt-worker", env: { K: "v" } });
+  const opened = t.openWindow({ session: "team", window: "swift-ripley", cwd: "/p/x", command: "pi --ppt-teammate", env: { K: "v" } });
   assertEquals(made(h), [
     "status server --json",
     "workspace list",
     "tab list --workspace w1",
     "tab create --workspace w1 --label swift-ripley --cwd /p/x --env K=v --no-focus",
-    "pane run w1:p2 export HERDR_ENV=0; pi --ppt-worker",
+    "pane run w1:p2 export HERDR_ENV=0; pi --ppt-teammate",
   ]);
   assertEquals(opened.created, true);
   assertEquals(opened.ref.id, "w1:p2");
@@ -187,7 +187,7 @@ test("openWindow is idempotent by label, and revives a restored tab that has onl
 test("herdrLaunchLine opts the agent out of herdr's native restore (HERDR_ENV=0), then cds and runs", () => {
   // herdr's agent integrations report a pane's session only when HERDR_ENV is 1;
   // herdr keeps its own HERDR_* over --env, so the override is on the command line.
-  assertEquals(herdrLaunchLine("pi --ppt-worker"), "export HERDR_ENV=0; pi --ppt-worker");
+  assertEquals(herdrLaunchLine("pi --ppt-teammate"), "export HERDR_ENV=0; pi --ppt-teammate");
   assertEquals(herdrLaunchLine("pi -a", "/p/it's here"), "export HERDR_ENV=0; cd '/p/it'\\''s here' && pi -a");
 });
 

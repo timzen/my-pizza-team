@@ -328,7 +328,7 @@ most of it is editable on the **Config** page. Minimal:
   "defaultHarness": "pi",
   "harnesses": {
     "pi": {
-      "teammate": "pi -a --ppt-worker --ppt-daemon={url} --ppt-name={name} --ppt-terminal={terminal} --ppt-terminal-session={terminalSession} --ppt-terminal-window={terminalWindow}",
+      "teammate": "pi -a --ppt-teammate --ppt-daemon={url} --ppt-name={name} --ppt-terminal={terminal} --ppt-terminal-session={terminalSession} --ppt-terminal-window={terminalWindow}",
       "leader": "pi -a --ppt-lead --ppt-daemon={url} --ppt-terminal={terminal} --ppt-terminal-session={terminalSession} --ppt-terminal-window={terminalWindow}"
     }
   },
@@ -579,20 +579,28 @@ plugin"; a triage-mode source must have a triage persona or it doesn't sync):
 title: Implementer
 description: Careful, minimal changes; builds and tests before finishing.
 tags: [coding]
-kinds: [worker]
+kinds: [teammate]
 ---
 You are a careful implementer. Write the code the task describes,
 add tests, and keep the change minimal. Summarize what you did when
 you finish — the task advances automatically.
 ```
 
-Besides your team's personas there are read-only built-ins (`builtin:worker`,
+Besides your team's personas there are read-only built-ins (`builtin:teammate`,
 `builtin:triage`, `builtin:assistant` — today's defaults) and personas shipped by
 plugin packages (`<package.json name>/<id>`, installed with `mpt plugins add`); duplicate a read-only one to
 customize it. A reference that no longer resolves never fails a run: it falls back
 to the built-in and the daemon logs it. Saving a persona lints it (an unclosed code
 fence is refused). See `/api/personas` and
 [docs/DESIGN.md](docs/DESIGN.md#personas-one-library-selected-by-reference).
+
+**Renamed: `worker` → `teammate`.** The persona kind `kinds: [worker]`, the
+built-in `builtin:worker`, `GET /api/personas?kind=worker` and Pi's `--ppt-worker`
+flag are now `teammate`, `builtin:teammate`, `?kind=teammate` and `--ppt-teammate`.
+The old spellings still work as deprecated aliases (each logs a one-time warning
+naming its replacement), so existing persona files, references and customized
+`harnesses.pi.teammate` templates need no change; saving a persona writes the new
+spelling. The aliases will be removed in a future version.
 
 **In the web UI**, **Config → Personas** (`/config/personas`) is the library: search
 and tag filters, an origin badge (team / built-in / package), an editor showing the

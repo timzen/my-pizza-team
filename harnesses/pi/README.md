@@ -49,7 +49,7 @@ pi
 pi --ppt-lead --ppt-daemon=http://localhost:7438
 
 # A teammate (usually started by the daemon — the Team tab, or the leader's /ppt-spawn):
-pi --ppt-worker --ppt-daemon=http://localhost:7437 --ppt-name=swift-ripley
+pi --ppt-teammate --ppt-daemon=http://localhost:7437 --ppt-name=swift-ripley
 
 # The leader IS the chat agent — nothing extra to run.
 ```
@@ -58,7 +58,7 @@ pi --ppt-worker --ppt-daemon=http://localhost:7437 --ppt-name=swift-ripley
 
 The extension detects which role to activate:
 
-1. `--ppt-worker` flag → **Teammate** (autonomous agent)
+1. `--ppt-teammate` flag (or the deprecated `--ppt-worker`) → **Teammate** (autonomous agent)
 2. *(retired)* `--ppt-assistant` — the leader is the chat agent now; the flag only prints a notice
 3. `--ppt-lead` flag OR `.my-pizza-team/config.json` in cwd → **Leader**
 4. Otherwise → **Inactive** (only `/ppt-help` available)
@@ -68,7 +68,8 @@ The extension detects which role to activate:
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
 | `--ppt-lead` | boolean | false | Activate leader role |
-| `--ppt-worker` | boolean | false | Run as teammate |
+| `--ppt-teammate` | boolean | false | Run as teammate |
+| `--ppt-worker` | boolean | false | **Deprecated** alias of `--ppt-teammate` (logs a one-time warning); kept so customized spawn templates keep working |
 | `--ppt-assistant` | boolean | false | **Retired** — the leader answers the chat; kept so old spawn commands don't crash |
 | `--ppt-daemon` | string | `http://localhost:7437` | Daemon URL |
 | `--ppt-name` | string | (auto-generated) | Agent name |
@@ -91,7 +92,7 @@ work whose directory it can't reach, it just fails that item.
 
 ```bash
 # A generalist teammate homed at the current repo
-pi --ppt-worker
+pi --ppt-teammate
 ```
 
 **Daemon URL resolution (priority order):**

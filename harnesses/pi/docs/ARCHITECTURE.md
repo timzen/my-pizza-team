@@ -25,7 +25,7 @@ The extension operates in one of three roles:
 │  │                                                          │
 │  ├── --ppt-assistant → retired (notice only)                │
 │  │                                                          │
-│  ├── --ppt-worker → setupTeammateRole()                     │
+│  ├── --ppt-teammate (or --ppt-worker) → setupTeammateRole() │
 │  │         • Register with daemon as "teammate" agent        │
 │  │         • Poll for work → claim → execute → done       │
 │  │         • Register permission bypass                      │
@@ -325,7 +325,7 @@ The extension communicates with the my-pizza-team daemon (default: `http://local
 | `/api/stories/:id` | PUT | Update story |
 | `/api/stories/:storyId/tasks` | POST | Add task to story (`pending`) |
 | `/api/workflows` | GET | List workflows for the `list_workflows` tool (name, counts, isDefault) |
-| `/api/personas?kind=worker` | GET | List the persona library for the `list_personas` tool |
+| `/api/personas?kind=teammate` | GET | List the persona library for the `list_personas` tool |
 | `/api/work-defs`, `/api/work-defs/:id` | POST / PUT | Create / edit a Solitary or Scheduled WorkDef (`persona`, `pending`, …) |
 | `/api/assistant/messages` | POST | Send a message to the assistant |
 
@@ -418,7 +418,8 @@ switched-off kind (pass-through if the status read fails); `team_status` and
 | Flag | Type | Default | Purpose |
 |------|------|---------|---------|
 | `--ppt-lead` | boolean | false | Run as team leader |
-| `--ppt-worker` | boolean | false | Run as teammate |
+| `--ppt-teammate` | boolean | false | Run as teammate (`src/teammate-flag.ts`) |
+| `--ppt-worker` | boolean | false | **Deprecated** alias of `--ppt-teammate` (one-time warning) |
 | `--ppt-assistant` | boolean | false | **Retired** — the leader is the chat agent; kept so old spawn commands don't crash on an unknown flag |
 | `--ppt-daemon` | string | `http://localhost:7437` | Daemon URL |
 | `--ppt-name` | string | (auto) | Agent name |
@@ -474,7 +475,7 @@ File: `<cwd>/.pi/extensions/pi-permission-system/config.json`
 ## tmux (the daemon's, not the extension's)
 
 - The daemon creates each teammate window with its harness template (Pi's:
-  `pi -a --ppt-worker --ppt-daemon=<url> --ppt-name=<name> --ppt-terminal=tmux --ppt-terminal-session=… --ppt-terminal-window=…`)
+  `pi -a --ppt-teammate --ppt-daemon=<url> --ppt-name=<name> --ppt-terminal=tmux --ppt-terminal-session=… --ppt-terminal-window=…`)
 - Identity is daemon-owned: the window, `--ppt-name`, registered name, and MPT UI label all use the directive's `params.name`. Every spawn is a teammate — there is no assistant to spawn (the leader is the chat agent).
 - `-a` (`--approve`) trusts the teammate's project cwd non-interactively, so a spawn into a folder outside a trusted parent (`~/.pi/agent/trust.json`) doesn't block on pi's "Trust project folder?" prompt
 - The extension runs no tmux at all (`tests/structure.test.mjs`)

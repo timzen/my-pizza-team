@@ -893,7 +893,7 @@ function registerListWorkflows(pi: ExtensionAPI, client: DaemonClient): void {
 
 /**
  * The persona library, so the leader can pick a `persona` for create_task,
- * create_schedule, or edit_task. Worker-hinted personas are listed first; any
+ * create_schedule, or edit_task. Teammate-hinted personas are listed first; any
  * persona may be used anywhere (`kinds` is a hint, never a restriction).
  */
 function registerListPersonas(pi: ExtensionAPI, client: DaemonClient): void {
@@ -912,7 +912,7 @@ function registerListPersonas(pi: ExtensionAPI, client: DaemonClient): void {
     parameters: Type.Object({}),
     async execute(_toolCallId, _params) {
       try {
-        const { personas } = await client.listPersonas("worker");
+        const { personas } = await client.listPersonas("teammate");
         if (personas.length === 0) {
           return { content: [{ type: "text", text: "The persona library is empty." }], details: undefined };
         }

@@ -572,7 +572,7 @@ function sourceChecks(source: WorkSource, seenIds: Map<string, string>, spec: st
 /**
  * A source's personas (docs/DESIGN.md "Work Source personas"): each declared
  * id that doesn't resolve is a warning (work items fall back to
- * `builtin:worker`); a triage-mode source whose triage persona — the team's
+ * `builtin:teammate`); a triage-mode source whose triage persona — the team's
  * per-source setting, else declared — is missing or doesn't resolve fails,
  * since the daemon won't sync it.
  */

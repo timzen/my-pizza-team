@@ -133,7 +133,7 @@ export function NewWorkDefPage() {
 
         <div><div className="mb-2 pb-1 border-b border-border"><Label htmlFor="wd-dir">Directory</Label></div><DirectoryInput id="wd-dir" value={directory} onChange={setDirectory} hintId="wd-dir-hint" /><FieldHint id="wd-dir-hint" field="directory" className="mt-1" /></div>
 
-        <div><div className="mb-2 pb-1 border-b border-border"><Label htmlFor="wd-persona">Persona</Label></div><PersonaPicker id="wd-persona" kind="worker" value={persona} onChange={setPersona} noneLabel="No persona" hintId="wd-persona-hint" /><FieldHint id="wd-persona-hint" field={type === "Scheduled" ? "scheduledPersona" : "persona"} className="mt-1" /></div>
+        <div><div className="mb-2 pb-1 border-b border-border"><Label htmlFor="wd-persona">Persona</Label></div><PersonaPicker id="wd-persona" kind="teammate" value={persona} onChange={setPersona} noneLabel="No persona" hintId="wd-persona-hint" /><FieldHint id="wd-persona-hint" field={type === "Scheduled" ? "scheduledPersona" : "persona"} className="mt-1" /></div>
 
         {type === "Scheduled" ? (
           <div>

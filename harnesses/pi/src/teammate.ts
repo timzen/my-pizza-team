@@ -2,7 +2,7 @@
 //
 // Autonomous execution engine for a teammate agent. Uses the daemon's
 // WorkItem-centric agent protocol (/api/agents/*): the WorkItem is the unit of
-// agent execution, and workers never move tasks (the daemon reacts to a terminal
+// agent execution, and teammates never move tasks (the daemon reacts to a terminal
 // WorkItem state). See the daemon's docs/DESIGN.md "The WorkItem".
 //
 // Lifecycle:
@@ -388,7 +388,7 @@ export class TeammateLoop {
    * Called by the agent_end handler when the Pi agent finishes.
    *
    * Posts a summary comment and sets the WorkItem COMPLETE — the daemon advances
-   * the task to its next state (workers never move tasks). If the agent failed
+   * the task to its next state (teammates never move tasks). If the agent failed
    * the item mid-turn (the `fail` tool), completion is skipped: the item is
    * already FAILED and the task is left stuck for a human.
    *

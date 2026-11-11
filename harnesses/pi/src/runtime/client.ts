@@ -130,7 +130,7 @@ export interface PersonaSummary {
   title: string;
   description: string;
   tags: string[];
-  /** Picker hints (`assistant` | `worker` | `triage`); never a restriction. */
+  /** Picker hints (`assistant` | `teammate` | `triage`); never a restriction. */
   kinds?: string[];
   origin: { kind: "team" | "builtin" | "package"; name?: string };
   readOnly?: boolean;
@@ -475,7 +475,7 @@ export class DaemonClient {
 
   /**
    * Set the WorkItem's terminal state (the single state-setter). `COMPLETE`
-   * advances a task ref to its next workflow state (workers never move tasks);
+   * advances a task ref to its next workflow state (teammates never move tasks);
    * `FAILED` leaves the task stuck for a human. "Giving up" is a comment plus a
    * FAILED here — the daemon bundles nothing.
    */
@@ -912,7 +912,7 @@ export class DaemonClient {
    * the leader can pick one for a standalone task or a schedule. `kind` sorts
    * the personas hinted for it first.
    */
-  async listPersonas(kind?: "assistant" | "worker" | "triage"): Promise<{ personas: PersonaSummary[] }> {
+  async listPersonas(kind?: "assistant" | "teammate" | "triage"): Promise<{ personas: PersonaSummary[] }> {
     return this.get<{ personas: PersonaSummary[] }>(`/api/personas${kind ? `?kind=${kind}` : ""}`);
   }
 

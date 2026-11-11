@@ -113,8 +113,8 @@ test("nothing spawns an assistant any more (the leader is the chat agent)", () =
 // The daemon spawns with these templates; they stay in the generated shared copy.
 const shared = fs.readFileSync(new URL("../src/shared/types.ts", import.meta.url), "utf8");
 
-test("pi template uses -a --ppt-worker --ppt-daemon --ppt-name and passes the terminal location", () => {
-  assert.ok(shared.includes("pi -a --ppt-worker --ppt-daemon={url} --ppt-name={name}"));
+test("pi template uses -a --ppt-teammate --ppt-daemon --ppt-name and passes the terminal location", () => {
+  assert.ok(shared.includes("pi -a --ppt-teammate --ppt-daemon={url} --ppt-name={name}"));
   assert.ok(shared.includes("--ppt-terminal={terminal} --ppt-terminal-session={terminalSession} --ppt-terminal-window={terminalWindow}"));
 });
 

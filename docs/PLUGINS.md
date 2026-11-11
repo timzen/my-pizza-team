@@ -141,7 +141,7 @@ return {
 ```
 
 A persona id is a team persona (`reviewer`), a built-in (`builtin:triage`,
-`builtin:worker`), or one a package ships (`<package name>/<id>`). Who wins, first
+`builtin:teammate`), or one a package ships (`<package name>/<id>`). Who wins, first
 to last: a person's override on the item (`PUT /api/work-defs/<id>/persona`), the
 item's own `persona`, the team's choice for your source (config.json
 `sourcePersonas.<id>.persona` / `.triagePersona`, set with `PUT

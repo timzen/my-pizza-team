@@ -21,7 +21,7 @@
  *
  * The rules for this Pi's role are tried first, then `default`'s; the first that
  * matches answers. The role is `MPT_E2E_ROLE` if set, else read off Pi's own flags
- * (`--ppt-worker` → teammate, `--ppt-lead` → leader), else `default`.
+ * (`--ppt-teammate`, or the deprecated `--ppt-worker` → teammate; `--ppt-lead` → leader), else `default`.
  *
  * ```json
  * Rule = {
@@ -124,7 +124,7 @@ interface ProviderHost {
 function detectRole(): "leader" | "teammate" | "default" {
   const env = process.env["MPT_E2E_ROLE"];
   if (env === "leader" || env === "teammate") return env;
-  if (process.argv.includes("--ppt-worker")) return "teammate";
+  if (process.argv.includes("--ppt-teammate") || process.argv.includes("--ppt-worker")) return "teammate";
   if (process.argv.includes("--ppt-lead")) return "leader";
   return "default";
 }

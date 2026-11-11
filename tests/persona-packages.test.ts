@@ -93,7 +93,7 @@ test("loader: a persona-only package registers read-only <name>/<id> personas fr
     assertEquals(p.origin, { kind: "package", name: "acme-personas", identity: dir });
     assert(env.store.listPersonas().some((x) => x.id === "acme-personas/coder"), "listed in the library");
     // Read-only: the library refuses to edit it, and it resolves for a prompt.
-    assertEquals(env.store.resolvePersona("acme-personas/coder", { via: "task", fallback: "builtin:worker" })?.body.trim(), "You write code.");
+    assertEquals(env.store.resolvePersona("acme-personas/coder", { via: "task", fallback: "builtin:teammate" })?.body.trim(), "You write code.");
   } finally {
     cleanup(env);
   }
@@ -323,7 +323,7 @@ test("cli: remove warns about references to the package's personas, which fall b
       assertEquals(r.code, 0, r.text);
       assertEquals(readConfig(env).packages, []);
       assertStringIncludes(r.text, "3 references to this package's personas will fall back to built-ins");
-      assertStringIncludes(r.text, "acme/reviewer — workflow \"default\" state \"review\" → builtin:worker");
+      assertStringIncludes(r.text, "acme/reviewer — workflow \"default\" state \"review\" → builtin:teammate");
       assertStringIncludes(r.text, "acme/coder — the assistant (config.json assistant.persona) → builtin:assistant");
       assertStringIncludes(r.text, "acme/reviewer — source \"tickets\" triage persona setting → the source stops syncing");
       assert(fs.existsSync(dir), "a local package stays on disk");

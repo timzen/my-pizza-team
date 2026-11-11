@@ -13,7 +13,7 @@ export interface PersonaMeta {
   title: string;
   description: string;
   tags: string[];
-  /** Picker hints (`assistant` | `worker` | `triage`); empty when absent. */
+  /** Picker hints (`assistant` | `teammate` | `triage`; a deprecated `worker` is normalized by the daemon); empty when absent. */
   kinds?: string[];
   /** The id this persona was duplicated from, when it was. */
   duplicatedFrom?: string;

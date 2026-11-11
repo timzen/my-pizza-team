@@ -1286,7 +1286,7 @@ a context entry has today (`shared/frontmatter.ts` serializes both):
 title: Implementer
 description: Careful, minimal changes; builds and tests before finishing.
 tags: [coding, brazil]
-kinds: [worker]            # optional UI hint: assistant | worker | triage
+kinds: [teammate]          # optional UI hint: assistant | teammate | triage
 ---
 You are the **implementer** …
 ```
@@ -1296,7 +1296,7 @@ You are the **implementer** …
   filtering).
 - **`kinds`** is a **hint for pickers only**: the Assistant picker lists
   `assistant` personas first, the triage picker `triage`, the state/task/schedule
-  pickers `worker`. It never restricts: any persona can be selected anywhere. A
+  pickers `teammate`. It never restricts: any persona can be selected anywhere. A
   missing `kinds` means "show everywhere, sorted after the hinted ones". *Why not
   enforce it:* a persona is prose; the daemon can't verify that "reviewer" text
   is unsuitable for triage, and a guard that only checks a label would block
@@ -1347,10 +1347,23 @@ that never touches personas gets byte-identical prompts:
 |---|---|---|
 | `builtin:assistant` | `DEFAULT_ASSISTANT_PERSONA` | no `assistant.persona` is set (or it doesn't resolve) |
 | `builtin:triage` | `DEFAULT_TRIAGE_INSTRUCTIONS` | no `triage.persona` is set (or it doesn't resolve) |
-| `builtin:worker` | a generic worker framing (today's one-line "You are working in the … state" text, generalized so it reads correctly outside a workflow state) | only as the **fallback** for a worker reference that doesn't resolve (below), and as a starting point to duplicate |
+| `builtin:teammate` | a generic teammate framing (today's one-line "You are working in the … state" text, generalized so it reads correctly outside a workflow state) | only as the **fallback** for a teammate reference that doesn't resolve (below), and as a starting point to duplicate |
 
 The constants move to `daemon/personas/builtins.ts` and are re-exported from
 their current homes for the prompt tests.
+
+**`worker` became `teammate`, with deprecated aliases.** The agents doing
+board work are "teammates" everywhere else, so the kind hint, the built-in
+(`builtin:worker` → `builtin:teammate`), `?kind=` and Pi's `--ppt-worker` flag
+(→ `--ppt-teammate`) were renamed. The old spellings keep working — persona files
+and references are user-owned and committed, and a customized spawn template is
+the user's text, so a rename that broke them would be an outage for no gain. Each
+alias is normalized on read (never by rewriting a file the user didn't save; saving
+writes the new spelling) and logs one deprecation warning per run naming the
+replacement. All alias handling sits in one marked place per layer — the maps and
+pure helpers in `shared/types.ts`, `daemon/personas/aliases.ts`, the UI's
+`currentPersonaId`, the harness's `teammate-flag.ts` — each tagged
+`DEPRECATED(worker→teammate)`, so removing them later is mechanical.
 
 **Package personas** are namespaced by the package's package.json **`name`**,
 not its spec identity. *Why not the identity* (the npm name, git URL, or absolute
@@ -1478,11 +1491,11 @@ source glue for mirrors) and stays testable as a pure function.
 **A missing id never fails a claim.** A reference to a deleted team persona, an
 uninstalled package, or a mistyped id is logged once per id per daemon run
 (`[personas] workflow 'default' state 'review' names persona 'reviewr', which
-doesn't exist — using builtin:worker`) and resolved to the consumer's built-in
-(`builtin:worker` for workers, `builtin:triage` / `builtin:assistant`), with
+doesn't exist — using builtin:teammate`) and resolved to the consumer's built-in
+(`builtin:teammate` for teammates, `builtin:triage` / `builtin:assistant`), with
 `fallbackFrom` set so the UI can show it. *Why fall back rather than drop the
 block:* the author asked for *a* persona; a generic one is closer to their intent
-than none, and the chip ("builtin:worker — stands in for missing 'reviewr'")
+than none, and the chip ("builtin:teammate — stands in for missing 'reviewr'")
 makes the problem visible without stalling the queue ("Fail loudly" is satisfied
 by the log, the chip, and the "Used by"/doctor views; failing the claim would
 turn a typo into an outage). The one exception is the triage-mode requirement
@@ -1621,7 +1634,7 @@ or instead of them:
 - **Removing a package whose personas are in use** isn't blocked: `mpt plugins
   remove` runs the same "Used by" scan as the daemon (`personaUsage`, over the
   files — `daemon/personas/usage-disk.ts`) before deleting it, and lists each
-  reference with what it will fall back to (`builtin:worker` / `builtin:triage` /
+  reference with what it will fall back to (`builtin:teammate` / `builtin:triage` /
   `builtin:assistant`; a triage-mode source's triage persona has no fallback, so
   that source stops syncing until re-pointed).
 
@@ -2551,7 +2564,7 @@ capture a note), each ticked off by **doing it**, wherever and however it was do
   sees no card, unless it reopens it: a checklist that asks a team running work
   every day to "create your first task" is noise.
 - **A sample task, not a sample team.** The card's one-click task is real work —
-  "Summarize this project", in the leader's directory, with the built-in worker
+  "Summarize this project", in the leader's directory, with the built-in teammate
   persona — so the first run shows the whole loop (Queue, a teammate, the Inbox) on
   something the user cares about, and changes nothing. It's only a prefill until
   **Run** (`POST /api/onboarding/sample-task`): nothing is created for a user who

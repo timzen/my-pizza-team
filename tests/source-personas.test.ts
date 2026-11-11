@@ -180,13 +180,13 @@ test("work mode: each link of the chain leads the prompt and is recorded with ho
   } finally { cleanup(); }
 });
 
-test("work mode: a stale id falls back to builtin:worker with fallbackFrom", async () => {
+test("work mode: a stale id falls back to builtin:teammate with fallbackFrom", async () => {
   const { store, app, folder, cleanup } = setup({ defaultPersona: "uninstalled-pkg/worker" });
   try {
     writeItem(folder, "J-1", "Stale");
     await store.syncWorkSource(SOURCE);
     const { persona } = await claim(app, store, mirroredWorkDefId(SOURCE, "J-1"));
-    assertEquals(persona, { id: "builtin:worker", title: persona!.title, origin: "builtin", via: "source-default", fallbackFrom: "uninstalled-pkg/worker" });
+    assertEquals(persona, { id: "builtin:teammate", title: persona!.title, origin: "builtin", via: "source-default", fallbackFrom: "uninstalled-pkg/worker" });
   } finally { cleanup(); }
 });
 
@@ -200,18 +200,18 @@ test("PUT /api/work-defs/:id/persona: only mirrors, only ids that resolve", asyn
     assertEquals((await app.request(`/api/work-defs/${defId}/persona`, jsonInit("PUT", {}))).status, 400);
     assertEquals((await app.request(`/api/work-defs/missing/persona`, jsonInit("PUT", { persona: null }))).status, 404);
     const solo = store.createWorkDef({ title: "Solo", goal: "g", acceptanceCriteria: "" }, false);
-    assertEquals((await app.request(`/api/work-defs/${solo.id}/persona`, jsonInit("PUT", { persona: "builtin:worker" }))).status, 409);
+    assertEquals((await app.request(`/api/work-defs/${solo.id}/persona`, jsonInit("PUT", { persona: "builtin:teammate" }))).status, 409);
   } finally { cleanup(); }
 });
 
 // ─── The per-source setting ──────────────────────────────────────────
 
 test("GET /api/sources shows the personas; PUT /persona validates, persists, and never re-inits", async () => {
-  const { store, app, teamDir, config, persona, inits, cleanup } = setup({ defaultPersona: "builtin:worker", triagePersona: "builtin:triage" });
+  const { store, app, teamDir, config, persona, inits, cleanup } = setup({ defaultPersona: "builtin:teammate", triagePersona: "builtin:triage" });
   try {
     persona("reviewer", "Reviewer", "Review.");
     let view = await sourceView(app);
-    assertEquals([view.persona, view.defaultPersona, view.triagePersona, view.defaultTriagePersona], [null, "builtin:worker", null, "builtin:triage"]);
+    assertEquals([view.persona, view.defaultPersona, view.triagePersona, view.defaultTriagePersona], [null, "builtin:teammate", null, "builtin:triage"]);
     assertEquals(view.initError, undefined);
     const initsBefore = inits();
 

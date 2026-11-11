@@ -504,8 +504,8 @@ function fallbackOf(u: PersonaUsage): string {
   if (u.kind === "triage") return "builtin:triage";
   if (u.kind === "assistant") return "builtin:assistant";
   if (u.kind === "source-setting" && u.field === "triagePersona") return "the source stops syncing until it has a triage persona";
-  if (u.kind === "mirror-override") return "builtin:worker (builtin:triage for a triage item)";
-  return "builtin:worker";
+  if (u.kind === "mirror-override") return "builtin:teammate (builtin:triage for a triage item)";
+  return "builtin:teammate";
 }
 
 // --- the real side effects ---

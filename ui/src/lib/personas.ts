@@ -22,12 +22,23 @@ import type { Persona, PersonaKind, PersonaOrigin, PersonaRef, PersonaUsage, Per
 import type { DeletePersonaResponse, SavePersonaResponse, SourceView } from "@shared/protocol";
 // Runtime values, so a relative path: the tests run this module under Node, which
 // can't resolve the `@shared` alias (shared/types.ts has no node: imports).
-import { PERSONA_KINDS, slugifyPersonaId } from "../../../shared/types.ts";
+import { canonicalPersonaId, PERSONA_KINDS, slugifyPersonaId } from "../../../shared/types.ts";
 
 export type { DeletePersonaResponse, Persona, PersonaKind, PersonaOrigin, PersonaRef, PersonaUsage, PersonaVia, SavePersonaResponse };
 
 /** Every kind hint, in display order. */
 export { PERSONA_KINDS };
+
+/**
+ * DEPRECATED(worker→teammate): remove in remove-worker-aliases.
+ * A stored persona id in its current spelling: a reference still naming a
+ * renamed built-in (`builtin:worker`) shows as its replacement (`builtin:teammate`)
+ * instead of "missing" or "deleted". The UI's one alias seam — the pickers and the
+ * chip compare ids through it. The map is shared/types.ts `LEGACY_PERSONA_ID_ALIASES`.
+ */
+export function currentPersonaId(id: string): string {
+  return canonicalPersonaId(id);
+}
 
 // ─── Routes ─────────────────────────────────────────────────────────
 
@@ -139,7 +150,8 @@ export function optionLabel(p: Pick<Persona, "title" | "origin">): string {
  */
 export function missingSelection(value: string | null | undefined, personas: Pick<Persona, "id">[] | null): string | null {
   if (!value || !personas) return null;
-  return personas.some((p) => p.id === value) ? null : value;
+  const id = currentPersonaId(value);
+  return personas.some((p) => p.id === id) ? null : value;
 }
 
 // ─── "Used by" ──────────────────────────────────────────────────────
@@ -207,14 +219,15 @@ export interface PersonaChipView {
  * title is always what's shown: the snapshot is history, not today's name.
  */
 export function personaChip(ref: PersonaRef, library: Pick<Persona, "id">[] | null): PersonaChipView {
-  const deleted = library !== null && !library.some((p) => p.id === ref.id);
+  const id = currentPersonaId(ref.id);
+  const deleted = library !== null && !library.some((p) => p.id === id);
   const parts = [`Persona: ${ref.title} (${refOriginLabel(ref.origin)}) — ${viaLabel(ref.via)}`];
   if (ref.fallbackFrom) parts.push(`stands in for missing “${ref.fallbackFrom}”`);
   if (deleted) parts.push("this persona has since been deleted");
   return {
     label: deleted ? `${ref.title} (deleted)` : ref.title,
     title: parts.join(" · "),
-    href: deleted ? null : personaPath(ref.id),
+    href: deleted ? null : personaPath(id),
     deleted,
   };
 }

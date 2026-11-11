@@ -463,7 +463,7 @@ function SourcePersonas({ source, onSaved }: { source: SourceView; onSaved: () =
             <div className="space-y-1">
               <PersonaPicker
                 id={`source-${source.id}-persona`}
-                kind="worker"
+                kind="teammate"
                 value={source.persona}
                 onChange={(id) => set("persona", id)}
                 noneLabel={source.defaultPersona ? `Source default (${source.defaultPersona})` : "No persona"}

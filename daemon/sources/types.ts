@@ -451,7 +451,7 @@ export interface WorkSource {
    * person's override on the mirror). Usually one the same package ships
    * (`"mpt-source-jira/jira-worker"`); a team or `builtin:*` id works too.
    * Absent = no persona block (the plain WorkDef prompt). An id that doesn't
-   * resolve falls back to `builtin:worker` at claim, with a warning (and a ⚠
+   * resolve falls back to `builtin:teammate` at claim, with a warning (and a ⚠
    * in `mpt plugins doctor`). The daemon composes it into the base prompt
    * *before* your `buildPrompt`, so you never assemble it yourself.
    * docs/DESIGN.md "Work Source personas". Optional and additive (apiVersion 1).

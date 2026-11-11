@@ -46,14 +46,17 @@ test("personas: the library lists team, built-in and package personas; package o
   const library = ((await a.get("/api/personas")).body.personas as Json[]).map((p) => `${p.id}:${p.origin.kind}:${p.readOnly}`).sort();
   assertEquals(library, [
     "builtin:assistant:builtin:true",
+    "builtin:teammate:builtin:true",
     "builtin:triage:builtin:true",
-    "builtin:worker:builtin:true",
     "demo-coder:team:false",
     "mpt-personas-demo/careful-implementer:package:true",
     "mpt-personas-demo/careful-reviewer:package:true",
     "mpt-personas-demo/tracker-triager:package:true",
     "mpt-source-demo-tracker/tracker-worker:package:true",
   ]);
+  // The demo's personas still say `kinds: [worker]` (the deprecated spelling): they load as teammate.
+  const kinds = Object.fromEntries(((await a.get("/api/personas")).body.personas as Json[]).map((p) => [p.id, p.kinds]));
+  assertEquals([kinds["demo-coder"], kinds["mpt-personas-demo/careful-implementer"]], [["teammate"], ["teammate"]]);
   const plugins = (await a.get("/api/sources")).body.plugins as Json[];
   const personasOnly = plugins.filter((p) => String(p.spec).endsWith("mpt-personas-demo")).map((p) => [p.state, p.sources.length, p.personas.length]);
   assertEquals(personasOnly, [["loaded", 0, 3]], "mpt-personas-demo should load as a persona-only package");

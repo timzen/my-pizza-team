@@ -17,7 +17,7 @@ export const DEFAULT_TMUX_SESSION: string = "my-pizza-team";
 export const LEADER_WINDOW: string = "leader";
 export const DEFAULT_HARNESS_TEMPLATES: Record<string, { teammate: string; leader?: string }> = {
   "pi": {
-    "teammate": "pi -a --ppt-worker --ppt-daemon={url} --ppt-name={name} --ppt-terminal={terminal} --ppt-terminal-session={terminalSession} --ppt-terminal-window={terminalWindow}",
+    "teammate": "pi -a --ppt-teammate --ppt-daemon={url} --ppt-name={name} --ppt-terminal={terminal} --ppt-terminal-session={terminalSession} --ppt-terminal-window={terminalWindow}",
     "leader": "pi -a --ppt-lead --ppt-daemon={url} --ppt-terminal={terminal} --ppt-terminal-session={terminalSession} --ppt-terminal-window={terminalWindow}"
   },
   "kiro": {

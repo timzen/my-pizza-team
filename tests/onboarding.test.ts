@@ -54,7 +54,7 @@ test("a new team: every step undone, in order, and the card visible", async () =
     // No leader online: the sample task has no directory yet (the card asks).
     assertEquals(res.sampleTask?.title, "Summarize this project");
     assertEquals(res.sampleTask?.directory, null);
-    assertEquals(res.sampleTask?.persona, "builtin:worker");
+    assertEquals(res.sampleTask?.persona, "builtin:teammate");
   });
 });
 
@@ -183,7 +183,7 @@ test("POST /api/onboarding/sample-task creates and enqueues a Solitary task in t
     const def = store.getWorkDef(body.workDefId)!;
     assertEquals(def.title, "Summarize this project");
     assertEquals(def.parent, undefined);
-    assertEquals(def.persona, "builtin:worker");
+    assertEquals(def.persona, "builtin:teammate");
     assertEquals(def.pending, undefined);
     assertEquals(typeof def.directory, "string");
     assertEquals(store.getActiveWorkItem(def.id)?.id, body.workItemId);

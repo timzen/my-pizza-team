@@ -185,7 +185,7 @@ test("list_workflows calls client.listWorkflows", () => {
 
 test("list_personas calls client.listPersonas; list_context is gone", () => {
   assert.ok(src.includes('name: "list_personas"'));
-  assert.ok(src.includes('client.listPersonas("worker")'));
+  assert.ok(src.includes('client.listPersonas("teammate")'));
   assert.ok(!src.includes('name: "list_context"'));
   assert.ok(!src.includes("listContext"));
 });

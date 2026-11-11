@@ -21,6 +21,7 @@ import type {
   BuiltinPersonaId, Persona, PersonaRef, PersonaUsage, PersonaVia, ResolvedPersona, TeamConfig, WorkDef, WorkflowConfig,
 } from "../../shared/types.ts";
 import { personaOriginLabel } from "../../shared/types.ts";
+import { normalizePersonaId } from "./aliases.ts";
 
 /** How the resolver looks a persona up (team, built-in, package — the Store's `getPersona`). */
 export type PersonaLookup = (id: string) => Persona | null;
@@ -68,25 +69,32 @@ export interface PersonaUsageInput {
   mirrorOverrides: Array<{ workDefId: string; source: string; persona: string }>;
 }
 
-/** Every reference to persona `id`, in a stable order (workflows, triage, assistant, WorkDefs, mirrors, sources). */
+/**
+ * Every reference to persona `id`, in a stable order (workflows, triage,
+ * assistant, WorkDefs, mirrors, sources). Ids compare in their canonical
+ * spelling, so a reference still naming a deprecated alias (`builtin:worker`)
+ * counts as a use of its replacement.
+ */
 export function personaUsage(id: string, input: PersonaUsageInput): PersonaUsage[] {
   const out: PersonaUsage[] = [];
+  const target = normalizePersonaId(id); // DEPRECATED(worker→teammate): remove in remove-worker-aliases
+  const is = (ref: string | undefined | null): boolean => !!ref && normalizePersonaId(ref) === target;
   for (const [workflow, wf] of Object.entries(input.workflows).sort(([a], [b]) => a.localeCompare(b))) {
     for (const s of wf.states) {
-      if (s.type === "agent" && s.persona === id) out.push({ kind: "workflow-state", workflow, state: s.name });
+      if (s.type === "agent" && is(s.persona)) out.push({ kind: "workflow-state", workflow, state: s.name });
     }
   }
-  if (input.config.triage?.persona === id) out.push({ kind: "triage" });
-  if (input.config.assistant?.persona === id) out.push({ kind: "assistant" });
+  if (is(input.config.triage?.persona)) out.push({ kind: "triage" });
+  if (is(input.config.assistant?.persona)) out.push({ kind: "assistant" });
   for (const d of input.workDefs) {
-    if (d.persona === id) out.push({ kind: "workdef", workDefId: d.id, title: d.title });
+    if (is(d.persona)) out.push({ kind: "workdef", workDefId: d.id, title: d.title });
   }
   for (const m of input.mirrorOverrides) {
-    if (m.persona === id) out.push({ kind: "mirror-override", workDefId: m.workDefId, source: m.source });
+    if (is(m.persona)) out.push({ kind: "mirror-override", workDefId: m.workDefId, source: m.source });
   }
   for (const [source, setting] of Object.entries(input.config.sourcePersonas ?? {}).sort(([a], [b]) => a.localeCompare(b))) {
-    if (setting?.persona === id) out.push({ kind: "source-setting", source, field: "persona" });
-    if (setting?.triagePersona === id) out.push({ kind: "source-setting", source, field: "triagePersona" });
+    if (is(setting?.persona)) out.push({ kind: "source-setting", source, field: "persona" });
+    if (is(setting?.triagePersona)) out.push({ kind: "source-setting", source, field: "triagePersona" });
   }
   return out;
 }

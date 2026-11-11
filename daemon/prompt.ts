@@ -14,7 +14,7 @@
  * "Reference Context" section went with the context library; the persona
  * migration inlined its text into Additional Context — docs/DESIGN.md "Personas".)
  *
- * There are no transition instructions: workers never move work (see
+ * There are no transition instructions: teammates never move work (see
  * docs/DESIGN.md "The Work Model") — completing the work advances its story task
  * mechanically (or, for standalone work, just records the outcome).
  *
@@ -99,7 +99,7 @@ export function buildWorkDefPrompt(input: WorkDefPromptInput): string {
   const directory = workDef.directory || story?.directory;
   let out = "";
 
-  // 1. Persona — who the worker is (board work: *in this state*). First,
+  // 1. Persona — who the teammate is (board work: *in this state*). First,
   //    because it frames how everything after it should be approached. Board
   //    work always gets the block (the one-line state framing when its state
   //    names no persona); other work only when it has a persona.
@@ -142,7 +142,7 @@ export function buildWorkDefPrompt(input: WorkDefPromptInput): string {
     out += `## Comments from Team Lead\n\n${bodies}\n\n`;
   }
 
-  // 6. Completion guidance — workers never move work; finishing IS the signal.
+  // 6. Completion guidance — teammates never move work; finishing IS the signal.
   out += `## Completing This Work\n\n`;
   out += `Do only this work. When you finish, end with a concise summary of what you accomplished`;
   out += state ? ` — the task then advances automatically. ` : `. `;

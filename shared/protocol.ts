@@ -322,7 +322,8 @@ export interface AssistantSessionResponse { success: boolean; session?: Assistan
 
 // --- Personas (docs/DESIGN.md "Personas: One Library, Selected by Reference") ---
 // The context library (`/api/context*`) was removed (no route; 404).
-// GET /api/personas[?kind=worker|triage|assistant] — team, built-in, package (hinted kind first)
+// GET /api/personas[?kind=teammate|triage|assistant] — team, built-in, package (hinted kind first).
+// DEPRECATED(worker→teammate): remove in remove-worker-aliases — `kind=worker` is still accepted, as `teammate`.
 export interface PersonasResponse { personas: Persona[] }
 // GET /api/personas/:id
 export interface PersonaResponse { persona?: Persona; usedBy?: PersonaUsage[]; success?: boolean; error?: string }
@@ -969,7 +970,7 @@ export interface OnboardingSampleTask {
   acceptanceCriteria: string;
   /** The leader's directory, or null when no leader is online (the card asks for one). */
   directory: string | null;
-  /** The built-in worker persona (`builtin:worker`). */
+  /** The built-in teammate persona (`builtin:teammate`). */
   persona: string;
 }
 

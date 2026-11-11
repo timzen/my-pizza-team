@@ -17,8 +17,9 @@ import * as fs from "node:fs";
 import { existsSync } from "node:fs";
 import { writeFileAtomic } from "../../shared/atomic-write.ts";
 import { parseFrontmatter, serializeFrontmatter, type PersonaMeta } from "../../shared/frontmatter.ts";
+import { normalizePersonaKind } from "./aliases.ts";
 import {
-  PERSONA_KINDS, PERSONAS_DIR, TEAM_PERSONA_ID_PATTERN, slugifyPersonaId,
+  PERSONAS_DIR, TEAM_PERSONA_ID_PATTERN, slugifyPersonaId,
   type Persona, type PersonaKind,
 } from "../../shared/types.ts";
 
@@ -42,12 +43,19 @@ export function isTeamPersonaId(id: string): boolean {
   return TEAM_PERSONA_ID_PATTERN.test(id);
 }
 
-/** Keep only recognized `kinds` hints, in order, deduped. */
+/**
+ * Keep only recognized `kinds` hints, in order, deduped — each in its canonical
+ * spelling (a deprecated `worker` reads as `teammate`; daemon/personas/aliases.ts).
+ * Every kind the daemon reads comes through here: persona frontmatter, the
+ * `?kind=` filter, and save bodies — so a file is never rewritten just for an
+ * old spelling, but saving it writes the new one.
+ */
 export function normalizeKinds(kinds: unknown): PersonaKind[] {
   if (!Array.isArray(kinds)) return [];
   const out: PersonaKind[] = [];
   for (const k of kinds) {
-    if ((PERSONA_KINDS as readonly unknown[]).includes(k) && !out.includes(k as PersonaKind)) out.push(k as PersonaKind);
+    const kind = normalizePersonaKind(k); // DEPRECATED(worker→teammate): remove in remove-worker-aliases
+    if (kind && !out.includes(kind)) out.push(kind);
   }
   return out;
 }

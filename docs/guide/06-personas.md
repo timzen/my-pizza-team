@@ -12,10 +12,12 @@ instead of carrying their own instructions, so one edit changes everywhere it's 
 
 - **The list** — every persona, with a search box and tag chips. A badge says where
   each comes from: **team** (yours, editable), **built-in** (MPT's defaults:
-  `builtin:worker`, `builtin:triage`, `builtin:assistant`), or the name of the
-  **plugin package** that ships it. The small labels on the right (**worker**,
+  `builtin:teammate`, `builtin:triage`, `builtin:assistant`), or the name of the
+  **plugin package** that ships it. The small labels on the right (**teammate**,
   **triage**, **assistant**) say which pickers list it first — a hint only; any
-  persona can be picked anywhere.
+  persona can be picked anywhere. (The **teammate** label used to be
+  called **worker**, and `builtin:teammate` was `builtin:worker`; old files and
+  references using those names still work, and saving a persona updates it.)
 - **New persona** — a title, an optional id (made from the title if you leave it), a
   one-line description (shown in pickers), tags, which pickers to suggest it in, and
   the **instructions**: what's put into the prompt. Saving checks them: an unclosed
@@ -74,7 +76,7 @@ your workflows at. The copy doesn't follow later updates to the package.
 
 **Removing.** `mpt plugins remove` lists anything still using the package's personas
 — workflow steps, triage, the assistant, tasks, sources — and what each will fall back
-to (`builtin:worker`, `builtin:triage`, or `builtin:assistant`; a triage-mode source's
+to (`builtin:teammate`, `builtin:triage`, or `builtin:assistant`; a triage-mode source's
 triage persona has no fallback, so that source stops syncing until you pick another).
 Re-point them, or duplicate the personas first.
 

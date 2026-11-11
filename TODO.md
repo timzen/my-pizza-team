@@ -135,7 +135,7 @@ Deferred on purpose:
   built on a package's, picking up its updates). Today Duplicate copies and never
   tracks the source (`duplicatedFrom` is informational only).
 - **Templating variables:** `{state}`, `{directory}`, `{story}` in a persona body.
-  Today a body is static text, which is why `builtin:worker` is worded without the
+  Today a body is static text, which is why `builtin:teammate` is worded without the
   state name.
 - **Per-board-task persona override:** board tasks take the workflow state's persona;
   `persona` on a board WorkDef is refused (400).

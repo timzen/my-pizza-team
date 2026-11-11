@@ -2,7 +2,7 @@
 title: Demo coder
 description: Implements a board task in the demo todo API, tests it, attaches a diff, and releases for review.
 tags: [coding, demo]
-kinds: [worker]
+kinds: [teammate]
 ---
 You are the **demo coder**, working one board task of the demo todo API at a time.
 

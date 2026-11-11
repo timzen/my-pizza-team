@@ -20,16 +20,16 @@ function persona(over: Partial<Persona> = {}): Persona {
   return { id: "reviewer", title: "Reviewer", description: "", tags: [], content: "", origin: { kind: "team" }, readOnly: false, ...over };
 }
 
-const TEAM = persona({ id: "reviewer", title: "Reviewer", tags: ["coding", "review"], kinds: ["worker"], description: "Checks the diff" });
+const TEAM = persona({ id: "reviewer", title: "Reviewer", tags: ["coding", "review"], kinds: ["teammate"], description: "Checks the diff" });
 const TRIAGER = persona({ id: "notes-triage", title: "Notes triage", tags: ["notes"], kinds: ["triage"], content: "Lean toward work." });
-const BUILTIN = persona({ id: "builtin:worker", title: "Worker", origin: { kind: "builtin" }, readOnly: true });
-const PKG = persona({ id: "@acme/mpt-personas/jira-worker", title: "Jira worker", tags: ["coding"], origin: { kind: "package", name: "@acme/mpt-personas", identity: "npm:@acme/mpt-personas" }, readOnly: true });
+const BUILTIN = persona({ id: "builtin:teammate", title: "Teammate", origin: { kind: "builtin" }, readOnly: true });
+const PKG = persona({ id: "@acme/mpt-personas/jira-teammate", title: "Jira teammate", tags: ["coding"], origin: { kind: "package", name: "@acme/mpt-personas", identity: "npm:@acme/mpt-personas" }, readOnly: true });
 const LIBRARY = [TEAM, TRIAGER, BUILTIN, PKG];
 
 test("personaPath / personaIdFromConfigPath: encoded ids round-trip, package ids included", () => {
   assertEquals(personaPath("reviewer"), "/config/personas/reviewer");
-  assertEquals(personaPath("builtin:worker"), "/config/personas/builtin%3Aworker");
-  assertEquals(personaPath(PKG.id), "/config/personas/%40acme%2Fmpt-personas%2Fjira-worker");
+  assertEquals(personaPath("builtin:teammate"), "/config/personas/builtin%3Ateammate");
+  assertEquals(personaPath(PKG.id), "/config/personas/%40acme%2Fmpt-personas%2Fjira-teammate");
   for (const p of LIBRARY) assertEquals(personaIdFromConfigPath(personaPath(p.id)), p.id);
   // A hand-typed package id with raw slashes is the rest of the path.
   assertEquals(personaIdFromConfigPath("/config/personas/mpt-pack/reviewer"), "mpt-pack/reviewer");
@@ -61,22 +61,22 @@ test("filterPersonas: tag chip plus text over id, title, description, body, tags
   assertEquals(ids("", "coding"), ["reviewer", PKG.id]);
   assertEquals(ids("diff"), ["reviewer"], "description");
   assertEquals(ids("lean toward"), ["notes-triage"], "body");
-  assertEquals(ids("built-in"), ["builtin:worker"], "origin badge text");
+  assertEquals(ids("built-in"), ["builtin:teammate"], "origin badge text");
   assertEquals(ids("acme"), [PKG.id], "package name");
-  assertEquals(ids("WORKER"), ["builtin:worker", PKG.id], "case-insensitive, id and title");
+  assertEquals(ids("TEAMMATE"), ["builtin:teammate", PKG.id], "case-insensitive, id and title");
   assertEquals(ids("review", "notes"), []);
 });
 
 test("pickerGroups / optionLabel: hinted first, the rest after, exclusions dropped", () => {
   const g = pickerGroups(LIBRARY, "triage");
   assertEquals(g.hinted.map((p) => p.id), ["notes-triage"]);
-  assertEquals(g.rest.map((p) => p.id), ["reviewer", "builtin:worker", PKG.id]);
-  const none = pickerGroups(LIBRARY, undefined, ["builtin:worker"]);
+  assertEquals(g.rest.map((p) => p.id), ["reviewer", "builtin:teammate", PKG.id]);
+  const none = pickerGroups(LIBRARY, undefined, ["builtin:teammate"]);
   assertEquals([none.hinted.length, none.rest.map((p) => p.id)], [0, ["reviewer", "notes-triage", PKG.id]]);
   assertEquals(optionLabel(TEAM), "Reviewer");
-  assertEquals(optionLabel(BUILTIN), "Worker (built-in)");
-  assertEquals(optionLabel({ ...BUILTIN, title: "Worker (built-in)" }), "Worker (built-in)", "not said twice");
-  assertEquals(optionLabel(PKG), "Jira worker (@acme/mpt-personas)");
+  assertEquals(optionLabel(BUILTIN), "Teammate (built-in)");
+  assertEquals(optionLabel({ ...BUILTIN, title: "Teammate (built-in)" }), "Teammate (built-in)", "not said twice");
+  assertEquals(optionLabel(PKG), "Jira teammate (@acme/mpt-personas)");
 });
 
 test("missingSelection: a selected id the library lacks is flagged (not while loading)", () => {
@@ -126,12 +126,12 @@ test("personaChip: the recorded title, linked; 'deleted' and unlinked once gone;
   // While the library loads, assume it's there (no flash of "deleted").
   assertEquals(personaChip({ ...ref, id: "gone" }, null).href, "/config/personas/gone");
 
-  const fallback = personaChip({ id: "builtin:worker", title: "Worker", origin: "builtin", via: "task", fallbackFrom: "reviewr" }, LIBRARY);
-  assertEquals(fallback.href, "/config/personas/builtin%3Aworker");
+  const fallback = personaChip({ id: "builtin:teammate", title: "Teammate", origin: "builtin", via: "task", fallbackFrom: "reviewr" }, LIBRARY);
+  assertEquals(fallback.href, "/config/personas/builtin%3Ateammate");
   assert(fallback.title.includes("stands in for missing “reviewr”"));
   assert(fallback.title.includes("(built-in)"));
 
-  const pkg = personaChip({ id: PKG.id, title: "Jira worker", origin: "package:@acme/mpt-personas", via: "source-default" }, LIBRARY);
+  const pkg = personaChip({ id: PKG.id, title: "Jira teammate", origin: "package:@acme/mpt-personas", via: "source-default" }, LIBRARY);
   assert(pkg.title.includes("(@acme/mpt-personas)"));
   assert(pkg.title.includes("its source's default"));
 });

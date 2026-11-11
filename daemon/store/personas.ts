@@ -98,7 +98,7 @@ export class PersonaStore {
    * The persona body for an agent state: the persona its `workflow.json` state
    * names (docs/DESIGN.md "References: select, don't embed"), or undefined when
    * it names none (the prompt then uses the one-line state framing). A name that
-   * doesn't resolve falls back to `builtin:worker` with a warning.
+   * doesn't resolve falls back to `builtin:teammate` with a warning.
    */
   getStatePersona(workflowName: string | undefined, state: string): string | undefined {
     return this.resolveStatePersona(workflowName, state)?.body;
@@ -109,7 +109,7 @@ export class PersonaStore {
     const wfName = workflowName || this.config.defaultWorkflow;
     const st = this.deps.getWorkflows()[wfName]?.states.find((s) => s.name === state);
     if (!st || st.type !== "agent" || !st.persona) return null;
-    return this.resolvePersona(st.persona, { via: "workflow-state", fallback: "builtin:worker" }, `workflow '${wfName}' state '${state}'`);
+    return this.resolvePersona(st.persona, { via: "workflow-state", fallback: "builtin:teammate" }, `workflow '${wfName}' state '${state}'`);
   }
 
   /**
@@ -128,8 +128,8 @@ export class PersonaStore {
   resolveWorkPersona(def: WorkDef): ResolvedPersona | null {
     if (def.parent?.kind === "thought") return this.deps.resolveTriagePersona();
     if (def.parent?.kind === "external") return this.resolveMirrorPersona(def);
-    if (!def.parent) return this.resolvePersona(def.persona, { via: "task", fallback: "builtin:worker" }, `task '${def.id}'`);
-    if (def.parent.kind === "schedule") return this.resolvePersona(def.persona, { via: "schedule", fallback: "builtin:worker" }, `schedule '${def.id}'`);
+    if (!def.parent) return this.resolvePersona(def.persona, { via: "task", fallback: "builtin:teammate" }, `task '${def.id}'`);
+    if (def.parent.kind === "schedule") return this.resolvePersona(def.persona, { via: "schedule", fallback: "builtin:teammate" }, `schedule '${def.id}'`);
     if (def.parent.kind === "story") {
       const task = this.deps.getTask(def.id);
       if (!task) return null;
@@ -141,7 +141,7 @@ export class PersonaStore {
   /**
    * A mirrored WorkDef's persona (docs/DESIGN.md "Work Source personas"), by
    * its chain (daemon/sources/persona.ts). Work mode: none when nothing names
-   * one; a stale id falls back to `builtin:worker`. Triage mode: always one — a
+   * one; a stale id falls back to `builtin:teammate`. Triage mode: always one — a
    * stale id, or (only for an item enqueued before its source lost its triage
    * persona) none at all, stands in as `builtin:triage`, so a claim never fails.
    */
@@ -149,7 +149,7 @@ export class PersonaStore {
     const triage = this.deps.isTriageModeMirror(def);
     const pick = this.mirrorPersonaPickFor(def);
     const where = `${triage ? "triage-mode " : ""}mirror '${def.id}'`;
-    if (!triage) return pick ? this.resolvePersona(pick.ref, { via: pick.via, fallback: "builtin:worker" }, where) : null;
+    if (!triage) return pick ? this.resolvePersona(pick.ref, { via: pick.via, fallback: "builtin:teammate" }, where) : null;
     if (!pick) return this.resolvePersona("builtin:triage", { via: "source-default", fallback: "builtin:triage" }, where);
     return this.resolvePersona(pick.ref, { via: pick.via, fallback: "builtin:triage" }, where);
   }
@@ -300,7 +300,7 @@ export class PersonaStore {
    * Warnings about the personas plugin sources declare (`defaultPersona`,
    * `triagePersona`) that don't resolve — added to their package's load status
    * at startup, after the plugins (and their personas) loaded. Not an error: a
-   * stale work persona falls back to `builtin:worker`, and a triage one is
+   * stale work persona falls back to `builtin:teammate`, and a triage one is
    * reported by the source's own status. Returns the statuses with the
    * warnings added (the Store keeps them).
    */

@@ -227,7 +227,7 @@ function StatePersonas({ name, states, onSaved }: { name: string; states: Workfl
           <PersonaPicker
             id={`state-persona-${s.name}`}
             label={`Persona for ${s.name.replace(/_/g, " ")}`}
-            kind="worker"
+            kind="teammate"
             value={s.persona ?? null}
             onChange={(p) => pick(s.name, p)}
             noneLabel="No persona (state framing only)"

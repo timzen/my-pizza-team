@@ -324,7 +324,7 @@ export interface WorkflowState {
    */
   type: "agent" | "manual";
   /**
-   * The persona id an agent state's worker runs with (docs/DESIGN.md
+   * The persona id an agent state's teammate runs with (docs/DESIGN.md
    * "Personas"). Unset: no persona block, just the one-line state framing.
    * Ignored (with a load warning) on a manual state.
    */
@@ -986,7 +986,7 @@ export const CONFIG_FILE = "config.json";
  * chat — leading needs an in-process adapter (Tier 2), so `leader` is optional.
  */
 export interface HarnessTemplates {
-  /** Command to start a teammate (an autonomous worker). */
+  /** Command to start a teammate (an autonomous agent working the board). */
   teammate: string;
   /** Command to start the leader, for a harness that can host the chat. */
   leader?: string;
@@ -1013,7 +1013,7 @@ export interface HarnessTemplates {
 export const DEFAULT_HARNESS_TEMPLATES: Record<string, HarnessTemplates> = {
   pi: {
     teammate:
-      "pi -a --ppt-worker --ppt-daemon={url} --ppt-name={name} --ppt-terminal={terminal} --ppt-terminal-session={terminalSession} --ppt-terminal-window={terminalWindow}",
+      "pi -a --ppt-teammate --ppt-daemon={url} --ppt-name={name} --ppt-terminal={terminal} --ppt-terminal-session={terminalSession} --ppt-terminal-window={terminalWindow}",
     leader: "pi -a --ppt-lead --ppt-daemon={url} --ppt-terminal={terminal} --ppt-terminal-session={terminalSession} --ppt-terminal-window={terminalWindow}",
   },
   // Experimental (behind `experimental.harnesses`): ACP agents supervised by
@@ -1223,10 +1223,10 @@ export function generateTeammateName(existingNames: Set<string>, config?: Teamma
 // ─── Personas (docs/DESIGN.md "Personas: One Library, Selected by Reference") ───
 
 /** A picker hint (never a restriction): which pickers list a persona first. */
-export type PersonaKind = "assistant" | "worker" | "triage";
+export type PersonaKind = "assistant" | "teammate" | "triage";
 
 /** Every persona kind hint, in display order. */
-export const PERSONA_KINDS: readonly PersonaKind[] = ["worker", "triage", "assistant"];
+export const PERSONA_KINDS: readonly PersonaKind[] = ["teammate", "triage", "assistant"];
 
 /**
  * Where a persona comes from, which its id encodes: a team slug, `builtin:<name>`,
@@ -1243,7 +1243,32 @@ export type PersonaVia =
   | "source-setting" | "source-default" | "triage" | "assistant";
 
 /** The built-in personas: today's defaults, read-only. */
-export type BuiltinPersonaId = "builtin:assistant" | "builtin:triage" | "builtin:worker";
+export type BuiltinPersonaId = "builtin:assistant" | "builtin:triage" | "builtin:teammate";
+
+// DEPRECATED(worker→teammate): remove in remove-worker-aliases.
+// The persona kind `worker` and the built-in `builtin:worker` were renamed to
+// `teammate` / `builtin:teammate`. These maps are the only place the old
+// spellings are known; the daemon (daemon/personas/aliases.ts, which also logs
+// the one-time deprecation warnings) and the UI (lib/personas.ts) read them
+// through the two pure helpers below.
+
+/** Old persona `kinds` spellings → their canonical kind. */
+export const LEGACY_PERSONA_KIND_ALIASES: Readonly<Record<string, PersonaKind>> = { worker: "teammate" };
+
+/** Old built-in persona ids → their canonical id. */
+export const LEGACY_PERSONA_ID_ALIASES: Readonly<Record<string, BuiltinPersonaId>> = { "builtin:worker": "builtin:teammate" };
+
+/** A persona kind hint in its canonical spelling (a legacy alias mapped), or null when it names no kind. */
+export function canonicalPersonaKind(kind: unknown): PersonaKind | null {
+  if (typeof kind !== "string") return null;
+  if (Object.hasOwn(LEGACY_PERSONA_KIND_ALIASES, kind)) return LEGACY_PERSONA_KIND_ALIASES[kind]!;
+  return (PERSONA_KINDS as readonly string[]).includes(kind) ? kind as PersonaKind : null;
+}
+
+/** A persona id in its canonical spelling: a legacy built-in alias mapped, anything else unchanged. */
+export function canonicalPersonaId(id: string): string {
+  return Object.hasOwn(LEGACY_PERSONA_ID_ALIASES, id) ? LEGACY_PERSONA_ID_ALIASES[id]! : id;
+}
 
 /** The prefix only built-in ids carry (a team id has neither `:` nor `/`). */
 export const BUILTIN_PERSONA_PREFIX = "builtin:";

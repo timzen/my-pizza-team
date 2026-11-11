@@ -13,7 +13,7 @@
 
 import { Link } from "react-router-dom";
 import { usePersonas } from "@/hooks/usePersonas";
-import { missingSelection, optionLabel, personaPath, pickerGroups, type PersonaKind } from "@/lib/personas";
+import { currentPersonaId, missingSelection, optionLabel, personaPath, pickerGroups, type PersonaKind } from "@/lib/personas";
 import { cn } from "@/lib/utils";
 import { AlertTriangle } from "lucide-react";
 import { Tooltip } from "@/components/ui/tooltip";
@@ -46,7 +46,9 @@ export function PersonaPicker({ value, onChange, kind, noneLabel, exclude, disab
   const personas = usePersonas();
   const { hinted, rest } = pickerGroups(personas ?? [], kind, exclude);
   // A value shown another way (the default the "none" option stands for) selects "none".
-  const shown = value && exclude?.includes(value) ? null : value;
+  // A renamed built-in's old id selects its replacement (lib/personas.ts `currentPersonaId`).
+  const current = value ? currentPersonaId(value) : value;
+  const shown = current && exclude?.includes(current) ? null : current;
   const missing = missingSelection(shown, personas);
   const selected = personas?.find((p) => p.id === shown) ?? null;
 
