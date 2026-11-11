@@ -468,8 +468,9 @@ a File".
 ├── daemon.pid           # while the daemon runs
 ├── daemon.log           # a background daemon's output (daemon.log.1: the run before)
 ├── workflows/
-│   └── default/
-│       └── workflow.json    # states; an agent state may name a "persona"
+│   ├── default/
+│   │   └── workflow.json    # states; an agent state may name a "persona"
+│   └── .deleted/        # deleted workflows' folders, kept as backups (<name>-<timestamp>/)
 ├── personas/            # the team persona library (personas/<id>.md)
 ├── stories/             # one file per story: order + status of its tasks (archived: archivedAt + synopsis)
 │   └── my-story.json    #   tasks: [{id, status}]
@@ -852,7 +853,7 @@ The current protocol version is `PROTOCOL_VERSION` in `shared/agent-protocol.ts`
 | Assistant | `/api/assistant/*` | The chat: messages, SSE stream, receipts, thoughts peek, sessions, persona; `POST /api/assistant/start` starts the assistant (idempotent, start only) |
 | Personas | `/api/personas[/:id[/usage\|/duplicate]]` | The persona library (team, built-in, package) |
 | Thoughts | `/api/thoughts/*`, `/api/thought-groups/*` | Markdown sticky-note board |
-| Workflows | `GET /api/workflows[/:name]`, `PUT .../states/:state` | Workflows; select a state's persona |
+| Workflows | `GET /api/workflows[/:name]`, `GET .../usage`, `DELETE /api/workflows/:name`, `PUT .../states/:state` | Workflows; delete one (moved to `workflows/.deleted/`); select a state's persona |
 
 Full route table: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#api-routes)
 

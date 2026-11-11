@@ -3,7 +3,7 @@
  *
  * These routes are used by all consumers: the web UI, leader tools,
  * and agents. Provides system-level endpoints for monitoring, config
- * management, and workflow definitions. `PUT /api/config` also takes the
+ * management, and workflow definitions (list, read, usage, delete). `PUT /api/config` also takes the
  * feature toggles (validated by daemon/features.ts).
  */
 
@@ -18,6 +18,8 @@ import { enabledFeatures, featureSources, featureUsage, resolveFeaturesUpdate } 
 import { agentsOnOtherTerminal, resolveTemplates } from "../spawner.ts";
 import { externalSourceViews } from "./sources.ts";
 import { validateWorkflow } from "../workflow-engine.ts";
+import { WorkflowDeleteError } from "../store.ts";
+import type { DeleteWorkflowResponse, WorkflowUsageResponse } from "../../shared/protocol.ts";
 import { execFile } from "node:child_process";
 import * as path from "node:path";
 import { promisify } from "node:util";
@@ -381,6 +383,29 @@ export function registerSharedRoutes(ctx: RouteContext): void {
     const wf = store.getWorkflows()[name];
     if (!wf) return c.json({ error: `Workflow "${name}" not found` }, 404);
     return c.json(wf);
+  });
+
+  // Which stories name this workflow explicitly (the delete dialog's "N done
+  // stories will fall back to the default").
+  app.get("/api/workflows/:name/usage", (c) => {
+    const name = c.req.param("name");
+    if (!Object.hasOwn(store.getWorkflows(), name)) return fail(c, 404, `Workflow '${name}' not found`);
+    return c.json(store.getWorkflowUsage(name) satisfies WorkflowUsageResponse);
+  });
+
+  // Delete: the folder moves to workflows/.deleted/<name>-<timestamp>/ (a backup).
+  // Refused (409) for the default, the last workflow, or one an open story uses;
+  // done stories fall back to the default (store.deleteWorkflow).
+  app.delete("/api/workflows/:name", (c) => {
+    try {
+      const backup = store.deleteWorkflow(c.req.param("name"));
+      return c.json({ success: true, backup } satisfies DeleteWorkflowResponse);
+    } catch (e) {
+      if (e instanceof WorkflowDeleteError) {
+        return fail(c, e.status, e.message, e.openStories.length > 0 ? { openStories: e.openStories } : undefined);
+      }
+      throw e;
+    }
   });
   // A state's persona is selected with PUT /api/workflows/:name/states/:state
   // (daemon/routes/personas.ts).

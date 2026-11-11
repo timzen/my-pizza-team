@@ -10,13 +10,19 @@
  * the persona itself on Config → Personas. Unset = no persona block, just the
  * one-line state framing. (The per-state `<state>.md` files became personas.)
  *
+ * **Delete** (`DELETE /api/workflows/:name`) moves the workflow's folder to
+ * `workflows/.deleted/`, after a confirm that says how many done stories will
+ * fall back to the default workflow. It's disabled with a reason for the
+ * default or the last workflow (lib/workflows.ts); the daemon's refusal (409,
+ * e.g. open stories still use it) shows under the header. Then back to the list.
+ *
  * Rendered inside the Config page's Workflows tab at `/config/workflows/:name`
  * (ConfigPage supplies the tab bar and outer layout).
  */
 
 import { useState } from "react";
-import { Link, useParams } from "react-router-dom";
-import { useApi, apiPut } from "@/hooks/useApi";
+import { Link, useNavigate, useParams } from "react-router-dom";
+import { useApi, apiPut, apiDelete } from "@/hooks/useApi";
 import { PersonaPicker } from "@/components/personas/PersonaPicker";
 import { notifyPersonasChanged } from "@/hooks/usePersonas";
 import { PERSONAS_TAB_PATH } from "@/lib/personas";
@@ -30,6 +36,9 @@ import type { WorkflowConfig, WorkflowState } from "@shared/types";
 import { Tooltip } from "@/components/ui/tooltip";
 import { FormError } from "@/components/ui/form-error";
 import { useAnnounce } from "@/hooks/useAnnounce";
+import { useConfirm } from "@/components/ui/confirm-dialog";
+import { workflowDeleteBlockedReason, workflowDeleteDescription } from "@/lib/workflows";
+import type { DeleteWorkflowResponse, WorkflowUsageResponse } from "@shared/protocol";
 
 interface ConfigData {
   port: number;
@@ -44,6 +53,7 @@ export function WorkflowDetailPage() {
   const { data, loading, refetch } = useApi<WorkflowConfig>(`/api/workflows/${name}`);
   const { data: configData, refetch: refetchConfig } = useApi<ConfigData>("/api/config");
   const [editing, setEditing] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   // Only before the first answer: the refetch after a save keeps the page (and
   // any text selection) mounted (docs/DESIGN.md "Polling Never Disturbs the
@@ -73,10 +83,17 @@ export function WorkflowDetailPage() {
             {isDefault && " · default"}
           </span>
         </div>
-        <Button variant="outline" size="sm" onClick={() => setEditing(v => !v)} className="gap-1.5">
-          <Pencil className="h-3.5 w-3.5" /> {editing ? "Close Editor" : "Edit States"}
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={() => setEditing(v => !v)} className="gap-1.5">
+            <Pencil className="h-3.5 w-3.5" /> {editing ? "Close Editor" : "Edit States"}
+          </Button>
+          {configData && (
+            <DeleteWorkflowButton name={name!} defaultWorkflow={configData.defaultWorkflow} workflowCount={Object.keys(configData.workflows).length}
+              onError={setDeleteError} />
+          )}
+        </div>
       </div>
+      <FormError id="delete-workflow-error" className="text-sm">{deleteError}</FormError>
 
       {/* Pipeline visualization: todo → active states → done */}
       <section>
@@ -119,6 +136,59 @@ export function WorkflowDetailPage() {
         <StatePersonas name={name!} states={data.states} onSaved={refetch} />
       </section>
     </div>
+  );
+}
+
+/**
+ * Delete this workflow: disabled (with the reason as its tooltip) for the
+ * default or the last workflow; otherwise a confirm naming how many done
+ * stories will fall back to the default, then `DELETE /api/workflows/:name`.
+ * A refusal (409 — e.g. open stories use it, listed in the message) goes to
+ * `onError`, which the page shows below the header row (`delete-workflow-error`);
+ * success goes back to the workflows list.
+ */
+function DeleteWorkflowButton({ name, defaultWorkflow, workflowCount, onError }: {
+  name: string;
+  defaultWorkflow: string;
+  workflowCount: number;
+  onError: (error: string | null) => void;
+}) {
+  const navigate = useNavigate();
+  const announce = useAnnounce();
+  const [confirmDialog, confirm] = useConfirm();
+  const [busy, setBusy] = useState(false);
+  const blocked = workflowDeleteBlockedReason({ isDefault: name === defaultWorkflow, workflowCount });
+
+  const remove = async () => {
+    setBusy(true);
+    onError(null);
+    try {
+      // Read the usage at the moment of asking, so the count is current.
+      const usage = await fetch(`/api/workflows/${encodeURIComponent(name)}/usage`).then((r) => r.json() as Promise<WorkflowUsageResponse>);
+      if (!(await confirm({
+        title: `Delete workflow “${name}”?`,
+        description: workflowDeleteDescription(defaultWorkflow, usage.doneStories?.length ?? 0),
+        confirmLabel: "Delete",
+        destructive: true,
+      }))) return;
+      const res = await apiDelete<DeleteWorkflowResponse>(`/api/workflows/${encodeURIComponent(name)}`);
+      if (!res.success) { onError(res.error || "Couldn't delete it"); return; }
+      announce(`Deleted workflow ${name}`);
+      navigate("/config/workflows", { replace: true });
+    } catch (e) {
+      onError("Network error: " + (e as Error).message);
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <>
+      {confirmDialog}
+      <Tooltip content={blocked ?? "Delete this workflow (its folder is kept as a backup)"}>
+        <Button size="sm" variant="ghost" className="text-destructive gap-1.5" onClick={remove} disabled={busy || blocked !== null} focusableWhenDisabled>
+          <Trash2 className="h-3.5 w-3.5" />Delete
+        </Button>
+      </Tooltip>
+    </>
   );
 }
 

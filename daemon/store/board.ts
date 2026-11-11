@@ -27,6 +27,7 @@ import {
   TODO_STATE,
   DONE_STATE,
   STORIES_DIR,
+  WORKFLOWS_DIR,
   type Assignment,
   type Comment,
   type Story,
@@ -53,6 +54,34 @@ export class StoryUpdateError extends Error {
     super(message);
     this.name = "StoryUpdateError";
     this.status = status;
+  }
+}
+
+/** Where `deleteWorkflow` moves a deleted workflow's folder, under `workflows/`. */
+export const DELETED_WORKFLOWS_DIR = ".deleted";
+
+/** The stories that name a workflow explicitly (`BoardStore.getWorkflowUsage`). */
+export interface WorkflowUsage {
+  /** Not done (pending included): these block a delete. */
+  openStories: Array<{ id: string; title: string }>;
+  /** Done: after a delete these fall back to the team's default workflow. */
+  doneStories: Array<{ id: string; title: string }>;
+}
+
+/**
+ * Thrown by `deleteWorkflow` when a workflow can't be deleted: an unknown name
+ * (`status` 404), or the default / last workflow / one an open story uses
+ * (`status` 409, with those stories in `openStories`). Routes map `status`
+ * straight onto the HTTP response.
+ */
+export class WorkflowDeleteError extends Error {
+  readonly status: 404 | 409;
+  readonly openStories: Array<{ id: string; title: string }>;
+  constructor(status: 404 | 409, message: string, openStories: Array<{ id: string; title: string }> = []) {
+    super(message);
+    this.name = "WorkflowDeleteError";
+    this.status = status;
+    this.openStories = openStories;
   }
 }
 
@@ -193,13 +222,57 @@ export class BoardStore {
     this.workflows[name] = wf;
   }
 
-  /** Delete a workflow directory */
-  deleteWorkflow(name: string): boolean {
-    const wfDir = path.join(this.teamDir, "workflows", name);
-    if (!existsSync(wfDir)) return false;
-    fs.rmSync(wfDir, { recursive: true });
-    delete this.workflows[name];
-    return true;
+  /**
+   * The stories that name `name` explicitly as their workflow, split into open
+   * (not done — pending counts as open) and done. Archived stories aren't on the
+   * active board, so they're in neither list. A story with no override uses the
+   * team's `defaultWorkflow` and is never listed.
+   */
+  getWorkflowUsage(name: string): WorkflowUsage {
+    const usage: WorkflowUsage = { openStories: [], doneStories: [] };
+    for (const s of this.getStories()) {
+      if (s.workflow !== name) continue;
+      (s.status === "done" ? usage.doneStories : usage.openStories).push({ id: s.id, title: s.title });
+    }
+    return usage;
+  }
+
+  /**
+   * Delete a workflow by moving its folder to `workflows/.deleted/<name>-<timestamp>/`
+   * (a backup, never `rm`), then reload. Returns the backup path, relative to the
+   * team directory. Throws `WorkflowDeleteError`: 404 for an unknown name; 409 for
+   * the team's `defaultWorkflow`, the last workflow left, or one an open story uses
+   * (listed in `openStories`). Done and archived stories don't block: they fall
+   * back to the default in `getWorkflowForStory`. `loadWorkflows` skips the backup
+   * folder because `.deleted/` has no `workflow.json` of its own.
+   */
+  deleteWorkflow(name: string): string {
+    // Only a loaded name (a real folder entry) gets here, so `name` can't escape workflows/.
+    if (!Object.hasOwn(this.workflows, name)) throw new WorkflowDeleteError(404, `Workflow '${name}' not found`);
+    if (name === this.config.defaultWorkflow) {
+      throw new WorkflowDeleteError(409, `Can't delete workflow '${name}': it's the team's default workflow. Make another workflow the default first.`);
+    }
+    if (Object.keys(this.workflows).length <= 1) {
+      throw new WorkflowDeleteError(409, `Can't delete workflow '${name}': it's the only workflow left.`);
+    }
+    const { openStories } = this.getWorkflowUsage(name);
+    if (openStories.length > 0) {
+      const many = openStories.length > 1;
+      const list = openStories.map((s) => `'${s.title}' (${s.id})`).join("; ");
+      throw new WorkflowDeleteError(409, `Can't delete workflow '${name}': ${many ? `${openStories.length} open stories use` : "an open story uses"} it: ${list}. Switch ${many ? "them" : "it"} to another workflow, or finish ${many ? "them" : "it"}, first.`, openStories);
+    }
+
+    const workflowsDir = path.join(this.teamDir, WORKFLOWS_DIR);
+    const wfDir = path.join(workflowsDir, name);
+    // ISO time with ':' and '.' swapped out, so the folder name is portable and sorts by time.
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const backupDir = path.join(workflowsDir, DELETED_WORKFLOWS_DIR, `${name}-${stamp}`);
+    if (existsSync(wfDir)) {
+      fs.mkdirSync(path.dirname(backupDir), { recursive: true });
+      fs.renameSync(wfDir, backupDir);
+    }
+    this.loadWorkflows();
+    return path.relative(this.teamDir, backupDir);
   }
 
   // --- Load from filesystem ---

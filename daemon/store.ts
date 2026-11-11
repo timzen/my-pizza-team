@@ -98,7 +98,7 @@ import { migrateSchema, cleanRetiredData } from "./store/schema.ts";
 import { DISMISS_EXIT_GRACE_MS, MemberStore, type LeaderDirective, type TeammatePoolState } from "./store/members.ts";
 import { QueueStore, type WorkDefExecutionStats } from "./store/queue.ts";
 import { ThreadStore, type AttachmentInfo } from "./store/threads.ts";
-import { BoardStore, type TaskWithMeta } from "./store/board.ts";
+import { BoardStore, type TaskWithMeta, type WorkflowUsage } from "./store/board.ts";
 import { TriageStore, type AcceptProposalOptions, type ProposalResult, type TriageThread } from "./store/triage.ts";
 import { PersonaStore } from "./store/personas.ts";
 import { ThoughtStore } from "./store/thoughts.ts";
@@ -110,7 +110,7 @@ import * as path from "node:path";
 export { DISMISS_EXIT_GRACE_MS, SPAWN_REGISTER_GRACE_MS, SELF_HANDLED_ACTIONS, LEADER_MEMBER_NAME, isPoolTeammate, type LeaderDirective, type TeammatePoolState } from "./store/members.ts";
 export type { WorkDefExecutionStats } from "./store/queue.ts";
 export type { Task, TaskWithMeta } from "./store/board.ts";
-export { StoryUpdateError } from "./store/board.ts";
+export { StoryUpdateError, WorkflowDeleteError, DELETED_WORKFLOWS_DIR, type WorkflowUsage } from "./store/board.ts";
 export type { AcceptProposalOptions, ProposalResult, TriageProposalOverrides, TriageThread } from "./store/triage.ts";
 
 /** `ctx.options()` of a source registered without settings (the built-ins). */
@@ -664,8 +664,11 @@ export class Store {
   /** Save a workflow to its directory. */
   saveWorkflow(name: string, wf: WorkflowConfig): void { this.board.saveWorkflow(name, wf); }
 
-  /** Delete a workflow directory; false when it doesn't exist. */
-  deleteWorkflow(name: string): boolean { return this.board.deleteWorkflow(name); }
+  /** The stories naming a workflow explicitly, open vs done; see `BoardStore.getWorkflowUsage`. */
+  getWorkflowUsage(name: string): WorkflowUsage { return this.board.getWorkflowUsage(name); }
+
+  /** Delete a workflow (its folder moves to `workflows/.deleted/`); returns the backup path. Throws `WorkflowDeleteError` when refused; see `BoardStore.deleteWorkflow`. */
+  deleteWorkflow(name: string): string { return this.board.deleteWorkflow(name); }
 
   /** The effective workflow for a story (its override → `defaultWorkflow`). */
   getWorkflowForStory(storyId: string): WorkflowConfig { return this.board.getWorkflowForStory(storyId); }

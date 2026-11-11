@@ -338,6 +338,11 @@ export interface DeletePersonaResponse { success: boolean; usedBy?: PersonaUsage
 export interface PersonaUsageResponse { usedBy: PersonaUsage[] }
 // POST /api/personas/:id/duplicate
 export interface DuplicatePersonaRequest { id?: string; title?: string }
+// GET /api/workflows/:name/usage — the stories naming the workflow explicitly (archived ones aren't listed)
+export interface WorkflowStoryRef { id: string; title: string }
+export interface WorkflowUsageResponse { openStories: WorkflowStoryRef[]; doneStories: WorkflowStoryRef[] }
+// DELETE /api/workflows/:name — 404 unknown; 409 default / last / used by open stories (`openStories`)
+export interface DeleteWorkflowResponse { success: boolean; backup?: string; error?: string; openStories?: WorkflowStoryRef[] }
 // PUT /api/workflows/:name/states/:state
 export interface SetStatePersonaRequest { persona: string | null }
 export interface SetStatePersonaResponse { success: boolean; workflow?: WorkflowConfig; error?: string }

@@ -109,6 +109,18 @@ its ordered steps and edit them: add/remove steps and set each step's **type**
 permissions to configure — the pipeline is the ordered list, and the daemon advances
 agent steps automatically. Every story picks its workflow when it's created.
 
+### Deleting a workflow
+
+A workflow's page has a **Delete** button. It's disabled (the tooltip says why) for
+the team's default workflow and for the last one left. The confirmation says how
+many **done** stories use the workflow: after the delete they fall back to the
+team's default workflow. A delete is refused, with the reason under the header,
+while an **open** story (not done or archived, pending included) still uses it — the
+message lists those stories; switch them to another workflow or finish them first.
+Nothing is lost: the workflow's folder moves to
+`workflows/.deleted/<name>-<timestamp>/`, and moving it back restores it (after a
+daemon restart or the next config save).
+
 ### Changing a story's workflow
 
 A story's page has a **Workflow** picker; a change applies at once. **Team default**
