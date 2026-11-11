@@ -71,7 +71,7 @@ All state is owned by the **my-pizza-team daemon**. The extension is a pure clie
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│  TeammateLoop  (work model: workers never move tasks)   │
+│  TeammateLoop  (work model: teammates never move tasks) │
 │                                                          │
 │  1. GET  /api/agents/next-work?agentId=X                 │
 │     └── a READY WorkItem (chosen by directory affinity)  │
@@ -484,7 +484,7 @@ File: `<cwd>/.pi/extensions/pi-permission-system/config.json`
 
 1. **Extension is a thin client** — no SQLite, no HTTP server, no state ownership
 2. **Daemon owns all state** — stories, tasks, workflows, personas, assistant conversation
-3. **Agent protocol for teammates** — `/api/agents/*` routes: claim (lease) → set-state (COMPLETE/FAILED); workers never move tasks (the daemon reacts to a terminal WorkItem — advance + admit; see the daemon's docs/DESIGN.md "The WorkItem")
+3. **Agent protocol for teammates** — `/api/agents/*` routes: claim (lease) → set-state (COMPLETE/FAILED); teammates never move tasks (the daemon reacts to a terminal WorkItem — advance + admit; see the daemon's docs/DESIGN.md "The WorkItem")
 4. **Workflow-agnostic teammate** — never hardcodes state names; the state persona in the claim prompt tells it what role it plays
 5. **Task execution uses sendUserMessage** — keeps teammate interactive for pairing
 6. **Daemon owns the prompt** — the teammate sends `claim.prompt` verbatim and never augments it; all prompt content/wording lives in the daemon so every harness stays consistent (session-specific framing, if ever needed, would be the harness's only addition)

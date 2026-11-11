@@ -419,7 +419,7 @@ Personas you want to share between teams travel as a **plugin package** — the 
 
 ### Layout
 
-Persona files are ordinary persona markdown (frontmatter `title`, `description`, `tags`, optional `kinds`, then the instructions):
+Persona files are ordinary persona markdown (frontmatter `title`, `description`, `tags`, optional `kinds` — `teammate`, `triage` and/or `assistant`; the old `worker` is a deprecated alias of `teammate` — then the instructions):
 
 ```
 acme-mpt-personas/

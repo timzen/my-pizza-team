@@ -8,7 +8,7 @@ the current design, not a history of changes.
 pi-pizza-team models AI agents as a **team** working a **kanban board**:
 
 - **Team Lead Pi** — orchestrates work on a host (the daemon manages the tmux windows).
-- **Teammate Pis** — autonomous workers, each in its own tmux window.
+- **Teammate Pis** — autonomous agents, each in its own tmux window.
 - **Assistant Pi** — a conversational helper (chat, memory, board edits).
 - **You (the Mentor)** — review, guide, and pair when needed.
 
@@ -34,7 +34,7 @@ wires only that role's behavior:
 ### 3. Autonomous work is a claim/done loop
 A teammate polls the daemon for a task sitting `ready` in an agent state, claims
 it (a lease), sends the daemon-assembled prompt to its own Pi agent, and on
-completion marks it done — the **daemon** advances the task; workers never move
+completion marks it done — the **daemon** advances the task; teammates never move
 tasks (see the daemon's docs/DESIGN.md "The Work Model"). If it can't proceed it uses the
 `return_task` tool (back to `ready` + comment) instead of a magic output string.
 Rework needs no special path: a human moves the task back, and the teammate
@@ -50,7 +50,7 @@ The chat is a real chatbot, not a request/response form, and **there is no separ
 assistant process**: the leader already runs per host, nobody types in its
 session, so it doubles as the agent you talk to. The inversion that makes it feel
 real: **the Pi session is the conversation and the daemon mirrors it**, rather than
-the daemon queueing work for a worker.
+the daemon queueing work for a teammate.
 
 So the leader's chat side is a mirror, not a loop with a claim protocol:
 it pulls queued user messages and hands them to Pi (`deliverAs: "steer"` while a

@@ -43,7 +43,7 @@ test("buildWorkDefPrompt: assembles board sections in order", () => {
   assertStringIncludes(out, "> Please add tests.");
   assertEquals(out.includes("ignored"), false);
 
-  // Workers never move tasks: completion guidance says so.
+  // Teammates never move tasks: completion guidance says so.
   assertStringIncludes(out, "advances automatically");
 });
 

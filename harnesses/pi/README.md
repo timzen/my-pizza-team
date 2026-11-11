@@ -237,7 +237,7 @@ Every spawn is a **teammate**: the chat is answered by the leader itself, so the
 ## Workflow
 
 Teammates work the daemon's **WorkItem queue** — the unit of agent execution.
-Workers never move tasks; the daemon reacts to a terminal WorkItem state (see the
+Teammates never move tasks; the daemon reacts to a terminal WorkItem state (see the
 daemon's `docs/DESIGN.md "The WorkItem"`):
 
 1. **Poll** — `next-work` returns a `READY` WorkItem (chosen by directory affinity)

@@ -7,6 +7,11 @@ checks its `run-e2e.sh` made run here as node:test suites with a verdict (see
 `legacy-layout`, `pending-workdefs`, `demo-tracker`, `personas`, `assistant-start`,
 `team-flow`).
 
+The persona files were re-synced at `4696995` ("Personas: kinds: [teammate]"): every
+persona says `kinds: [teammate]` except `plugins/mpt-source-demo-tracker/personas/tracker-worker.md`,
+which keeps the deprecated `kinds: [worker]` on purpose so the alias stays exercised
+(`tests/e2e/personas.test.ts`) until the `remove-worker-aliases` story removes it.
+
 | Here | From mpt-demo-team | Changes |
 |---|---|---|
 | `team/` | `fixtures/team/` | see below |

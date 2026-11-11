@@ -594,13 +594,20 @@ to the built-in and the daemon logs it. Saving a persona lints it (an unclosed c
 fence is refused). See `/api/personas` and
 [docs/DESIGN.md](docs/DESIGN.md#personas-one-library-selected-by-reference).
 
-**Renamed: `worker` → `teammate`.** The persona kind `kinds: [worker]`, the
-built-in `builtin:worker`, `GET /api/personas?kind=worker` and Pi's `--ppt-worker`
-flag are now `teammate`, `builtin:teammate`, `?kind=teammate` and `--ppt-teammate`.
-The old spellings still work as deprecated aliases (each logs a one-time warning
-naming its replacement), so existing persona files, references and customized
-`harnesses.pi.teammate` templates need no change; saving a persona writes the new
-spelling. The aliases will be removed in a future version.
+**Deprecated: `worker`.** The persona kind `worker` was renamed `teammate`. The old
+spellings still work for now, as deprecated aliases that each log a one-time warning
+naming the replacement:
+
+| Deprecated | Use instead |
+|---|---|
+| `kinds: [worker]` (persona frontmatter) | `kinds: [teammate]` |
+| `GET /api/personas?kind=worker` | `?kind=teammate` |
+| `builtin:worker` | `builtin:teammate` |
+| Pi's `--ppt-worker` (e.g. in a customized `harnesses.pi.teammate` template) | `--ppt-teammate` |
+
+Existing persona files, references and templates need no change today; saving a
+persona writes the new spelling. The aliases will be removed in a future version, so
+switch to the new spellings when convenient.
 
 **In the web UI**, **Config → Personas** (`/config/personas`) is the library: search
 and tag filters, an origin badge (team / built-in / package), an editor showing the
@@ -701,7 +708,7 @@ once.
 ## Agent Protocol
 
 Agents work the **WorkItem queue** in a poll → claim → work → set-state loop.
-Workers never move tasks: the daemon reacts to the terminal state (COMPLETE
+Teammates never move tasks: the daemon reacts to the terminal state (COMPLETE
 advances a board task; FAILED leaves it for a human). See
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#agent-lifecycle).
 

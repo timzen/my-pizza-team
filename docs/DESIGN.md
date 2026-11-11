@@ -18,7 +18,7 @@ either disagrees with the code, the code is right and the doc is a bug.
 3. **Layered architecture** — the daemon handles HTTP, `shared/` provides types, the CLI consumes the API. No circular dependencies.
 4. **Web Standards** — Use native `Request`/`Response`, `fetch`, and other Web APIs rather than Node.js-specific abstractions.
 5. **The daemon coordinates; harnesses execute** — The daemon owns all state and expresses *intent*. What an agent does inside its own process (Pi sessions, slash commands, permission prompts) belongs to its harness. The one piece of mechanism the daemon owns is tmux, and it is the *only* component that touches it — see "The Daemon Is the Supervisor".
-6. **Workers never move tasks** — Teammates execute work; the daemon executes flow (admission + advance); humans/the leader make judgment moves. See "The Work Model".
+6. **Teammates never move tasks** — Teammates execute work; the daemon executes flow (admission + advance); humans/the leader make judgment moves. See "The Work Model".
 7. **Fail loudly** — a missing piece must surface as an error that names its fix, never as a symptom (a teammate that never appears, a chat nobody answers). This one principle drives the version handshake, `mpt doctor`, failed-spawn reporting, and the permission-system warning.
 8. **Polling never disturbs the reader** — a background refresh or stream frame must not unmount, remount, or rewrite anything that didn't change, so a text selection (or a scroll position, a draft) survives it. See "Polling Never Disturbs the Reader".
 9. **Focus follows the page, not the URL** — a route change that is a new page puts the keyboard on its heading; one that isn't (a tab, a query, anything while you're in the dock) leaves focus alone. See "Focus Follows the Page, Not the URL".
@@ -62,7 +62,7 @@ move excludes the just-moved task from the admission it triggers — moving a ta
 *Why:* when teammates owned both executing work *and* executing transitions, every
 unhappy path was bespoke — rework required a teammate to rediscover a task it
 thought was finished, and the transition decision hung off parsing the model's
-final message. With workers never moving tasks, re-entering a state is
+final message. With teammates never moving tasks, re-entering a state is
 indistinguishable from entering it the first time, every path is the happy path,
 and there is no transition matrix or per-edge permission to configure. The daemon
 (not an LLM) executes both mechanical rules, so the happy path has no model in its
@@ -1237,7 +1237,7 @@ ready-to-use message assembled by `buildTaskPrompt` — and only minimal `workIt
 metadata (`{ id }`) for bookkeeping. Order: state persona (board work) → Story
 (board work) → working-directory instruction → Task (Goal / Acceptance Criteria /
 Additional Context) → comments from the team lead → completion guidance. There are no transition
-instructions, because workers don't transition. (The former Reference Context
+instructions, because teammates don't transition. (The former Reference Context
 section went with the context library; 0.34–0.36's persona migration inlined attached
 entries into Additional Context — "Personas: One Library, Selected by Reference".)
 

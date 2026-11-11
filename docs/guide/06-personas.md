@@ -15,9 +15,8 @@ instead of carrying their own instructions, so one edit changes everywhere it's 
   `builtin:teammate`, `builtin:triage`, `builtin:assistant`), or the name of the
   **plugin package** that ships it. The small labels on the right (**teammate**,
   **triage**, **assistant**) say which pickers list it first — a hint only; any
-  persona can be picked anywhere. (The **teammate** label used to be
-  called **worker**, and `builtin:teammate` was `builtin:worker`; old files and
-  references using those names still work, and saving a persona updates it.)
+  persona can be picked anywhere. (The **teammate** label used to be called
+  **worker**; see [Deprecated: worker](#deprecated-worker).)
 - **New persona** — a title, an optional id (made from the title if you leave it), a
   one-line description (shown in pickers), tags, which pickers to suggest it in, and
   the **instructions**: what's put into the prompt. Saving checks them: an unclosed
@@ -79,6 +78,19 @@ your workflows at. The copy doesn't follow later updates to the package.
 to (`builtin:teammate`, `builtin:triage`, or `builtin:assistant`; a triage-mode source's
 triage persona has no fallback, so that source stops syncing until you pick another).
 Re-point them, or duplicate the personas first.
+
+## Deprecated: worker
+
+The **teammate** kind used to be called **worker**. The old spellings still work for
+now (MPT logs a one-time warning naming the replacement), but they'll be removed in a
+future version, so switch when convenient:
+
+| Old (deprecated) | Use instead |
+|---|---|
+| `kinds: [worker]` in a persona file | `kinds: [teammate]` (saving the persona on Config → Personas updates it) |
+| `builtin:worker` | `builtin:teammate` |
+| `kind=worker` (`GET /api/personas?kind=…`) | `kind=teammate` |
+| `--ppt-worker` in a customized Pi spawn template | `--ppt-teammate` |
 
 ## The Context Library was removed
 

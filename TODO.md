@@ -5,6 +5,21 @@ number. Delete an item when it's done.
 
 ## Code health
 
+- **Remove deprecated `worker` aliases (worker→teammate rename):** the persona kind
+  `worker` became `teammate` (docs/DESIGN.md "Personas", "`worker` became `teammate`"),
+  and the old spellings still work as deprecated aliases, each warning once per run:
+  `kinds: [worker]` and `GET /api/personas?kind=worker` (→ `teammate`), `builtin:worker`
+  (→ `builtin:teammate`), and Pi's `--ppt-worker` (→ `--ppt-teammate`). Removing them
+  is the `remove-worker-aliases` story, in a future version: delete everything marked
+  `DEPRECATED(worker→teammate)` (`rg 'DEPRECATED\(worker'` — `shared/types.ts`
+  `LEGACY_PERSONA_*_ALIASES`, `daemon/personas/aliases.ts`, `shared/protocol.ts`,
+  `ui/src/lib/personas.ts` `currentPersonaId`, `harnesses/pi/src/teammate-flag.ts`)
+  with `tests/persona-aliases.test.ts` and `harnesses/pi/tests/teammate-flag.test.mjs`;
+  switch the demo's `tracker-worker.md` (here in `tests/fixtures/demo/` and in
+  mpt-demo-team) to `kinds: [teammate]`; and drop the "Deprecated: `worker`" notes in
+  README.md and docs/guide/06-personas.md. Removing them is a breaking change — say
+  so in the release notes.
+
 - **herdr server under systemd:** `daemon/terminal/herdr.ts` `realHerdrLaunch` starts
   `herdr server` as a plain detached child, so under the systemd service it lives in the
   unit's cgroup and `systemctl --user stop|restart` takes every herdr agent with it (tmux
