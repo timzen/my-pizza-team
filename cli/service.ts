@@ -14,6 +14,12 @@
  * has no equivalent — gets the file's variables copied into the plist at install
  * time. Generating the line here is what keeps it: a hand-added one was dropped by
  * every `mpt install`.
+ *
+ * With a service wrapper (`mpt install --wrap <path>`, saved as `serviceWrapper`
+ * in runtime.json — shared/runtime-config.ts), the same argv is prefixed with the
+ * wrapper: `<wrapper> <node> <entry> start`. The wrapper is expected to `exec "$@"`,
+ * so the daemon stays the service's main process. Without one, the generated
+ * files are exactly as before.
  */
 
 import * as path from "node:path";
@@ -55,9 +61,13 @@ function run(cmd: string, args: string[]): Promise<{ code: number; stderr: strin
  *
  * `node` is used as given, never symlink-resolved, so a stable launcher path such
  * as /opt/homebrew/bin/node survives `brew upgrade`.
+ *
+ * With a `wrapper` (an absolute executable path), it goes first:
+ * `[wrapper, node, entry, "start"]` — see the header.
  */
-export function serviceProgramArguments(node: string, entry: string = cliEntryScript()): string[] {
-  return [node, entry, "start"];
+export function serviceProgramArguments(node: string, entry: string = cliEntryScript(), wrapper?: string | null): string[] {
+  const argv = [node, entry, "start"];
+  return wrapper ? [wrapper, ...argv] : argv;
 }
 
 /**
@@ -88,6 +98,8 @@ export function generateLaunchdPlist(opts: {
   node: string;
   /** The CLI entry script (defaults to this copy's). */
   entry?: string;
+  /** The executable the daemon is launched through (`mpt install --wrap`), or none. */
+  wrapper?: string | null;
   /**
    * The agent env file's variables, copied in at install time (launchd can't read
    * an env file, so an edit needs `mpt install` again). Like systemd's
@@ -96,7 +108,7 @@ export function generateLaunchdPlist(opts: {
   agentEnv?: Record<string, string>;
 }): string {
   const programArgs = `    <array>
-${serviceProgramArguments(opts.node, opts.entry).map((a) => `      <string>${a}</string>`).join("\n")}
+${serviceProgramArguments(opts.node, opts.entry, opts.wrapper).map((a) => `      <string>${a}</string>`).join("\n")}
     </array>`;
   const merged = new Map(serviceEnv(opts.teamDir, opts.port));
   for (const [k, v] of Object.entries(opts.agentEnv ?? {})) merged.set(k, v);
@@ -151,7 +163,7 @@ function getPlistPath(): string {
   return path.join(getLaunchAgentsDir(), `${SERVICE_LABEL}.plist`);
 }
 
-async function installLaunchd(teamDir: string, port: number, node: string, agentEnv?: AgentEnv): Promise<void> {
+async function installLaunchd(teamDir: string, port: number, node: string, agentEnv?: AgentEnv, wrapper?: string | null): Promise<void> {
   const home = process.env["HOME"]!;
   const logDir = path.join(home, ".local", "share", "my-pizza-team", "logs");
 
@@ -166,7 +178,7 @@ async function installLaunchd(teamDir: string, port: number, node: string, agent
     fs.mkdirSync(launchAgentsDir, { recursive: true });
   }
 
-  const plistContent = generateLaunchdPlist({ teamDir, port, logDir, node, agentEnv: agentEnv?.vars });
+  const plistContent = generateLaunchdPlist({ teamDir, port, logDir, node, wrapper, agentEnv: agentEnv?.vars });
   const plistPath = getPlistPath();
 
   // Write plist file
@@ -228,11 +240,13 @@ export function generateSystemdUnit(opts: {
   node: string;
   /** The CLI entry script (defaults to this copy's). */
   entry?: string;
+  /** The executable the daemon is launched through (`mpt install --wrap`), or none. */
+  wrapper?: string | null;
   /** The agent env file's absolute path, written as `EnvironmentFile=-<path>` (the `-`: a missing file isn't an error). */
   envFile?: string | null;
 }): string {
   // systemd splits ExecStart on whitespace; quote any argument that contains it.
-  const execStart = serviceProgramArguments(opts.node, opts.entry).map((a) => (/\s/.test(a) ? `"${a}"` : a)).join(" ");
+  const execStart = serviceProgramArguments(opts.node, opts.entry, opts.wrapper).map((a) => (/\s/.test(a) ? `"${a}"` : a)).join(" ");
   const environment = serviceEnv(opts.teamDir, opts.port).map(([k, v]) => `Environment="${k}=${v}"`).join("\n");
   // The whole rest of the line is the path (no quoting); `%` starts a systemd specifier, so it is doubled.
   const envFile = opts.envFile ? `\nEnvironmentFile=-${opts.envFile.replaceAll("%", "%%")}` : "";
@@ -263,7 +277,7 @@ function getUnitPath(): string {
   return path.join(getSystemdUserDir(), SYSTEMD_UNIT_NAME);
 }
 
-async function installSystemd(teamDir: string, port: number, node: string, agentEnv?: AgentEnv): Promise<void> {
+async function installSystemd(teamDir: string, port: number, node: string, agentEnv?: AgentEnv, wrapper?: string | null): Promise<void> {
   const unitDir = getSystemdUserDir();
 
   // Ensure unit directory exists
@@ -271,7 +285,7 @@ async function installSystemd(teamDir: string, port: number, node: string, agent
     fs.mkdirSync(unitDir, { recursive: true });
   }
 
-  const unitContent = generateSystemdUnit({ teamDir, port, node, envFile: agentEnv?.path });
+  const unitContent = generateSystemdUnit({ teamDir, port, node, wrapper, envFile: agentEnv?.path });
   const unitPath = getUnitPath();
 
   // Write unit file
@@ -346,13 +360,17 @@ async function uninstallSystemd(): Promise<void> {
  * `agentEnv` is the team's agent env file as just loaded (shared/env-file.ts
  * `loadAgentEnv`); when it names a file, the service gets it too (see the header).
  * Only its path, problem and key count are printed — never a value.
+ *
+ * `wrapper` (already validated — shared/runtime-config.ts `chooseServiceWrapper`)
+ * makes the service run `<wrapper> <node> <entry> start`; see the header.
  */
-export async function install(teamDir: string, port: number, node: string, agentEnv?: AgentEnv): Promise<void> {
+export async function install(teamDir: string, port: number, node: string, agentEnv?: AgentEnv, wrapper?: string | null): Promise<void> {
   const platform = getPlatform();
   console.log(`Installing mpt daemon as ${platform === "darwin" ? "launchd" : "systemd"} service...`);
   console.log(`   Team dir: ${teamDir}`);
   console.log(`   Port: ${port}`);
   console.log(`   Node: ${node}`);
+  if (wrapper) console.log(`   Wrapper: ${wrapper}`);
   console.log(`   Entry: ${cliEntryScript()}`);
   if (agentEnv?.path) {
     console.log(`   Agent env: ${agentEnv.path}${agentEnv.problem ? "" : ` (${agentEnv.keys.length} variable(s))`}`);
@@ -365,9 +383,9 @@ export async function install(teamDir: string, port: number, node: string, agent
   console.log();
 
   if (platform === "darwin") {
-    await installLaunchd(teamDir, port, node, agentEnv);
+    await installLaunchd(teamDir, port, node, agentEnv, wrapper);
   } else {
-    await installSystemd(teamDir, port, node, agentEnv);
+    await installSystemd(teamDir, port, node, agentEnv, wrapper);
   }
 }
 
@@ -386,12 +404,14 @@ export async function uninstall(): Promise<void> {
   }
 }
 
-/** What an installed service launches: `<node> <entry script> start`. */
+/** What an installed service launches: `[<wrapper>] <node> <entry script> start`. */
 export interface ServiceProgram {
-  /** The Node binary (first argument). */
+  /** The Node binary (first argument, or second after a wrapper). */
   node: string;
-  /** The mpt CLI entry script (second argument), or null if the service has none. */
+  /** The mpt CLI entry script (the argument after `node`), or null if the service has none. */
   entry: string | null;
+  /** The wrapper the service launches through (`mpt install --wrap`); absent when there is none. */
+  wrapper?: string;
 }
 
 /** Info about an installed daemon service, used by `mpt upgrade` to restart the
@@ -406,13 +426,16 @@ export interface InstalledService {
   restartHint: string;
 }
 
-/** `[node, entry, ...]` → ServiceProgram. An older install launched the compiled
- *  binary directly (`[mpt, "start"]`), which has no entry script. */
+/** `[node, entry, ...]` or `[wrapper, node, entry, ...]` → ServiceProgram. An older
+ *  install launched the compiled binary directly (`[mpt, "start"]`), which has no
+ *  entry script. The wrapped form is told apart by where the entry script sits:
+ *  third, with a non-script second argument (the Node). */
 function toProgram(argv: string[]): ServiceProgram | null {
-  const [node, second] = argv;
-  if (!node) return null;
-  const entry = second && /\.(ts|js|mjs)$/.test(second) ? second : null;
-  return { node, entry };
+  const isEntry = (a: string | undefined): a is string => a !== undefined && /\.(ts|js|mjs)$/.test(a);
+  const [first, second, third] = argv;
+  if (!first) return null;
+  if (second !== undefined && !isEntry(second) && isEntry(third)) return { wrapper: first, node: second, entry: third };
+  return { node: first, entry: isEntry(second) ? second : null };
 }
 
 /** What a launchd plist's ProgramArguments launch (generateLaunchdPlist's inverse). */

@@ -14,7 +14,14 @@ import { spawn, spawnSync } from "node:child_process";
 import { install, uninstall, detectInstalledService } from "./service.ts";
 import { defaultUpgradeDeps, runUpgrade } from "./upgrade.ts";
 import { ensureNodeForCommand } from "./node-choice.ts";
-import { configuredNode, extractNodeFlag, setNodeFlagOverride } from "../shared/runtime-config.ts";
+import {
+  chooseServiceWrapper,
+  configuredNode,
+  extractNodeFlag,
+  extractWrapFlags,
+  saveServiceWrapper,
+  setNodeFlagOverride,
+} from "../shared/runtime-config.ts";
 import { isRunningFromSource, packageRoot, packageVersion } from "../shared/paths.ts";
 import { evaluate, gather, report } from "./doctor.ts";
 import { loadAgentEnv } from "../shared/env-file.ts";
@@ -230,13 +237,27 @@ function cmdRotateToken(): void {
 async function cmdInstall(args: string[]): Promise<void> {
   const teamDir = getTeamDir();
   const port = getPort();
+  // The optional wrapper the service launches through (`--wrap <path>` /
+  // `--no-wrap` > MPT_SERVICE_WRAPPER > the saved one — shared/runtime-config.ts).
+  // Settled before the Node prompt, so a bad path fails before anything is asked.
+  let wrapper: string | null;
+  try {
+    const flags = extractWrapFlags(args);
+    args = flags.args;
+    wrapper = chooseServiceWrapper({ wrap: flags.wrap, noWrap: flags.noWrap })?.path ?? null;
+  } catch (e) {
+    console.error(`❌ ${(e as Error).message}`);
+    process.exit(1);
+  }
   // The service outlives this shell, so it needs a Node that will still be there.
   const node = await ensureNodeForCommand(args);
+  // Saved with the Node, so re-running install (and `mpt doctor`) agree with the service.
+  saveServiceWrapper(wrapper);
   // The service reads the agent env file too, so the daemon process itself has
   // those variables (and re-running install keeps them, rather than dropping a
   // hand-added EnvironmentFile= line).
   const env = loadAgentEnv(readTeamConfig(teamDir), teamDir);
-  await install(teamDir, port, node.path, env);
+  await install(teamDir, port, node.path, env, wrapper);
 }
 
 async function cmdUninstall(): Promise<void> {
@@ -303,7 +324,10 @@ Commands:
   status                Check if the daemon is running and show a summary
   upgrade [--check]     Update mpt (npm) *and* its Pi extension, restart the service
                         (--check only reports)
-  install               Install as a user service (launchd/systemd; starts on login)
+  install [--wrap <path>|--no-wrap]
+                        Install as a user service (launchd/systemd; starts on login);
+                        --wrap runs it as <path> <node> <entry> start (saved;
+                        --no-wrap clears it)
   uninstall             Remove the service
   rotate-token          Generate a new API token (saved to config.json)
   plugins <cmd>         Manage the team's plugin packages (config.json "packages"):
@@ -324,6 +348,8 @@ Environment:
   HOST                  Bind address (default: 127.0.0.1; anything else needs an API token)
   MPT_API_TOKEN         Overrides config.json's apiToken
   MPT_NODE              The Node that runs mpt (overrides ~/.config/mpt/runtime.json)
+  MPT_SERVICE_WRAPPER   install: the service wrapper (overrides the saved one;
+                        --wrap/--no-wrap override both)
 
 Getting started (in your project folder):
   mpt setup && mpt start --daemon && mpt assistant

@@ -11,6 +11,8 @@
  *
  * (`$XDG_CONFIG_HOME/mpt/runtime.json` on Linux when that is set; `~/.config/mpt`
  * on macOS too, for simplicity.) Priority: `--node <path>` > `MPT_NODE` > the file.
+ * The same file also holds the optional service wrapper (`serviceWrapper`, see
+ * "The service wrapper" below).
  *
  * Paths are kept **as given, never symlink-resolved**: `/opt/homebrew/bin/node` is a
  * symlink into a versioned Cellar directory, and keeping the symlink is what lets
@@ -34,6 +36,12 @@ export interface RuntimeConfig {
   node?: string;
   /** When `node` was chosen (ISO 8601). */
   chosenAt?: string;
+  /**
+   * Absolute path of an executable the service launches the daemon through
+   * (`<wrapper> <node> <entry> start`), set by `mpt install --wrap <path>` and
+   * cleared by `--no-wrap`. Absent = no wrapper.
+   */
+  serviceWrapper?: string;
   [key: string]: unknown;
 }
 
@@ -133,6 +141,128 @@ export function configuredNode(opts: { env?: NodeJS.ProcessEnv; file?: string; f
   const saved = readRuntimeConfig(opts.file ?? runtimeConfigPath()).node;
   if (typeof saved === "string" && saved) return { path: saved, source: "file" };
   return null;
+}
+
+// ─── The service wrapper ─────────────────────────────────────────────
+//
+// `mpt install --wrap <path>` makes the service run `<wrapper> <node> <entry>
+// start` (cli/service.ts serviceProgramArguments), so a site can start something
+// alongside the daemon in the same service. The wrapper is expected to end with
+// `exec "$@"`, keeping the daemon the service's main process. The choice is saved
+// as `serviceWrapper` in runtime.json, so re-running `mpt install` keeps it.
+// Priority: `--wrap <path>` / `--no-wrap` > `MPT_SERVICE_WRAPPER` > the file.
+
+/** Where a service wrapper setting came from, strongest first. */
+export type WrapperSource = "flag" | "env" | "file";
+
+/** Human-readable label for a WrapperSource (errors, doctor). */
+export function describeWrapperSource(source: WrapperSource, file = runtimeConfigPath()): string {
+  switch (source) {
+    case "flag": return "--wrap";
+    case "env": return "MPT_SERVICE_WRAPPER";
+    case "file": return file;
+  }
+}
+
+/** The wrapper from `MPT_SERVICE_WRAPPER` > the settings file, or null when none is set. Not validated. */
+export function configuredServiceWrapper(
+  opts: { env?: NodeJS.ProcessEnv; file?: string } = {},
+): { path: string; source: WrapperSource } | null {
+  const env = (opts.env ?? process.env)["MPT_SERVICE_WRAPPER"];
+  if (env) return { path: path.resolve(env), source: "env" };
+  const saved = readRuntimeConfig(opts.file ?? runtimeConfigPath()).serviceWrapper;
+  if (typeof saved === "string" && saved) return { path: saved, source: "file" };
+  return null;
+}
+
+/**
+ * Record `wrapper` as the service wrapper (null removes it), keeping every other
+ * key. Writes nothing when the file already says so, so a plain `mpt install`
+ * doesn't create or touch the file just to say "no wrapper".
+ */
+export function saveServiceWrapper(wrapper: string | null, file: string = runtimeConfigPath()): void {
+  const config = readRuntimeConfig(file);
+  if ((config.serviceWrapper ?? null) === wrapper) return;
+  const next: RuntimeConfig = { ...config };
+  if (wrapper) next.serviceWrapper = wrapper;
+  else delete next.serviceWrapper;
+  writeRuntimeConfig(next, file);
+}
+
+/** Why `wrapper` can't wrap the service (not absolute, missing, not a file, not executable), or null when fine. */
+export function checkServiceWrapper(wrapper: string): string | null {
+  if (!path.isAbsolute(wrapper)) return `${wrapper} is not an absolute path`;
+  let stat: fs.Stats;
+  try {
+    stat = fs.statSync(wrapper);
+  } catch {
+    return `${wrapper} does not exist`;
+  }
+  if (!stat.isFile()) return `${wrapper} is not a file`;
+  try {
+    fs.accessSync(wrapper, fs.constants.X_OK);
+  } catch {
+    return `${wrapper} is not executable`;
+  }
+  return null;
+}
+
+/**
+ * Pull `--wrap <path>` / `--wrap=<path>` / `--no-wrap` out of `mpt install`'s
+ * arguments. A `--wrap` with no value, or both flags, is an error rather than a
+ * silent guess.
+ */
+export function extractWrapFlags(argv: string[]): { args: string[]; wrap?: string; noWrap: boolean } {
+  const args: string[] = [];
+  let wrap: string | undefined;
+  let noWrap = false;
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i]!;
+    if (a === "--wrap") {
+      const value = argv[i + 1];
+      if (value === undefined || value.startsWith("-")) throw new Error("--wrap needs a path, e.g. --wrap /usr/local/bin/mpt-wrapper");
+      wrap = value;
+      i++;
+    } else if (a.startsWith("--wrap=")) {
+      wrap = a.slice("--wrap=".length);
+      if (!wrap) throw new Error("--wrap needs a path, e.g. --wrap=/usr/local/bin/mpt-wrapper");
+    } else if (a === "--no-wrap") {
+      noWrap = true;
+    } else {
+      args.push(a);
+    }
+  }
+  if (wrap !== undefined && noWrap) throw new Error("--wrap and --no-wrap can't be used together");
+  return wrap === undefined ? { args, noWrap } : { args, wrap, noWrap };
+}
+
+/**
+ * The wrapper `mpt install` should use: none with `--no-wrap`; `--wrap`'s path
+ * (resolved against `cwd`, not symlink-resolved); else `MPT_SERVICE_WRAPPER`, else
+ * the saved one; else none. Throws with a message naming the source when the
+ * chosen file can't be used, so install never writes a service that cannot start.
+ */
+export function chooseServiceWrapper(opts: {
+  wrap?: string;
+  noWrap?: boolean;
+  env?: NodeJS.ProcessEnv;
+  file?: string;
+  cwd?: string;
+} = {}): { path: string; source: WrapperSource } | null {
+  if (opts.noWrap) return null;
+  const file = opts.file ?? runtimeConfigPath();
+  const chosen = opts.wrap !== undefined
+    ? { path: path.resolve(opts.cwd ?? process.cwd(), opts.wrap), source: "flag" as const }
+    : configuredServiceWrapper({ env: opts.env, file });
+  if (!chosen) return null;
+  const problem = checkServiceWrapper(chosen.path);
+  if (problem) {
+    throw new Error(
+      `Service wrapper (from ${describeWrapperSource(chosen.source, file)}): ${problem}. ` +
+        "It must be an executable file; pass --wrap <path>, or --no-wrap to run without one.",
+    );
+  }
+  return chosen;
 }
 
 // ─── Validation ──────────────────────────────────────────────────────

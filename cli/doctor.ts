@@ -42,7 +42,9 @@ import { findPreCutoffLayout, type PreCutoffFinding } from "../daemon/layout-che
 import { MIN_UPGRADE_FROM_VERSION, PRE_CUTOFF_UPGRADE_MESSAGE } from "../shared/types.ts";
 import {
   checkNode,
+  checkServiceWrapper,
   configuredNode,
+  configuredServiceWrapper,
   describeNodeSource,
   pinnedNodeWarning,
   requiredNodeVersionString,
@@ -174,6 +176,10 @@ export interface NodeFacts {
   expectedEntry: string;
   /** Does the service's entry name the same file as `expectedEntry`? */
   serviceEntryMatches: boolean;
+  /** The service wrapper `mpt install` would use now (MPT_SERVICE_WRAPPER, else the saved one), or null. */
+  configuredWrapper: string | null;
+  /** Why the service's wrapper can't run (missing, not executable), or null when fine or there is none. */
+  serviceWrapperProblem: string | null;
 }
 
 /** Compare dotted versions numerically. Null when either is unparseable. */
@@ -551,6 +557,7 @@ export function nodeChecks(n: NodeFacts): Check[] {
       });
     }
   }
+  checks.push(...serviceWrapperChecks(n));
 
   if (c && !c.problem && !n.runningMatchesConfigured) {
     checks.push({
@@ -561,6 +568,39 @@ export function nodeChecks(n: NodeFacts): Check[] {
     });
   }
   return checks;
+}
+
+/**
+ * The service wrapper check (`mpt install --wrap`): reported only when the service
+ * has one or one is configured. A missing or non-executable wrapper means the
+ * service can't start; a wrapper that differs from the configured one is drift
+ * that the next `mpt install` would change.
+ */
+function serviceWrapperChecks(n: NodeFacts): Check[] {
+  const svc = n.service;
+  if (!svc || !svc.entry) return [];
+  const wrapper = svc.wrapper ?? null;
+  if (wrapper && n.serviceWrapperProblem) {
+    return [{
+      name: "Service wrapper",
+      status: "warn",
+      detail: `${n.serviceWrapperProblem} — the service launches through it and can't start`,
+      fix: "restore it (an executable file), or mpt install --wrap <path> / mpt install --no-wrap",
+    }];
+  }
+  if (wrapper !== n.configuredWrapper) {
+    return [{
+      name: "Service wrapper",
+      status: "warn",
+      detail: wrapper
+        ? n.configuredWrapper
+          ? `the service runs through ${wrapper}, not the configured ${n.configuredWrapper}`
+          : `the service runs through ${wrapper}, but no wrapper is configured`
+        : `the service runs without the configured wrapper ${n.configuredWrapper}`,
+      fix: "mpt install (rewrites the service with the configured wrapper; --wrap <path> / --no-wrap to change it)",
+    }];
+  }
+  return wrapper ? [{ name: "Service wrapper", status: "ok", detail: `the service runs through ${wrapper}` }] : [];
 }
 
 /**
@@ -680,6 +720,8 @@ export function gatherNodeFacts(service: ServiceProgram | null): NodeFacts {
     service,
     expectedEntry,
     serviceEntryMatches: service?.entry ? sameFile(service.entry, expectedEntry) : false,
+    configuredWrapper: configuredServiceWrapper()?.path ?? null,
+    serviceWrapperProblem: service?.wrapper ? checkServiceWrapper(service.wrapper) : null,
   };
 }
 

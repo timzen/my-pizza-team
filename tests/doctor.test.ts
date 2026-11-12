@@ -421,6 +421,8 @@ function nodeFacts(over: Partial<NodeFacts> = {}): NodeFacts {
     service: { node: "/opt/homebrew/bin/node", entry: "/pkg/dist/main.js" },
     expectedEntry: "/pkg/dist/main.js",
     serviceEntryMatches: true,
+    configuredWrapper: null,
+    serviceWrapperProblem: null,
     ...over,
   };
 }
@@ -472,6 +474,47 @@ test("node: an old compiled-binary service warns once, even with no Node saved",
   assertEquals(service.length, 1);
   assertStringIncludes(service[0]!.detail, "old compiled-binary install");
   assertStringIncludes(service[0]!.fix!, "mpt install");
+});
+
+test("node: a wrapped service reports its wrapper; Node and entry checks still apply", () => {
+  const wrapped = { wrapper: "/opt/wrap/run", node: "/opt/homebrew/bin/node", entry: "/pkg/dist/main.js" };
+  const ok = nodeChecks(nodeFacts({ service: wrapped, configuredWrapper: "/opt/wrap/run" }));
+  assertEquals(find(ok, "Service wrapper").status, "ok");
+  assertStringIncludes(find(ok, "Service wrapper").detail, "/opt/wrap/run");
+  assertEquals(ok.some((c) => c.name === "Service Node" || c.name === "Service entry"), false);
+  const drift = nodeChecks(nodeFacts({
+    service: { ...wrapped, node: "/usr/bin/node", entry: "/old/dist/main.js" },
+    configuredWrapper: "/opt/wrap/run",
+    serviceEntryMatches: false,
+  }));
+  assertEquals(find(drift, "Service Node").status, "warn");
+  assertStringIncludes(find(drift, "Service entry").detail, "/old/dist/main.js");
+  assertEquals(find(drift, "Service wrapper").status, "ok");
+});
+
+test("node: a missing or non-executable service wrapper warns", () => {
+  const checks = nodeChecks(nodeFacts({
+    service: { wrapper: "/gone/run", node: "/opt/homebrew/bin/node", entry: "/pkg/dist/main.js" },
+    configuredWrapper: "/gone/run",
+    serviceWrapperProblem: "/gone/run does not exist",
+  }));
+  assertEquals(find(checks, "Service wrapper").status, "warn");
+  assertStringIncludes(find(checks, "Service wrapper").detail, "/gone/run does not exist");
+  assertStringIncludes(find(checks, "Service wrapper").fix!, "--no-wrap");
+});
+
+test("node: a service wrapper that differs from the configured one warns", () => {
+  const unwrapped = nodeChecks(nodeFacts({ configuredWrapper: "/opt/wrap/run" }));
+  assertEquals(find(unwrapped, "Service wrapper").status, "warn");
+  assertStringIncludes(find(unwrapped, "Service wrapper").detail, "without the configured wrapper /opt/wrap/run");
+  assertStringIncludes(find(unwrapped, "Service wrapper").fix!, "mpt install");
+  const extra = nodeChecks(nodeFacts({ service: { wrapper: "/opt/wrap/run", node: "/opt/homebrew/bin/node", entry: "/pkg/dist/main.js" } }));
+  assertStringIncludes(find(extra, "Service wrapper").detail, "no wrapper is configured");
+  const other = nodeChecks(nodeFacts({
+    service: { wrapper: "/a/run", node: "/opt/homebrew/bin/node", entry: "/pkg/dist/main.js" },
+    configuredWrapper: "/b/run",
+  }));
+  assertStringIncludes(find(other, "Service wrapper").detail, "not the configured /b/run");
 });
 
 test("node: no service means no service checks", () => {

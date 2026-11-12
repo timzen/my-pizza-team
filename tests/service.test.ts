@@ -81,6 +81,40 @@ describe("service installer", () => {
     assertEquals(parsePlistProgram(plist), { node: NODE, entry: "/e.js" });
   });
 
+  it("with a wrapper, both service files prefix the same argv and parse it back", () => {
+    const wrapper = "/opt/wrap/run-mpt";
+    assertEquals(serviceProgramArguments(NODE, "/pkg/dist/main.js", wrapper), [wrapper, NODE, "/pkg/dist/main.js", "start"]);
+    assertEquals(serviceProgramArguments(NODE, "/pkg/dist/main.js", null), [NODE, "/pkg/dist/main.js", "start"]);
+    const unit = generateSystemdUnit({ teamDir: "/t", port: 1, node: NODE, entry: "/pkg/dist/main.js", wrapper });
+    assertStringIncludes(unit, `ExecStart=${wrapper} ${NODE} /pkg/dist/main.js start\n`);
+    assertEquals(parseSystemdProgram(unit), { wrapper, node: NODE, entry: "/pkg/dist/main.js" });
+    const plist = generateLaunchdPlist({ teamDir: "/t", port: 1, logDir: "/l", node: NODE, entry: "/pkg/dist/main.js", wrapper });
+    assertStringIncludes(plist, `    <array>\n      <string>${wrapper}</string>\n      <string>${NODE}</string>\n      <string>/pkg/dist/main.js</string>\n      <string>start</string>\n    </array>`);
+    assertEquals(parsePlistProgram(plist), { wrapper, node: NODE, entry: "/pkg/dist/main.js" });
+  });
+
+  it("with no wrapper, the service files are exactly the unwrapped ones", () => {
+    const base = { teamDir: "/t", port: 1, node: NODE, entry: "/e.js" };
+    assertEquals(generateSystemdUnit({ ...base, wrapper: null }), generateSystemdUnit(base));
+    assertEquals(generateSystemdUnit({ ...base, wrapper: "" }), generateSystemdUnit(base));
+    assertEquals(generateLaunchdPlist({ ...base, logDir: "/l", wrapper: null }), generateLaunchdPlist({ ...base, logDir: "/l" }));
+  });
+
+  it("quotes a wrapper path with spaces in ExecStart and parses it back", () => {
+    const wrapper = "/Users/me/my scripts/wrap";
+    const node = "/Users/me/my tools/node";
+    const unit = generateSystemdUnit({ teamDir: "/t", port: 1, node, entry: "/p q/dist/main.js", wrapper });
+    assertStringIncludes(unit, `ExecStart="${wrapper}" "${node}" "/p q/dist/main.js" start\n`);
+    assertEquals(parseSystemdProgram(unit), { wrapper, node, entry: "/p q/dist/main.js" });
+    const plist = generateLaunchdPlist({ teamDir: "/t", port: 1, logDir: "/l", node, entry: "/p q/dist/main.js", wrapper });
+    assertEquals(parsePlistProgram(plist), { wrapper, node, entry: "/p q/dist/main.js" });
+  });
+
+  it("a wrapper that is itself a script still parses (the entry is what's third)", () => {
+    const unit = generateSystemdUnit({ teamDir: "/t", port: 1, node: NODE, entry: "/pkg/cli/main.ts", wrapper: "/w/wrap.js" });
+    assertEquals(parseSystemdProgram(unit), { wrapper: "/w/wrap.js", node: NODE, entry: "/pkg/cli/main.ts" });
+  });
+
   it("an old compiled-binary service parses with no entry", () => {
     assertEquals(parseSystemdProgram("[Service]\nExecStart=/usr/local/bin/mpt start\n"), { node: "/usr/local/bin/mpt", entry: null });
   });

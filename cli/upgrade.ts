@@ -301,7 +301,8 @@ function realOrResolved(p: string): string {
  * The service launches a specific entry script, so when that isn't the copy
  * `upgradedEntry` names, say so instead of restarting the wrong one. A service
  * launched by a Node other than `node` (the configured one) still restarts, with a
- * note to re-point it.
+ * note to re-point it. The service file isn't rewritten, so a service wrapper
+ * (`mpt install --wrap`) is kept as is.
  */
 export async function restartServiceAfterUpgrade(version: string, upgradedEntry: string, node?: string): Promise<void> {
   const svc = detectInstalledService();
@@ -312,7 +313,8 @@ export async function restartServiceAfterUpgrade(version: string, upgradedEntry:
   const serviceEntry = svc.programPath?.entry;
   if (serviceEntry && realOrResolved(serviceEntry) !== realOrResolved(upgradedEntry)) {
     console.log(`\n⚠️  Your ${svc.manager} service runs a different copy of mpt:`);
-    console.log(`     service:  ${svc.programPath!.node} ${serviceEntry}`);
+    const wrapper = svc.programPath!.wrapper ? `${svc.programPath!.wrapper} ` : "";
+    console.log(`     service:  ${wrapper}${svc.programPath!.node} ${serviceEntry}`);
     console.log(`     upgraded: ${node ? `${node} ` : ""}${upgradedEntry}`);
     console.log(`   Re-run upgrade from that copy, or re-point the service:  mpt install`);
     return;

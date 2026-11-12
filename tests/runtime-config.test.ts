@@ -5,7 +5,8 @@
  * Covers: where the file lives, atomic read/write, `--node` > `MPT_NODE` > file
  * priority, validating a Node (with fake `node` scripts that print a version),
  * version-pinned path detection, the suggestion, and every branch of
- * `ensureNodeConfigured` with the terminal and the version check stubbed.
+ * `ensureNodeConfigured` with the terminal and the version check stubbed; and the
+ * service wrapper (`mpt install --wrap`): flags, priority, validation, persistence.
  */
 
 import { afterEach, beforeEach, describe, test } from "node:test";
@@ -15,8 +16,12 @@ import * as path from "node:path";
 import { assert, assertEquals, assertRejects, assertStringIncludes, assertThrows } from "./_assert.ts";
 import {
   checkNode,
+  checkServiceWrapper,
+  chooseServiceWrapper,
   configuredNode,
+  configuredServiceWrapper,
   extractNodeFlag,
+  extractWrapFlags,
   meetsVersion,
   type NodeCheck,
   pinnedNodeManager,
@@ -25,6 +30,7 @@ import {
   requiredNodeVersion,
   runtimeConfigPath,
   saveConfiguredNode,
+  saveServiceWrapper,
   stableNodeAlternative,
   suggestedNode,
   writeRuntimeConfig,
@@ -311,5 +317,82 @@ describe("mptInvocation", () => {
   });
   test("falls back to the running Node", () => {
     assertEquals(mptInvocation("/running/node", null), ["/running/node", cliEntryScript()]);
+  });
+});
+
+describe("service wrapper", () => {
+  /** An executable stand-in for a wrapper script. */
+  const wrapperScript = (name: string, mode = 0o755): string => {
+    const file = path.join(dir, name);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, '#!/bin/sh\nexec "$@"\n');
+    fs.chmodSync(file, mode);
+    return file;
+  };
+
+  test("extractWrapFlags takes --wrap, --wrap= and --no-wrap out of argv", () => {
+    assertEquals(extractWrapFlags(["--wrap", "/w", "--yes"]), { args: ["--yes"], wrap: "/w", noWrap: false });
+    assertEquals(extractWrapFlags(["--wrap=/w"]), { args: [], wrap: "/w", noWrap: false });
+    assertEquals(extractWrapFlags(["--no-wrap", "-y"]), { args: ["-y"], noWrap: true });
+    assertEquals(extractWrapFlags([]), { args: [], noWrap: false });
+    assertThrows(() => extractWrapFlags(["--wrap"]));
+    assertThrows(() => extractWrapFlags(["--wrap", "--yes"]));
+    assertThrows(() => extractWrapFlags(["--wrap="]));
+    assertThrows(() => extractWrapFlags(["--wrap", "/w", "--no-wrap"]));
+  });
+
+  test("MPT_SERVICE_WRAPPER > file > none", () => {
+    const file = path.join(dir, "runtime.json");
+    assertEquals(configuredServiceWrapper({ env: {}, file }), null);
+    saveServiceWrapper("/file/wrap", file);
+    assertEquals(configuredServiceWrapper({ env: {}, file }), { path: "/file/wrap", source: "file" });
+    assertEquals(configuredServiceWrapper({ env: { MPT_SERVICE_WRAPPER: "/env/wrap" }, file }), { path: "/env/wrap", source: "env" });
+  });
+
+  test("checkServiceWrapper: executable file ok; missing, directory, not executable, relative are problems", () => {
+    assertEquals(checkServiceWrapper(wrapperScript("ok")), null);
+    assertStringIncludes(checkServiceWrapper(path.join(dir, "nope"))!, "does not exist");
+    assertStringIncludes(checkServiceWrapper(dir)!, "not a file");
+    assertStringIncludes(checkServiceWrapper(wrapperScript("noexec", 0o644))!, "not executable");
+    assertStringIncludes(checkServiceWrapper("wrap")!, "absolute");
+  });
+
+  test("saving keeps the Node and other keys; null removes only the wrapper; no-op writes nothing", () => {
+    const file = path.join(dir, "runtime.json");
+    saveServiceWrapper(null, file);
+    assertEquals(fs.existsSync(file), false);
+    saveConfiguredNode("/n/node", file, new Date("2020-01-01T00:00:00Z"));
+    writeRuntimeConfig({ ...readRuntimeConfig(file), extra: 1 }, file);
+    saveServiceWrapper("/w/run", file);
+    assertEquals(readRuntimeConfig(file), { node: "/n/node", chosenAt: "2020-01-01T00:00:00.000Z", extra: 1, serviceWrapper: "/w/run" });
+    // Re-saving the Node (ensureNodeConfigured) keeps the wrapper.
+    saveConfiguredNode("/m/node", file, new Date("2021-01-01T00:00:00Z"));
+    assertEquals(readRuntimeConfig(file).serviceWrapper, "/w/run");
+    saveServiceWrapper(null, file);
+    assertEquals(readRuntimeConfig(file), { node: "/m/node", chosenAt: "2021-01-01T00:00:00.000Z", extra: 1 });
+  });
+
+  test("chooseServiceWrapper: --no-wrap > --wrap (resolved) > env > saved > none, all validated", () => {
+    const file = path.join(dir, "runtime.json");
+    const a = wrapperScript("a/run");
+    const b = wrapperScript("b/run");
+    assertEquals(chooseServiceWrapper({ env: {}, file }), null);
+    assertEquals(chooseServiceWrapper({ wrap: "a/run", cwd: dir, env: {}, file }), { path: a, source: "flag" });
+    saveServiceWrapper(a, file);
+    assertEquals(chooseServiceWrapper({ env: {}, file }), { path: a, source: "file" });
+    assertEquals(chooseServiceWrapper({ env: { MPT_SERVICE_WRAPPER: b }, file }), { path: b, source: "env" });
+    assertEquals(chooseServiceWrapper({ wrap: b, env: {}, file }), { path: b, source: "flag" });
+    assertEquals(chooseServiceWrapper({ noWrap: true, env: { MPT_SERVICE_WRAPPER: b }, file }), null);
+  });
+
+  test("chooseServiceWrapper fails clearly for an unusable wrapper, naming its source", () => {
+    const file = path.join(dir, "runtime.json");
+    assertThrows(() => chooseServiceWrapper({ wrap: path.join(dir, "missing"), env: {}, file }), Error, "--wrap");
+    assertThrows(() => chooseServiceWrapper({ wrap: wrapperScript("x", 0o644), env: {}, file }), Error, "not executable");
+    assertThrows(() => chooseServiceWrapper({ env: { MPT_SERVICE_WRAPPER: dir }, file }), Error, "MPT_SERVICE_WRAPPER");
+    saveServiceWrapper(path.join(dir, "gone"), file);
+    assertThrows(() => chooseServiceWrapper({ env: {}, file }), Error, "--no-wrap");
+    // --no-wrap gets out of a broken saved wrapper.
+    assertEquals(chooseServiceWrapper({ noWrap: true, env: {}, file }), null);
   });
 });

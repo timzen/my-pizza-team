@@ -99,7 +99,10 @@ Commands:
   status                Check if the daemon is running + show a summary
   upgrade [--check]     Update mpt (npm) *and* its Pi extension, restart the service
                         (--check only reports)
-  install               Install as a user service (launchd/systemd; starts on login)
+  install [--wrap <path>|--no-wrap]
+                        Install as a user service (launchd/systemd; starts on login);
+                        --wrap runs it as <path> <node> <entry> start (saved;
+                        --no-wrap clears it)
   uninstall             Remove the service
   rotate-token          Generate a new API token (saved to config.json)
   plugins <cmd>         Manage the team's plugin packages (see "Plugin packages" below):
@@ -229,6 +232,28 @@ at install time (launchd can't read an env file — re-run `mpt install` after e
 it; note the plist then holds the values). Re-run `mpt install` after changing the
 saved Node or moving the install — `mpt doctor` warns when the service's Node or entry
 differs. `mpt uninstall` removes it.
+
+To start something alongside the daemon in the same service, launch it through a
+**wrapper**: `mpt install --wrap <path>` makes the service run
+`<wrapper> <saved node> <entry> start` instead. The wrapper must be an executable
+file (the path is made absolute, not symlink-resolved); it gets the daemon's command
+line as its arguments and should end with `exec "$@"`, so the daemon stays the
+service's main process (and its exit is what restarts the service):
+
+```sh
+#!/bin/sh
+# e.g. ~/bin/mpt-wrapper: start a helper next to the daemon, then become the daemon
+my-helper --background &
+exec "$@"
+```
+
+The choice is saved as `serviceWrapper` in `~/.config/mpt/runtime.json` (next to the
+saved Node), so re-running `mpt install` keeps it and `mpt upgrade`'s restart leaves
+it alone; `mpt install --no-wrap` removes it. `MPT_SERVICE_WRAPPER` overrides the saved
+one (`--wrap`/`--no-wrap` override both). A wrapper that's missing or not executable
+stops `mpt install`. `mpt doctor` shows the service's wrapper, and warns when it is
+missing or not executable, or differs from the configured one. Without a wrapper the
+service files are exactly as above.
 
 ### Upgrading
 
@@ -447,6 +472,7 @@ Inbox are always on, so every kind can be off at once.
 | `HOST` | `127.0.0.1` | Bind address (anything else requires an API token) |
 | `MPT_API_TOKEN` | — | Overrides `config.apiToken` |
 | `MPT_NODE` | — | The Node that runs mpt; overrides `~/.config/mpt/runtime.json` (`--node <path>` overrides both) |
+| `MPT_SERVICE_WRAPPER` | — | `mpt install`: the [service wrapper](#service); overrides the saved `serviceWrapper` (`--wrap <path>` / `--no-wrap` override both) |
 | `MPT_HOME` | `$HOME` | Where the managed extension lives (`$MPT_HOME/.my-pizza-team/pi-extension/`) |
 | `MPT_PI_EXTENSION` | — | Use this extension source instead of the embedded one |
 | `PI_CODING_AGENT_DIR` | `~/.pi/agent` | Pi's settings directory (setup/doctor read and write it) |
