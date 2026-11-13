@@ -11,7 +11,7 @@
  * system live beside it — `normalizeDirectory` is in shared/directory.ts.
  */
 
-import { FEATURE_NAMES, type FeatureName } from "./agent-protocol.ts";
+import { FEATURE_NAMES, type FeatureName, type PersonaSettings } from "./agent-protocol.ts";
 
 /** Standard API response envelope. */
 export interface ApiResponse<T = unknown> {
@@ -1386,10 +1386,12 @@ export const TEAM_PERSONA_ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/;
 
 /**
  * One persona in the library: frontmatter (title, description, tags, optional
- * `kinds` and `duplicatedFrom`) plus the markdown `content` injected into the
- * prompt. `readOnly` is true for built-in and package personas.
+ * `kinds` and `duplicatedFrom`, and the optional harness settings `tools`,
+ * `skills`, `model`, `requires` — `PersonaSettings`) plus the markdown
+ * `content` injected into the prompt. `readOnly` is true for built-in and
+ * package personas.
  */
-export interface Persona {
+export interface Persona extends PersonaSettings {
   id: string;
   title: string;
   description: string;
@@ -1406,8 +1408,8 @@ export interface Persona {
   updatedAt?: string;
 }
 
-/** What `resolvePersona` hands a prompt builder (daemon/personas/resolve.ts). */
-export interface ResolvedPersona {
+/** What `resolvePersona` hands a prompt builder (daemon/personas/resolve.ts), settings included. */
+export interface ResolvedPersona extends PersonaSettings {
   id: string;
   title: string;
   origin: PersonaOrigin;

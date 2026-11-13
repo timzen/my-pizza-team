@@ -18,8 +18,9 @@ instead of carrying their own instructions, so one edit changes everywhere it's 
   persona can be picked anywhere. (The **teammate** label used to be called
   **worker**; see [Deprecated: worker](#deprecated-worker).)
 - **New persona** — a title, an optional id (made from the title if you leave it), a
-  one-line description (shown in pickers), tags, which pickers to suggest it in, and
-  the **instructions**: what's put into the prompt. Saving checks them: an unclosed
+  one-line description (shown in pickers), tags, which pickers to suggest it in,
+  optional [harness settings](#tools-skills-model-and-requirements), and the
+  **instructions**: what's put into the prompt. Saving checks them: an unclosed
   code fence is refused (it would swallow the rest of the prompt); top-level headings
   and stray `---` lines are saved with a warning (headings are nested under the
   prompt's own sections automatically).
@@ -29,6 +30,36 @@ instead of carrying their own instructions, so one edit changes everywhere it's 
   is off while anything uses it (re-point those first). Built-in and package personas
   are read-only: **Duplicate to edit** copies one into your library as a new persona
   you can change (it doesn't follow later updates to the original).
+
+## Tools, skills, model and requirements
+
+A persona can also carry a few optional **harness settings** — limits the teammate's
+harness applies while it works as that persona. Set them under **Harness settings**
+in the editor (comma-separated, like tags), or in the file's frontmatter:
+
+```yaml
+tools: { allow: ["read", "grep", "mcp__code-search__*"], deny: ["bash", "write"] }
+skills: ["code-review"]
+model: "strong"
+requires: { mcp: ["code-search"] }
+```
+
+| Setting | What it means | Left blank |
+|---|---|---|
+| **Tools allowed** (`tools.allow`) | The tools it may use, by the names its harness gives them; `*` matches anything (`mcp__code-search__*`) | every tool |
+| **Tools denied** (`tools.deny`) | Tools it may never use, even if allowed | none denied |
+| **Skills** (`skills`) | The skills it may use | every skill |
+| **Model** (`model`) | A model *alias* such as `strong`, which your team's config maps to a real model | the harness's default model |
+| **Requires MCP servers** (`requires.mcp`) | MCP servers its work needs — checked and reported when missing, never started | nothing required |
+
+How much of this is enforced **depends on the teammate's harness** — MPT passes the
+settings along with the persona, and each harness applies what it supports — so treat
+them as guardrails, not a sandbox.
+Saving checks them: a wrong shape (say, `skills: code-review` instead of a list) or a
+pattern with `?`, `[]` or `{}` is refused; a deny that cancels an allowed tool, or an
+empty allow list (no tools at all — only possible in the file), is saved with a
+warning. A persona's page lists the settings it has under **Harness settings**.
+Built-in personas set none; a package persona's are read-only like the rest of it.
 
 ## Where you pick one
 

@@ -21,6 +21,7 @@ import type {
   BuiltinPersonaId, Persona, PersonaRef, PersonaUsage, PersonaVia, ResolvedPersona, TeamConfig, WorkDef, WorkflowConfig,
 } from "../../shared/types.ts";
 import { personaOriginLabel } from "../../shared/types.ts";
+import type { PersonaSettings } from "../../shared/protocol.ts";
 import { normalizePersonaId } from "./aliases.ts";
 
 /** How the resolver looks a persona up (team, built-in, package — the Store's `getPersona`). */
@@ -50,7 +51,21 @@ export function resolvePersona(lookup: PersonaLookup, ref: string | undefined | 
 }
 
 function toResolved(p: Persona, via: PersonaVia): ResolvedPersona {
-  return { id: p.id, title: p.title, origin: p.origin, body: p.content, via };
+  return { id: p.id, title: p.title, origin: p.origin, body: p.content, via, ...personaSettingsOf(p) };
+}
+
+/**
+ * Just the harness settings of a persona (`tools`, `skills`, `model`,
+ * `requires`; docs/DESIGN.md "Persona settings"), the ones it has — what the
+ * claim's `persona` carries alongside the body.
+ */
+export function personaSettingsOf(p: PersonaSettings): PersonaSettings {
+  const out: PersonaSettings = {};
+  if (p.tools) out.tools = p.tools;
+  if (p.skills) out.skills = p.skills;
+  if (p.model) out.model = p.model;
+  if (p.requires) out.requires = p.requires;
+  return out;
 }
 
 /** The WorkItem snapshot of a resolved persona (`WorkItem.persona`). */

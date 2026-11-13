@@ -19,7 +19,9 @@
  *      A package's own personas (`mpt.personas`; docs/DESIGN.md "Persona
  *      packages") are read and registered the way the daemon does
  *      (`readPackagePersonaFiles`, then a scratch `PackagePersonas` registry): a
- *      ✓ per persona, ⚠ for its lint warnings, ✗ for a lint error, a file that
+ *      ✓ per persona, ⚠ for its lint warnings, ✗ for a lint error (of its
+ *      body or its frontmatter settings — `tools`, `skills`, `model`,
+ *      `requires`; daemon/personas/settings.ts), a file that
  *      can't be used, a bad id, no package.json `name`, or a `name` another
  *      package already claimed. Every configured package's personas are
  *      registered first, so a package persona id resolves here as it would in
@@ -436,7 +438,8 @@ function packagePersonaChecks(r: PackagePersonaCheck): DoctorCheck[] {
     const hint = e.includes("\"name\"") ? "add a \"name\" to package.json: it namespaces the personas (<name>/<id>)"
       : e.startsWith("another package") ? "two packages can't share a name: rename one, or remove the other"
       : e.includes("not a valid persona id") ? "rename the file: lowercase letters, digits, and dashes"
-      : "fix the persona's markdown (an unbalanced code fence swallows the rest of the prompt)";
+      : e.includes("code fence") ? "fix the persona's markdown (an unbalanced code fence swallows the rest of the prompt)"
+      : "fix the persona's frontmatter settings (tools, skills, model, requires): see docs/PLUGINS.md";
     out.push({ status: "fail", message: e, hint });
   }
   const lintFailed = new Set(r.registered.errors.map((e) => /^persona (\S+):/.exec(e)?.[1]).filter(Boolean));

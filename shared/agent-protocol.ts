@@ -237,10 +237,47 @@ export const PERSONA_SYSTEM_PROMPT_CAPABILITY = "persona-system-prompt";
 export type AgentCapability = typeof PERSONA_SYSTEM_PROMPT_CAPABILITY;
 
 /**
- * A claim's persona, resolved by the daemon (the same one the WorkItem records
- * as its in-flight persona).
+ * A persona's tool policy (frontmatter `tools`; docs/DESIGN.md "Persona
+ * settings"). Each entry is a tool name, or a pattern where `*` matches any run
+ * of characters (no other glob syntax), matched against the tool names *as the
+ * harness sees them* (e.g. `read`, `mcp__server__*`). Absent `allow` = every
+ * tool; an empty `allow` = none. `deny` wins over `allow`.
  */
-export interface ClaimPersona {
+export interface PersonaToolPolicy {
+  allow?: string[];
+  deny?: string[];
+}
+
+/** What a persona needs from its harness to run (frontmatter `requires`): checked, never started. */
+export interface PersonaRequirements {
+  /** MCP server names the persona's work depends on. */
+  mcp?: string[];
+}
+
+/**
+ * A persona's optional, harness-neutral settings (frontmatter `tools`,
+ * `skills`, `model`, `requires`; docs/DESIGN.md "Persona settings"). Every field
+ * is optional and absent means "the harness default"; how much of it a harness
+ * enforces is up to the harness. Additive: an older daemon sends none, an older
+ * harness ignores them.
+ */
+export interface PersonaSettings {
+  /** Which tools the persona may use. */
+  tools?: PersonaToolPolicy;
+  /** The skill names the persona may use; absent = every skill, empty = none. */
+  skills?: string[];
+  /** A model alias the team config maps to a model; absent = the harness default. */
+  model?: string;
+  /** What the persona needs (e.g. MCP servers) — reported when missing. */
+  requires?: PersonaRequirements;
+}
+
+/**
+ * A claim's persona, resolved by the daemon (the same one the WorkItem records
+ * as its in-flight persona), with its settings (`PersonaSettings`, when it has
+ * any).
+ */
+export interface ClaimPersona extends PersonaSettings {
   /**
    * The resolved persona's id (a team id, `builtin:*`, or `<package>/<id>`); null
    * when a board state names no persona and its one-line framing stands in.

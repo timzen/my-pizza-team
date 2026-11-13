@@ -59,7 +59,7 @@ import {
 import { normalizeDirectory } from "../shared/directory.ts";
 import { saveTeamConfig } from "../shared/team-config.ts";
 import type { PluginLoadStatus } from "../shared/protocol.ts";
-import type { TeamPersonaInput } from "./personas/library.ts";
+import type { TeamPersonaInput, TeamPersonaUpdate } from "./personas/library.ts";
 import { cachedTerminalStatus, type SpawnCapability } from "./spawner.ts";
 import type { TerminalBackend, TerminalStatus } from "./terminal/backend.ts";
 import { UnmanagedWindowTracker, type CloseUnmanagedResult } from "./unmanaged-windows.ts";
@@ -1332,7 +1332,7 @@ export class Store {
   }
 
   /** Update a team persona in place; null when it doesn't exist. */
-  updatePersona(id: string, updates: Partial<TeamPersonaInput>): Persona | null { return this.personas.updatePersona(id, updates); }
+  updatePersona(id: string, updates: TeamPersonaUpdate): Persona | null { return this.personas.updatePersona(id, updates); }
 
   /** Delete a team persona file (the route refuses one in use first). */
   deletePersona(id: string): boolean { return this.personas.deletePersona(id); }

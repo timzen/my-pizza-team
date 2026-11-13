@@ -3,8 +3,8 @@
  * routes (ids encoded, package ids with `/`), origin badges, the library list's
  * filter and tag chips, picker grouping by kind hint and the flagged missing
  * selection, "Used by" labels/links and delete protection, the in-flight chip
- * (linked, or "deleted" and unlinked; fallback noted), and a source's
- * effective personas. See docs/DESIGN.md "Personas: One Library, Selected by
+ * (linked, or "deleted" and unlinked; fallback noted), a source's
+ * effective personas, and the harness settings' rows and editor requests. See docs/DESIGN.md "Personas: One Library, Selected by
  * Reference".
  */
 
@@ -12,8 +12,8 @@ import { test } from "node:test";
 import { assert, assertEquals } from "./_assert.ts";
 import {
   deleteBlockedReason, effectiveSourcePersonas, filterPersonas, missingSelection, optionLabel, originLabel, parseTags,
-  personaChip, personaIdFromConfigPath, personaPath, personaTagCounts, pickerGroups, readOnlyReason, refOriginLabel,
-  slugHint, usageHref, usageLabel, viaLabel, type Persona, type PersonaUsage,
+  personaChip, personaIdFromConfigPath, personaPath, personaSettingsRows, personaTagCounts, pickerGroups, readOnlyReason, refOriginLabel,
+  settingsDraftDirty, settingsDraftOf, settingsRequestOf, slugHint, usageHref, usageLabel, viaLabel, type Persona, type PersonaUsage,
 } from "../ui/src/lib/personas.ts";
 
 function persona(over: Partial<Persona> = {}): Persona {
@@ -151,4 +151,41 @@ test("effectiveSourcePersonas: the team's setting, else the declared default, el
   assertEquals(effectiveSourcePersonas({ ...base, persona: "reviewer", defaultPersona: "pkg/w", triagePersona: "t" }), {
     work: { id: "reviewer", from: "setting" }, triage: { id: "t", from: "setting" },
   });
+});
+
+test("personaSettingsRows: only the settings a persona sets, in order; an empty list is kept", () => {
+  assertEquals(personaSettingsRows(persona()), []);
+  assertEquals(personaSettingsRows(persona({
+    requires: { mcp: ["code-search"] }, model: "strong", skills: [], tools: { deny: ["bash"], allow: ["read"] },
+  })), [
+    { label: "Tools allowed", values: ["read"] },
+    { label: "Tools denied", values: ["bash"] },
+    { label: "Skills", values: [] },
+    { label: "Model", values: ["strong"] },
+    { label: "Requires MCP", values: ["code-search"] },
+  ]);
+});
+
+test("settingsRequestOf: sends only changed fields; blank clears on update and is left out on create", () => {
+  const blank = settingsDraftOf(null);
+  assertEquals(blank, { allow: "", deny: "", skills: "", model: "", mcp: "" });
+  // Create: blank fields are left out, filled ones sent.
+  assertEquals(settingsRequestOf(blank, null), {});
+  assertEquals(settingsRequestOf({ ...blank, allow: "read, mcp__x__*", model: " strong ", mcp: "x" }, null), {
+    tools: { allow: ["read", "mcp__x__*"] }, model: "strong", requires: { mcp: ["x"] },
+  });
+
+  const p = persona({ tools: { allow: [], deny: ["bash"] }, skills: ["review"], model: "strong" });
+  const draft = settingsDraftOf(p);
+  assertEquals(draft, { allow: "", deny: "bash", skills: "review", model: "strong", mcp: "" });
+  assertEquals(settingsDraftDirty(draft, p), false);
+  // Untouched: nothing sent, so an explicit empty allow survives.
+  assertEquals(settingsRequestOf(draft, p), {});
+  // Changing deny keeps the explicit empty allow as written.
+  assertEquals(settingsRequestOf({ ...draft, deny: "bash, write" }, p), { tools: { allow: [], deny: ["bash", "write"] } });
+  // Blanking a field on update clears it (null).
+  const cleared = { ...draft, deny: "", skills: "", model: "" };
+  assertEquals(settingsDraftDirty(cleared, p), true);
+  assertEquals(settingsRequestOf(cleared, p), { tools: { allow: [] }, skills: null, model: null });
+  assertEquals(settingsRequestOf(settingsDraftOf(null), persona({ tools: { deny: ["bash"] } })), { tools: null });
 });

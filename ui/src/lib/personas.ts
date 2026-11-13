@@ -19,7 +19,7 @@
  */
 
 import type { Persona, PersonaKind, PersonaOrigin, PersonaRef, PersonaUsage, PersonaVia } from "@shared/types";
-import type { DeletePersonaResponse, SavePersonaResponse, SourceView } from "@shared/protocol";
+import type { DeletePersonaResponse, PersonaSettings, SavePersonaResponse, SourceView, UpdatePersonaRequest } from "@shared/protocol";
 // Runtime values, so a relative path: the tests run this module under Node, which
 // can't resolve the `@shared` alias (shared/types.ts has no node: imports).
 import { canonicalPersonaId, PERSONA_KINDS, slugifyPersonaId } from "../../../shared/types.ts";
@@ -93,6 +93,92 @@ export function parseTags(text: string): string[] {
   const out: string[] = [];
   for (const t of text.split(",").map((s) => s.trim())) if (t && !out.includes(t)) out.push(t);
   return out;
+}
+
+// ─── Settings (tools, skills, model, requires) ──────────────────────
+// docs/DESIGN.md "Persona settings": optional, harness-neutral frontmatter the
+// daemon delivers with the persona; how much is enforced depends on the harness.
+
+/** One row of the detail view's settings list: a label and its values (empty list = "none"). */
+export interface PersonaSettingsRow {
+  label: string;
+  values: string[];
+}
+
+/** The settings a persona has, as display rows (only the fields it sets), in a fixed order. */
+export function personaSettingsRows(p: PersonaSettings): PersonaSettingsRow[] {
+  const rows: PersonaSettingsRow[] = [];
+  if (p.tools?.allow) rows.push({ label: "Tools allowed", values: p.tools.allow });
+  if (p.tools?.deny) rows.push({ label: "Tools denied", values: p.tools.deny });
+  if (p.skills) rows.push({ label: "Skills", values: p.skills });
+  if (p.model) rows.push({ label: "Model", values: [p.model] });
+  if (p.requires?.mcp) rows.push({ label: "Requires MCP", values: p.requires.mcp });
+  return rows;
+}
+
+/** The editor's settings fields as typed: comma-separated lists, and the model alias. */
+export interface PersonaSettingsDraft {
+  allow: string;
+  deny: string;
+  skills: string;
+  model: string;
+  mcp: string;
+}
+
+/** The editor's starting text for a persona's settings (blank for a new one). */
+export function settingsDraftOf(p: PersonaSettings | null): PersonaSettingsDraft {
+  return {
+    allow: p?.tools?.allow?.join(", ") ?? "",
+    deny: p?.tools?.deny?.join(", ") ?? "",
+    skills: p?.skills?.join(", ") ?? "",
+    model: p?.model ?? "",
+    mcp: p?.requires?.mcp?.join(", ") ?? "",
+  };
+}
+
+/** The settings part of a save request. */
+export type PersonaSettingsRequest = Pick<UpdatePersonaRequest, "tools" | "skills" | "model" | "requires">;
+
+/**
+ * The settings fields to send for `draft`: only those that changed from
+ * `original` (the persona being edited; null creates one), so an untouched
+ * field — even one the editor can't show exactly, like an explicit empty
+ * `allow` — is kept as written. A blank field means "not set": null on update,
+ * left out on create.
+ */
+export function settingsRequestOf(draft: PersonaSettingsDraft, original: PersonaSettings | null): PersonaSettingsRequest {
+  const before = settingsDraftOf(original);
+  const changed = (k: keyof PersonaSettingsDraft) => draft[k].trim() !== before[k].trim();
+  const out: PersonaSettingsRequest = {};
+  const set = <K extends keyof PersonaSettingsRequest>(key: K, value: PersonaSettingsRequest[K]) => {
+    if (value !== null || original) out[key] = value;
+  };
+  if (changed("allow") || changed("deny")) {
+    const allow = parseTags(draft.allow);
+    const deny = parseTags(draft.deny);
+    // A field left as it was keeps its exact value (an explicit empty list stays one).
+    const tools = {
+      ...(changed("allow") ? (allow.length ? { allow } : {}) : original?.tools?.allow ? { allow: original.tools.allow } : {}),
+      ...(changed("deny") ? (deny.length ? { deny } : {}) : original?.tools?.deny ? { deny: original.tools.deny } : {}),
+    };
+    set("tools", tools.allow || tools.deny ? tools : null);
+  }
+  if (changed("skills")) {
+    const skills = parseTags(draft.skills);
+    set("skills", skills.length ? skills : null);
+  }
+  if (changed("model")) set("model", draft.model.trim() || null);
+  if (changed("mcp")) {
+    const mcp = parseTags(draft.mcp);
+    set("requires", mcp.length ? { mcp } : null);
+  }
+  return out;
+}
+
+/** Has the editor's settings draft changed from the persona's? (The unsaved-changes guard.) */
+export function settingsDraftDirty(draft: PersonaSettingsDraft, original: PersonaSettings | null): boolean {
+  const before = settingsDraftOf(original);
+  return (Object.keys(before) as Array<keyof PersonaSettingsDraft>).some((k) => draft[k].trim() !== before[k].trim());
 }
 
 /** Every tag in the library with its count, alphabetical — the filter chips. */

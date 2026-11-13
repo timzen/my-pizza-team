@@ -20,6 +20,9 @@ import type {
   AssistantDelivery,
   AssistantOrigin,
   PairingReleaseAction,
+  PersonaRequirements,
+  PersonaSettings,
+  PersonaToolPolicy,
   StatusResponse as AgentStatusResponse,
 } from "./agent-protocol.ts";
 
@@ -27,7 +30,7 @@ export { LEADER_ALREADY_CONNECTED, PERSONA_SYSTEM_PROMPT_CAPABILITY, PROTOCOL_VE
 export type {
   AgentCapability, AgentClaimResponse, ClaimPersona, AgentNextWorkResponse, AgentSetWorkItemStateResponse, AssistantDelivery, AssistantInboxItem,
   AssistantInboxResponse, AssistantOrigin, CreateLeaderDirectiveResponse, LeaderDirective, LeaderDirectivesResponse,
-  PairingPoll, PairingReleaseAction, TranscriptBackfill, TranscriptWatchResponse,
+  PairingPoll, PairingReleaseAction, PersonaRequirements, PersonaSettings, PersonaToolPolicy, TranscriptBackfill, TranscriptWatchResponse,
 } from "./agent-protocol.ts";
 
 // ─── Protocol version ────────────────────────────────────────────────
@@ -348,9 +351,13 @@ export interface PersonasResponse { personas: Persona[] }
 // GET /api/personas/:id
 export interface PersonaResponse { persona?: Persona; usedBy?: PersonaUsage[]; success?: boolean; error?: string }
 // POST /api/personas (id optional: derived from the title)
-export interface SavePersonaRequest { id?: string; title: string; description?: string; tags?: string[]; kinds?: PersonaKind[]; content: string }
+export interface SavePersonaRequest extends PersonaSettings { id?: string; title: string; description?: string; tags?: string[]; kinds?: PersonaKind[]; content: string }
 // PUT /api/personas/:id (team personas only)
-export interface UpdatePersonaRequest { title?: string; description?: string; tags?: string[]; kinds?: PersonaKind[]; content?: string }
+/** A persona update: absent fields are kept; a settings field (`tools`, `skills`, `model`, `requires`) set to null is removed. */
+export interface UpdatePersonaRequest {
+  title?: string; description?: string; tags?: string[]; kinds?: PersonaKind[]; content?: string;
+  tools?: PersonaToolPolicy | null; skills?: string[] | null; model?: string | null; requires?: PersonaRequirements | null;
+}
 /** Create/update/duplicate: the saved persona plus any lint warnings (errors refuse with 400). */
 export interface SavePersonaResponse { success: boolean; persona?: Persona; warnings?: string[]; errors?: string[]; error?: string }
 // DELETE /api/personas/:id — 409 with `usedBy` while referenced

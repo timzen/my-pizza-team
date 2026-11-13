@@ -9,7 +9,8 @@
  *   plugin packages — with search, tag filter chips, an origin badge (team /
  *   built-in / the package's name), and the kinds it's suggested for.
  *   **New persona** opens the editor inline; saving lands on its page.
- * - **One persona**: its description, tags, and body, plus **Used by** (each
+ * - **One persona**: its description, tags, harness settings (tools, skills,
+ *   model, requires — when it sets any), and body, plus **Used by** (each
  *   workflow state, setting, task, or source that references it, linked to
  *   where that reference is edited). A team persona has **Edit** (the
  *   PersonaEditor, with the daemon's lint warnings) and **Delete**, which is
@@ -32,7 +33,7 @@ import { apiDelete, apiPost, useApi } from "@/hooks/useApi";
 import { notifyPersonasChanged, usePersonas } from "@/hooks/usePersonas";
 import { LintWarnings, PersonaEditor } from "@/components/personas/PersonaEditor";
 import {
-  deleteBlockedReason, filterPersonas, originLabel, personaPath, personaTagCounts, readOnlyReason, usageHref, usageLabel,
+  deleteBlockedReason, filterPersonas, originLabel, personaPath, personaSettingsRows, personaTagCounts, readOnlyReason, usageHref, usageLabel,
   PERSONAS_TAB_PATH, type DeletePersonaResponse, type Persona, type PersonaUsage, type SavePersonaResponse,
 } from "@/lib/personas";
 import { Card, CardContent } from "@/components/ui/card";
@@ -272,6 +273,7 @@ function PersonaDetail({ id }: { id: string }) {
                     {(persona.kinds ?? []).map((k) => <Tooltip key={k} content="Suggested for" describe={false}><Badge variant="secondary" className="text-[10px]"><span className="sr-only">Suggested for </span>{k}</Badge></Tooltip>)}
                   </div>
                 )}
+                <PersonaSettingsList persona={persona} />
                 <LintWarnings warnings={warnings} />
                 <div className="border-t border-border pt-3">
                   {persona.content ? <MarkdownView content={persona.content} /> : <p className="text-sm italic text-muted-foreground">No instructions.</p>}
@@ -283,6 +285,33 @@ function PersonaDetail({ id }: { id: string }) {
 
         <UsedByPanel usedBy={usedBy} />
       </div>
+    </div>
+  );
+}
+
+/**
+ * The persona's harness settings (docs/DESIGN.md "Persona settings"), only the
+ * ones it sets; nothing when it sets none. An empty list reads "none".
+ */
+function PersonaSettingsList({ persona }: { persona: Persona }) {
+  const rows = personaSettingsRows(persona);
+  if (rows.length === 0) return null;
+  return (
+    <div className="space-y-1">
+      <h3 className="text-xs font-semibold">Harness settings</h3>
+      <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
+        {rows.map((r) => (
+          <div key={r.label} className="contents">
+            <dt className="text-muted-foreground">{r.label}</dt>
+            <dd className="flex flex-wrap gap-1">
+              {r.values.length === 0
+                ? <span className="italic text-muted-foreground">none</span>
+                : r.values.map((v) => <Badge key={v} variant="outline" className="font-mono text-[10px]">{v}</Badge>)}
+            </dd>
+          </div>
+        ))}
+      </dl>
+      <p className="text-[11px] text-muted-foreground">Applied by the teammate's harness, as far as it supports them.</p>
     </div>
   );
 }

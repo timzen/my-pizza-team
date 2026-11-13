@@ -366,6 +366,19 @@ test("doctor: lists each package's personas ✓, fails a lint error, a missing n
       const one = await env.run("doctor", clean);
       assertEquals(one.code, 0, one.text);
       assertStringIncludes(one.text, "✓ persona clean/r");
+
+      // Frontmatter settings (docs/DESIGN.md "Persona settings"): a wrong shape fails, an overlap warns.
+      const settings = writePackage(root, "settings", { personas: ["*.md"] }, {
+        "shape.md": "---\ntitle: Shape\nskills: one\n---\nBody\n",
+        "overlap.md": "---\ntitle: Overlap\ntools: { allow: [bash], deny: [\"*\"] }\nmodel: strong\n---\nBody\n",
+      });
+      const st = await env.run("doctor", settings, "--json");
+      const sr = (JSON.parse(st.text) as DoctorReport).packages[0]!.checks;
+      const shape = sr.find((c) => c.status === "fail" && c.message.startsWith("persona settings/shape: `skills` must be a list"));
+      assert(shape, JSON.stringify(sr));
+      assertStringIncludes(shape.hint!, "frontmatter settings");
+      assert(sr.some((c) => c.status === "warn" && c.message.startsWith("persona settings/overlap: `tools.deny` \"*\" overrides")), JSON.stringify(sr));
+      assert(sr.some((c) => c.status === "ok" && c.message === "persona settings/overlap"));
     } finally {
       fs.rmSync(env.root, { recursive: true, force: true });
     }

@@ -15,7 +15,7 @@
 import type { RouteContext } from "./types.ts";
 import { readBody, fail } from "./http.ts";
 import { buildWorkDefPrompt, stateFraming } from "../prompt.ts";
-import { personaRefOf } from "../personas/resolve.ts";
+import { personaRefOf, personaSettingsOf } from "../personas/resolve.ts";
 import { DEFAULT_HARNESS, isExperimentalHarness, type ResolvedPersona, type TeamConfig, type TriageOutcome, type TriageProposal, type WorkDef, type WorkItemRef } from "../../shared/types.ts";
 import {
   LEADER_ALREADY_CONNECTED, MIN_PROTOCOL_VERSION, PERSONA_SYSTEM_PROMPT_CAPABILITY, PROTOCOL_VERSION,
@@ -553,6 +553,8 @@ function claimPromptAndPersona(
       id: persona?.id ?? null,
       title: persona?.title ?? null,
       body: persona?.body ?? null,
+      // The persona's harness settings (docs/DESIGN.md "Persona settings"), only those it has.
+      ...(persona ? personaSettingsOf(persona) : {}),
       ...(role.state ? { state: role.state } : {}),
       ...(role.state && !persona ? { stateFraming: stateFraming(role.state) } : {}),
       prompt: role.block.trimEnd(),

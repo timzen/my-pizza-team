@@ -12,7 +12,14 @@
  *
  * Heading depth is only a warning because the prompt builder normalizes
  * (demotes) headings when embedding; the warning just nudges better authoring.
+ *
+ * `validatePersonaSettings` lints the frontmatter settings (`tools`, `skills`,
+ * `model`, `requires`) the same way — errors for wrong shapes and non-`*`
+ * globs, warnings for a deny that cancels an allow or an empty allow — by
+ * delegating to the one reader that also types them (daemon/personas/settings.ts).
  */
+
+import { readPersonaSettings, type PersonaSettingsOptions, type RawPersonaSettings } from "./settings.ts";
 
 export interface PersonaLintResult {
   errors: string[];
@@ -66,5 +73,16 @@ export function validatePersonaMarkdown(md: string): PersonaLintResult {
     );
   }
 
+  return { errors, warnings };
+}
+
+/**
+ * Lint a persona's settings (frontmatter `tools`, `skills`, `model`,
+ * `requires`, or a save request's fields): errors refuse a save (a package
+ * persona is marked `lintError`), warnings are returned with it. Pass the
+ * team's model aliases in `opts` to check `model` against them.
+ */
+export function validatePersonaSettings(raw: RawPersonaSettings | undefined, opts: PersonaSettingsOptions = {}): PersonaLintResult {
+  const { errors, warnings } = readPersonaSettings(raw, opts);
   return { errors, warnings };
 }

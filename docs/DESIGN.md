@@ -1727,6 +1727,50 @@ exposed (`TeammateLoop.personaId`) for other parts of the extension to key on.
 resolved persona on the WorkItem as before (next section), so the persona chip
 and run history show what the run got whichever way it was delivered.
 
+### Persona settings
+
+A persona is prose, but a role often comes with guardrails a harness can apply
+mechanically: which tools it may call, which skills it may use, which model it
+runs on, and what it needs to be present. A persona generated from an external
+agent spec, for instance, loses those guardrails if only its text is carried
+over. So a persona may carry four optional, **harness-neutral** frontmatter
+fields (`PersonaSettings`, shared/agent-protocol.ts):
+
+```yaml
+tools: { allow: ["read", "grep", "mcp__code-search__*"], deny: ["bash", "write"] }
+skills: ["code-review", "style-guide"]   # absent = every skill; [] = none
+model: "strong"                          # an alias the team config maps to a model
+requires: { mcp: ["code-search"] }       # needed, checked — never started
+```
+
+- **Names as the harness sees them.** Tool entries are the tool names the
+  harness exposes, or patterns where `*` matches any run of characters — no
+  other glob syntax, so every harness matches them the same way. Absent `allow`
+  is every tool, an empty one none; `deny` wins over `allow`.
+- **The daemon parses, checks and delivers; the harness enforces.** The fields
+  are typed by one reader (daemon/personas/settings.ts `readPersonaSettings`)
+  that also produces the lint findings, so the parser and the linter can't
+  disagree. They travel on the `Persona` (every `/api/personas` response, the
+  assistant's `GET /api/assistant/persona`), the `ResolvedPersona`, and the
+  claim's `persona` — only the fields a persona sets, so a persona without
+  settings yields the same payload as before. *Why not enforce in the daemon:*
+  the daemon never sees a tool call; only the harness can. How much of it a
+  harness applies (and how it reports what it can't) is the harness's business.
+- **Linted like the body** ("Linting: one linter for every persona"): a wrong
+  shape or a non-`*` pattern is an **error** (the save is refused; a package
+  persona is marked `lintError`), and the bad field or pattern is left out of
+  the typed settings. A `deny` that cancels an `allow` entry, an empty `allow`,
+  an empty `skills` and an unknown sub-key are **warnings**. Given the team's
+  model aliases, an unknown `model` is a warning too.
+- **The frontmatter grammar.** The other keys are one-line scalars and lists;
+  these are nested, so shared/frontmatter.ts reads a small YAML subset for them
+  (flow collections, quoted or plain scalars, one level of block style) and
+  writes flow style back, list items quoted. Unknown keys stay ignored.
+- **Editing.** `POST /api/personas` and `PUT /api/personas/:id` take the four
+  fields; on PUT an absent field is kept and null removes it. The editor sends
+  only the fields you changed, so a value it can't show exactly (an explicit
+  empty `allow`) survives an edit of something else.
+
 ### The in-flight persona: a snapshot on the WorkItem
 
 While a teammate works, the UI shows which persona it's using. That needs a
@@ -1772,6 +1816,8 @@ rest of *any* prompt:
   applies: refusing it would turn a packaging mistake into fallback prompts
   across the team, which is no more correct and much less visible).
 - **Built-ins** are linted by a test.
+- **Settings** (`tools`, `skills`, `model`, `requires`; "Persona settings") are
+  linted the same way, on save and at load (`validatePersonaSettings`).
 
 ### "Used by" and delete protection
 

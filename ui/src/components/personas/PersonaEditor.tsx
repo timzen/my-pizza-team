@@ -1,6 +1,8 @@
 /**
  * PersonaEditor — The form for one team persona: title, description, tags, the
- * picker hints (`kinds`), and the markdown body injected into prompts
+ * picker hints (`kinds`), the optional harness settings (tools allow/deny,
+ * skills, model alias, required MCP servers — comma-separated like tags;
+ * docs/DESIGN.md "Persona settings"), and the markdown body injected into prompts
  * (docs/DESIGN.md "The model: personas/<id>.md"). Creates (`POST
  * /api/personas`) or updates (`PUT /api/personas/:id`) it.
  *
@@ -17,7 +19,10 @@ import { useState } from "react";
 import { apiPost, apiPut } from "@/hooks/useApi";
 import { notifyPersonasChanged } from "@/hooks/usePersonas";
 import { useUnsavedChangesGuard } from "@/hooks/useUnsavedChangesGuard";
-import { PERSONA_KINDS, parseTags, slugHint, type Persona, type PersonaKind, type SavePersonaResponse } from "@/lib/personas";
+import {
+  PERSONA_KINDS, parseTags, settingsDraftDirty, settingsDraftOf, settingsRequestOf, slugHint,
+  type Persona, type PersonaKind, type PersonaSettingsDraft, type SavePersonaResponse,
+} from "@/lib/personas";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -27,7 +32,7 @@ import { Tooltip } from "@/components/ui/tooltip";
 import { FormError } from "@/components/ui/form-error";
 import { useAnnounce } from "@/hooks/useAnnounce";
 import { FieldHint } from "@/components/ui/field-hint";
-import { describedBy } from "@/lib/field-help";
+import { describedBy, type FieldHelpKey } from "@/lib/field-help";
 
 interface Props {
   /** The persona being edited; null creates a new team persona. */
@@ -36,6 +41,15 @@ interface Props {
   onSaved: (persona: Persona, warnings: string[]) => void;
   onCancel: () => void;
 }
+
+/** The settings inputs, in order: draft key, label, placeholder, hint. */
+const SETTINGS_FIELDS: ReadonlyArray<{ key: keyof PersonaSettingsDraft; label: string; placeholder: string; hint: FieldHelpKey }> = [
+  { key: "allow", label: "Tools allowed", placeholder: "read, grep, mcp__server__*", hint: "personaToolsAllow" },
+  { key: "deny", label: "Tools denied", placeholder: "bash, write", hint: "personaToolsDeny" },
+  { key: "skills", label: "Skills", placeholder: "code-review", hint: "personaSkills" },
+  { key: "model", label: "Model", placeholder: "strong", hint: "personaModel" },
+  { key: "mcp", label: "Requires MCP servers", placeholder: "server-name", hint: "personaRequiresMcp" },
+];
 
 /** What each kind hint means, shown beside its checkbox. */
 const KIND_HINT: Record<PersonaKind, string> = {
@@ -51,6 +65,7 @@ export function PersonaEditor({ persona, onSaved, onCancel }: Props) {
   const [tags, setTags] = useState(persona?.tags.join(", ") ?? "");
   const [kinds, setKinds] = useState<PersonaKind[]>(persona?.kinds ?? []);
   const [content, setContent] = useState(persona?.content ?? "");
+  const [settings, setSettings] = useState<PersonaSettingsDraft>(() => settingsDraftOf(persona));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lintErrors, setLintErrors] = useState<string[]>([]);
@@ -59,7 +74,7 @@ export function PersonaEditor({ persona, onSaved, onCancel }: Props) {
 
   const dirty = title !== (persona?.title ?? "") || description !== (persona?.description ?? "")
     || tags !== (persona?.tags.join(", ") ?? "") || content !== (persona?.content ?? "")
-    || kinds.join() !== (persona?.kinds ?? []).join() || id !== "";
+    || kinds.join() !== (persona?.kinds ?? []).join() || id !== "" || settingsDraftDirty(settings, persona);
   const guardDialog = useUnsavedChangesGuard(dirty && !saving);
 
   const toggleKind = (k: PersonaKind) =>
@@ -70,7 +85,7 @@ export function PersonaEditor({ persona, onSaved, onCancel }: Props) {
     setSaving(true);
     setError(null);
     setLintErrors([]);
-    const body = { title: title.trim(), description: description.trim(), tags: parseTags(tags), kinds, content };
+    const body = { title: title.trim(), description: description.trim(), tags: parseTags(tags), kinds, content, ...settingsRequestOf(settings, persona) };
     try {
       const res = persona
         ? await apiPut<SavePersonaResponse>(`/api/personas/${encodeURIComponent(persona.id)}`, body)
@@ -134,6 +149,26 @@ export function PersonaEditor({ persona, onSaved, onCancel }: Props) {
         </div>
         <FieldHint id="persona-kinds-hint" field="personaKinds" />
       </div>
+      <fieldset className="space-y-2 rounded-md border border-border p-3" aria-describedby="persona-settings-hint">
+        <legend className="px-1 text-sm font-medium">Harness settings <span className="font-normal text-muted-foreground">(optional)</span></legend>
+        <FieldHint id="persona-settings-hint" field="personaSettings" />
+        <div className="grid gap-3 md:grid-cols-2">
+          {SETTINGS_FIELDS.map((f) => (
+            <div key={f.key} className="space-y-1">
+              <Label htmlFor={`persona-settings-${f.key}`}>{f.label}</Label>
+              <Input
+                id={`persona-settings-${f.key}`}
+                value={settings[f.key]}
+                onChange={(e) => setSettings((s) => ({ ...s, [f.key]: e.target.value }))}
+                placeholder={f.placeholder}
+                className="font-mono text-xs"
+                aria-describedby={`persona-settings-${f.key}-hint`}
+              />
+              <FieldHint id={`persona-settings-${f.key}-hint`} field={f.hint} />
+            </div>
+          ))}
+        </div>
+      </fieldset>
       <div className="space-y-1">
         <Label htmlFor="persona-content">Instructions</Label>
         <Textarea

@@ -196,6 +196,25 @@ export const FIELD_HELP = {
     text: "Injected into the prompt as written: role, voice, process. Project knowledge belongs in AGENTS.md.",
     learnMore: { topic: "personas", anchor: "the-library" },
   },
+  personaSettings: {
+    text: "Optional limits the teammate's harness applies (if it supports them). Blank means the harness default.",
+    learnMore: { topic: "personas", anchor: "tools-skills-model-and-requirements" },
+  },
+  personaToolsAllow: {
+    text: "Comma-separated tool names; * matches anything (mcp__server__*). Blank allows every tool.",
+  },
+  personaToolsDeny: {
+    text: "Tools it may never use, even if allowed above.",
+  },
+  personaSkills: {
+    text: "Comma-separated skill names it may use. Blank allows every skill.",
+  },
+  personaModel: {
+    text: "A model alias from the team config, e.g. strong. Blank uses the harness's default model.",
+  },
+  personaRequiresMcp: {
+    text: "MCP servers its work needs: checked and reported when missing, never started.",
+  },
 } satisfies Record<string, FieldHelp>;
 
 /** A field with a hint. */

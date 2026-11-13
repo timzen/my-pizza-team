@@ -423,7 +423,7 @@ Personas you want to share between teams travel as a **plugin package** — the 
 
 ### Layout
 
-Persona files are ordinary persona markdown (frontmatter `title`, `description`, `tags`, optional `kinds` — `teammate`, `triage` and/or `assistant`; the old `worker` is a deprecated alias of `teammate` — then the instructions):
+Persona files are ordinary persona markdown (frontmatter `title`, `description`, `tags`, optional `kinds` — `teammate`, `triage` and/or `assistant`; the old `worker` is a deprecated alias of `teammate` — and the optional [settings](#persona-settings), then the instructions):
 
 ```
 acme-mpt-personas/
@@ -432,6 +432,29 @@ acme-mpt-personas/
     ├── reviewer.md
     └── implementer.md
 ```
+
+### Persona settings
+
+A persona can also say which tools and skills it may use, which model it runs on, and what it needs — optional frontmatter that is the same for every harness:
+
+```markdown
+---
+title: Reviewer
+description: Reviews diffs; never edits.
+tools: { allow: ["read", "grep", "mcp__code-search__*"], deny: ["bash", "write"] }
+skills: ["code-review"]
+model: "strong"
+requires: { mcp: ["code-search"] }
+---
+You review the diff …
+```
+
+- **`tools`** — `allow` and/or `deny` lists of tool names *as the harness names its tools* (`read`, `bash`, `mcp__<server>__<tool>`). `*` matches any run of characters; no other glob syntax. No `allow` means every tool, `allow: []` none; `deny` wins.
+- **`skills`** — the skill names the persona may use. Absent: all of them; `[]`: none.
+- **`model`** — a model *alias* (like `strong` or `fast`) that each team maps to a real model in its config, so the package doesn't hard-code a provider. Absent: the harness's default.
+- **`requires.mcp`** — MCP servers the persona's work needs. They are checked and reported when missing, never started.
+
+Block style works too (`tools:` then indented `allow: [...]` or `- item` lines). Enforcement is up to the teammate's harness, so treat the settings as guardrails a harness may apply, not a sandbox. `mpt plugins doctor` checks them: ✗ for a wrong shape (`skills: code-review` instead of a list) or a pattern using `?`, `[]` or `{}`; ⚠ for a `deny` that cancels an `allow` entry, an empty `allow`, or an unknown key.
 
 ### Manifest
 
@@ -451,7 +474,7 @@ A package persona's id is `<package name>/<file name without .md>` — `acme-mpt
 
 ### Checking it
 
-`mpt plugins doctor ./acme-mpt-personas` lists each persona with ✓, ⚠ for a lint warning (a top-level heading, a stray `---`), and ✗ for an unclosed code fence, a file outside the package or missing, a bad file name, no `name`, or a `name` another configured package already uses. `mpt plugins add` and `update` run the same checks and refuse a package with a ✗, leaving `config.json` as it was. `mpt plugins list` shows how many personas each package provides. A persona-only package needs no build: MPT never runs npm in a cloned persona-only repository.
+`mpt plugins doctor ./acme-mpt-personas` lists each persona with ✓, ⚠ for a lint warning (a top-level heading, a stray `---`, a [settings](#persona-settings) warning), and ✗ for an unclosed code fence, malformed settings, a file outside the package or missing, a bad file name, no `name`, or a `name` another configured package already uses. `mpt plugins add` and `update` run the same checks and refuse a package with a ✗, leaving `config.json` as it was. `mpt plugins list` shows how many personas each package provides. A persona-only package needs no build: MPT never runs npm in a cloned persona-only repository.
 
 ### Versioning
 

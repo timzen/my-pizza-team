@@ -632,8 +632,12 @@ Besides your team's personas there are read-only built-ins (`builtin:teammate`,
 `builtin:triage`, `builtin:assistant` — today's defaults) and personas shipped by
 plugin packages (`<package.json name>/<id>`, installed with `mpt plugins add`); duplicate a read-only one to
 customize it. A reference that no longer resolves never fails a run: it falls back
-to the built-in and the daemon logs it. Saving a persona lints it (an unclosed code
-fence is refused). See `/api/personas` and
+to the built-in and the daemon logs it. A persona may also set optional,
+harness-neutral **settings** in its frontmatter — `tools` (`allow`/`deny`, `*`
+patterns), `skills`, a `model` alias, and `requires.mcp` — which the daemon passes to
+the teammate's harness with the persona (enforcement depends on the harness; see
+docs/guide/06-personas.md). Saving a persona lints it (an unclosed code fence or a
+malformed setting is refused). See `/api/personas` and
 [docs/DESIGN.md](docs/DESIGN.md#personas-one-library-selected-by-reference).
 
 **Deprecated: `worker`.** The persona kind `worker` was renamed `teammate`. The old

@@ -32,11 +32,11 @@ import {
   type WorkDef,
   type WorkflowConfig,
 } from "../../shared/types.ts";
-import type { PluginLoadStatus } from "../../shared/protocol.ts";
+import type { PersonaSettings, PluginLoadStatus } from "../../shared/protocol.ts";
 import { listBuiltinPersonas, getBuiltinPersona } from "../personas/builtins.ts";
-import { deleteTeamPersona, freeTeamPersonaId, listTeamPersonas, readTeamPersona, writeTeamPersona, type TeamPersonaInput } from "../personas/library.ts";
+import { deleteTeamPersona, freeTeamPersonaId, listTeamPersonas, readTeamPersona, writeTeamPersona, type TeamPersonaInput, type TeamPersonaUpdate } from "../personas/library.ts";
 import { type PackagePersonaFile, type PackagePersonaResult, PackagePersonas } from "../personas/packages.ts";
-import { personaUsage, resolvePersona } from "../personas/resolve.ts";
+import { personaSettingsOf, personaUsage, resolvePersona } from "../personas/resolve.ts";
 import { listMirrorPersonaOverrides } from "../personas/usage-disk.ts";
 import { type SourceEntry, sourceIdForWorkDef } from "../sources/registry.ts";
 import { mirrorMode } from "../sources/mirror.ts";
@@ -449,16 +449,26 @@ export class PersonaStore {
     return { ok: true, persona: readTeamPersona(this.teamDir, id)! };
   }
 
-  /** Update a team persona in place (its id is kept). Null when it doesn't exist. */
-  updatePersona(id: string, updates: Partial<TeamPersonaInput>): Persona | null {
+  /**
+   * Update a team persona in place (its id is kept). Null when it doesn't exist.
+   * A field left undefined keeps its value; a settings field (`tools`,
+   * `skills`, `model`, `requires`) set to null is removed.
+   */
+  updatePersona(id: string, updates: TeamPersonaUpdate): Persona | null {
     const existing = readTeamPersona(this.teamDir, id);
     if (!existing) return null;
+    const pick = <K extends keyof PersonaSettings>(key: K): PersonaSettings[K] =>
+      updates[key] === null ? undefined : (updates[key] ?? existing[key]) as PersonaSettings[K];
     writeTeamPersona(this.teamDir, id, {
       title: updates.title ?? existing.title,
       description: updates.description ?? existing.description,
       tags: updates.tags ?? existing.tags,
       kinds: updates.kinds ?? existing.kinds,
       duplicatedFrom: existing.duplicatedFrom,
+      tools: pick("tools"),
+      skills: pick("skills"),
+      model: pick("model"),
+      requires: pick("requires"),
       content: updates.content ?? existing.content,
     });
     return readTeamPersona(this.teamDir, id);
@@ -477,6 +487,7 @@ export class PersonaStore {
     return this.createPersona({
       id: overrides.id, title, description: src.description,
       tags: src.tags.filter((t) => t !== "built-in"), kinds: src.kinds, duplicatedFrom: src.id, content: src.content,
+      ...personaSettingsOf(src),
     });
   }
 }

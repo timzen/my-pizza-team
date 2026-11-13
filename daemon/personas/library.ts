@@ -2,7 +2,9 @@
  * daemon/personas/library.ts — The team persona library on disk (`personas/<id>.md`).
  *
  * A team persona is a markdown file with frontmatter (title, description, tags,
- * optional `kinds` and `duplicatedFrom`; shared/frontmatter.ts) whose body is the
+ * optional `kinds` and `duplicatedFrom`, and the optional harness settings
+ * `tools`, `skills`, `model`, `requires` — typed by daemon/personas/settings.ts;
+ * shared/frontmatter.ts) whose body is the
  * text injected into a prompt. Files are the source of truth — there is no
  * SQLite index — like templates: the library is a directory listing, small
  * enough to read on demand (docs/DESIGN.md "The model: `personas/<id>.md`").
@@ -18,13 +20,15 @@ import { existsSync } from "node:fs";
 import { writeFileAtomic } from "../../shared/atomic-write.ts";
 import { parseFrontmatter, serializeFrontmatter, type PersonaMeta } from "../../shared/frontmatter.ts";
 import { normalizePersonaKind } from "./aliases.ts";
+import { readPersonaSettings } from "./settings.ts";
+import type { PersonaSettings } from "../../shared/protocol.ts";
 import {
   PERSONAS_DIR, TEAM_PERSONA_ID_PATTERN, slugifyPersonaId,
   type Persona, type PersonaKind,
 } from "../../shared/types.ts";
 
-/** The authored fields of a team persona (what create/update accept). */
-export interface TeamPersonaInput {
+/** The authored fields of a team persona (what create/update accept), settings included. */
+export interface TeamPersonaInput extends PersonaSettings {
   title: string;
   description?: string;
   tags?: string[];
@@ -32,6 +36,13 @@ export interface TeamPersonaInput {
   duplicatedFrom?: string;
   content: string;
 }
+
+/**
+ * An update to a team persona: any authored field; undefined keeps it, and a
+ * settings field (`tools`, `skills`, `model`, `requires`) may be null to remove it.
+ */
+export type TeamPersonaUpdate = Partial<Omit<TeamPersonaInput, keyof PersonaSettings>>
+  & { [K in keyof PersonaSettings]?: PersonaSettings[K] | null };
 
 /** Absolute path of the library directory. */
 export function personasDir(teamDir: string): string {
@@ -82,7 +93,18 @@ export function parsePersonaFile(id: string, raw: string, origin: Persona["origi
   const kinds = normalizeKinds(meta.kinds);
   if (kinds.length > 0) persona.kinds = kinds;
   if (meta.duplicatedFrom) persona.duplicatedFrom = meta.duplicatedFrom;
+  // Only the well-formed settings; what's wrong with the rest is the linter's
+  // to report (validatePersonaSettings over the same raw values).
+  Object.assign(persona, readPersonaSettings(meta.settings).settings);
   return persona;
+}
+
+/**
+ * The raw frontmatter settings of a persona file — what `validatePersonaSettings`
+ * lints (the parsed `Persona` keeps only the well-formed part).
+ */
+export function rawPersonaSettings(raw: string): PersonaMeta["settings"] {
+  return parseFrontmatter(raw).meta.settings;
 }
 
 /** Serialize a persona's authored fields to its file text. */
@@ -94,6 +116,12 @@ export function serializePersona(input: TeamPersonaInput): string {
   };
   if (input.kinds && input.kinds.length > 0) meta.kinds = input.kinds;
   if (input.duplicatedFrom) meta.duplicatedFrom = input.duplicatedFrom;
+  const settings: NonNullable<PersonaMeta["settings"]> = {};
+  if (input.tools) settings.tools = input.tools;
+  if (input.skills) settings.skills = input.skills;
+  if (input.model) settings.model = input.model;
+  if (input.requires) settings.requires = input.requires;
+  if (Object.keys(settings).length > 0) meta.settings = settings;
   return serializeFrontmatter(meta, input.content);
 }
 

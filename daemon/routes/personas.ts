@@ -9,8 +9,10 @@
  * are read-only — PUT/DELETE answer 409 "duplicate it to customize", and
  * `POST /:id/duplicate` copies any persona into the team library.
  *
- * - Every save is linted (daemon/personas/lint.ts): errors refuse it with 400,
- *   warnings come back with the saved persona.
+ * - Every save is linted (daemon/personas/lint.ts) — the body and the harness
+ *   settings (`tools`, `skills`, `model`, `requires`; docs/DESIGN.md "Persona
+ *   settings"): errors refuse it with 400, warnings come back with the saved
+ *   persona. On PUT, a settings field set to null is removed.
  * - `GET /:id` carries `usedBy`; `DELETE` refuses a persona in use (409 + `usedBy`).
  * - `:id` matches the whole rest of the path (`:id{.+}`), since package ids
  *   contain `/`; clients should `encodeURIComponent` ids anyway.
@@ -31,6 +33,8 @@ import type {
   SavePersonaRequest, SavePersonaResponse, SetStatePersonaRequest, SetStatePersonaResponse, UpdatePersonaRequest,
 } from "../../shared/protocol.ts";
 import { validatePersonaMarkdown } from "../personas/lint.ts";
+import { readPersonaSettings, type RawPersonaSettings } from "../personas/settings.ts";
+import { personaSettingsOf } from "../personas/resolve.ts";
 import { normalizeKinds } from "../personas/library.ts";
 
 /** The refusal message for a context-library attachment, naming what replaced it. */
@@ -76,12 +80,14 @@ export function registerPersonaRoutes(ctx: RouteContext): void {
     if (!body.title || typeof body.title !== "string") return fail(c, 400, "Field 'title' is required");
     if (typeof body.content !== "string") return fail(c, 400, "Field 'content' is required and must be a string");
     if (body.id !== undefined && typeof body.id !== "string") return fail(c, 400, "Field 'id' must be a string");
-    const lint = validatePersonaMarkdown(body.content);
+    const settings = readPersonaSettings(rawSettingsOf(body));
+    const lint = mergeLint(validatePersonaMarkdown(body.content), settings);
     if (lint.errors.length > 0) return lintRefusal(c, lint);
     const res = store.createPersona({
       id: body.id, title: body.title, content: body.content,
       description: typeof body.description === "string" ? body.description : "",
       tags: stringList(body.tags), kinds: normalizeKinds(body.kinds),
+      ...settings.settings,
     });
     if (!res.ok) return fail(c, res.status, res.error);
     return c.json({ success: true, persona: res.persona, warnings: lint.warnings } satisfies SavePersonaResponse, 201);
@@ -119,7 +125,10 @@ export function registerPersonaRoutes(ctx: RouteContext): void {
     const body = await readBody(c) as UpdatePersonaRequest;
     if (body.title !== undefined && (typeof body.title !== "string" || !body.title)) return fail(c, 400, "Field 'title' must be a non-empty string");
     if (body.content !== undefined && typeof body.content !== "string") return fail(c, 400, "Field 'content' must be a string");
-    const lint = validatePersonaMarkdown(body.content ?? existing.content);
+    // The settings as they'll be: the request's where it sends a field, else the persona's.
+    const sent = rawSettingsOf(body);
+    const settings = readPersonaSettings({ ...personaSettingsOf(existing), ...sent });
+    const lint = mergeLint(validatePersonaMarkdown(body.content ?? existing.content), settings);
     if (lint.errors.length > 0) return lintRefusal(c, lint);
     const persona = store.updatePersona(id, {
       title: body.title,
@@ -127,6 +136,8 @@ export function registerPersonaRoutes(ctx: RouteContext): void {
       tags: body.tags !== undefined ? stringList(body.tags) : undefined,
       kinds: body.kinds !== undefined ? normalizeKinds(body.kinds) : undefined,
       content: body.content,
+      // A sent field is replaced (null — or a value that reads as nothing — removes it).
+      ...Object.fromEntries(Object.keys(sent).map((k) => [k, settings.settings[k as keyof RawPersonaSettings] ?? null])),
     });
     if (!persona) return fail(c, 404, `Persona "${id}" not found`);
     return c.json({ success: true, persona, warnings: lint.warnings } satisfies SavePersonaResponse);
@@ -162,6 +173,20 @@ export function registerPersonaRoutes(ctx: RouteContext): void {
 /** The 400 for a persona whose lint has errors (it would mangle the prompt). */
 function lintRefusal(c: Context, lint: { errors: string[]; warnings: string[] }) {
   return fail(c, 400, lint.errors.join(" "), { errors: lint.errors, warnings: lint.warnings });
+}
+
+/** The settings fields a save request sent (`tools`, `skills`, `model`, `requires`), raw; absent ones left out. */
+function rawSettingsOf(body: object): RawPersonaSettings {
+  const out: RawPersonaSettings = {};
+  for (const key of ["tools", "skills", "model", "requires"] as const) {
+    if (key in body) out[key] = (body as RawPersonaSettings)[key];
+  }
+  return out;
+}
+
+/** One lint result from the body's and the settings' findings. */
+function mergeLint(a: { errors: string[]; warnings: string[] }, b: { errors: string[]; warnings: string[] }) {
+  return { errors: [...a.errors, ...b.errors], warnings: [...a.warnings, ...b.warnings] };
 }
 
 function stringList(v: unknown): string[] {

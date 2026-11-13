@@ -8,15 +8,16 @@
  * the plugin loader (daemon/plugins/loader.ts) feeds it at startup — packages
  * load once, like sources, so there is no hot reload.
  *
- * Package personas are linted at registration: a warning is returned for the
+ * Package personas are linted at registration — the body and the frontmatter
+ * settings (`tools`, `skills`, `model`, `requires`): a warning is returned for the
  * package's load status, and an error marks the persona `lintError` but still
  * registers it — references resolve to it rather than silently falling back
  * ("Validation never refuses a source").
  */
 
 import { TEAM_PERSONA_ID_PATTERN, type Persona } from "../../shared/types.ts";
-import { parsePersonaFile } from "./library.ts";
-import { validatePersonaMarkdown } from "./lint.ts";
+import { parsePersonaFile, rawPersonaSettings } from "./library.ts";
+import { validatePersonaMarkdown, validatePersonaSettings } from "./lint.ts";
 
 /** One persona file a package ships: its id within the package and its raw text. */
 export interface PackagePersonaFile {
@@ -62,7 +63,9 @@ export class PackagePersonas {
       }
       const id = `${pkg.name}/${file.name}`;
       const persona = parsePersonaFile(id, file.raw, { kind: "package", name: pkg.name, identity: pkg.identity });
-      const lint = validatePersonaMarkdown(persona.content);
+      const body = validatePersonaMarkdown(persona.content);
+      const settings = validatePersonaSettings(rawPersonaSettings(file.raw));
+      const lint = { errors: [...body.errors, ...settings.errors], warnings: [...body.warnings, ...settings.warnings] };
       for (const w of lint.warnings) result.warnings.push(`persona ${id}: ${w}`);
       if (lint.errors.length > 0) {
         persona.lintError = lint.errors.join(" ");
