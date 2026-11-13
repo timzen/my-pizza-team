@@ -58,6 +58,7 @@ import {
   type LeaderDirective,
   type LeaderDirectivesResponse,
   type PairingPoll,
+  type PersonaSettings,
   type StatusResponse,
   type TranscriptBackfill,
   type TranscriptWatchResponse,
@@ -123,9 +124,10 @@ export interface AssistantMirrorResponse {
  * A persona from the daemon's library (`GET /api/personas`): how an agent
  * behaves, selected by id (my-pizza-team docs/DESIGN.md "Personas: One Library,
  * Selected by Reference"). Team ids are slugs; built-ins are `builtin:<name>`;
- * package personas are `<package>/<id>` and read-only.
+ * package personas are `<package>/<id>` and read-only. Carries the persona's
+ * harness settings (`tools`, `skills`, `model`, `requires`) when it has any.
  */
-export interface PersonaSummary {
+export interface PersonaSummary extends PersonaSettings {
   id: string;
   title: string;
   description: string;

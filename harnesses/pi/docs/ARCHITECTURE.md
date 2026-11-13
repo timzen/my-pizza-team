@@ -57,6 +57,8 @@ src/
 ├── wait-tool.ts          # WAIT_TOOL / setWaitToolActive: wait_for_next_check active only for a poll claim
 ├── persona-prompt.ts     # The claim's persona as the `teammate_persona` system-prompt section
 │                         #   (applyPersonaSection, personaSystemPromptText)
+├── persona-scope.ts      # The persona's tools/skills enforced: MPT_PROTOCOL_TOOLS, PersonaToolScope,
+│                         #   checkToolCall, filterSkills / checkSkillCommand, scopeProblems
 ├── permissions.ts        # Dynamic yoloMode toggling + ppt-autonomous authorizer chain link;
 │                         # also keeps the leader/chat agent unblockable on remote-driven runs
 ├── readiness.ts          # Host readiness probe (leader-run): exit 0 = ready, non-zero = not ready
@@ -160,6 +162,23 @@ index.ts writes it into every run's `systemPromptOptions.sections` as
 session never carries an earlier item's persona and Pi patches only that section
 (src/persona-prompt.ts; a Pi without sections gets it appended to the system
 prompt). A persona the daemon kept inline (`inline: true`) is not added again.
+
+**The persona's tools and skills.** The same persona's `tools` and `skills`
+(my-pizza-team docs/DESIGN.md "Persona settings") scope the run
+(src/persona-scope.ts). The loop reports each persona change
+(`onPersonaChange`: at claim, and null when the item ends), and every
+`before_agent_start` re-applies it (`applyPersonaScope`): `PersonaToolScope`
+sets the active tools to those the persona permits (allow, default all, minus
+deny) — remembering what it took away and putting it back once no policy is
+held — mirrors that into the run's `selectedTools`, and trims
+`systemPromptOptions.skills` to the persona's. A `tool_call` hook blocks
+anything else (`checkToolCall`; nested calls carry `parentToolCallId`) and an
+`input` hook refuses `/skill:<name>` for other skills (`checkSkillCommand`).
+`MPT_PROTOCOL_TOOLS` — every tool tools.ts registers — are never removed or
+blocked, and never added either (features.ts and wait-tool.ts own their
+presence). `scopeProblems` lists what can't be applied; the teammate posts it
+once per item on the thread (`reportScopeOnce`), the leader — scoped by the
+assistant persona (`ChatMirror.personaScope`) — notifies once per persona.
 
 **Poll states (`wait_for_next_check`).** A claim says `completion: "poll"` when the
 task's workflow state polls (my-pizza-team docs/DESIGN.md "Polling States"): each

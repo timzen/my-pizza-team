@@ -1756,6 +1756,20 @@ requires: { mcp: ["code-search"] }       # needed, checked — never started
   settings yields the same payload as before. *Why not enforce in the daemon:*
   the daemon never sees a tool call; only the harness can. How much of it a
   harness applies (and how it reports what it can't) is the harness's business.
+- **How Pi enforces `tools` and `skills`** (harnesses/pi/src/persona-scope.ts).
+  The persona *narrows* Pi's active tool set before every run and never widens
+  it; the tool calls it doesn't permit are blocked in `tool_call` too, because a
+  codemode-exposed tool is callable whether or not it is active (nested calls go
+  through `tool_call` like any other). MPT's protocol tools are exempt — one
+  list, `MPT_PROTOCOL_TOOLS` — so no persona can leave a teammate unable to
+  report, fail or wait; their presence stays with their own managers (feature
+  toggles, the poll-only wait tool). The tools a persona took away are put back
+  when no persona with a policy is held, and a persona change is computed from
+  that full set, so one item's scope never leaks into the next. Skills are
+  scoped by trimming the run's skill listing and refusing `/skill:<name>`; the
+  skill files are still on disk, so this scopes what is offered, not what can be
+  read. What can't be applied (a pattern matching nothing, an unloaded skill, a
+  denied protocol tool) is posted once on the work item's thread at claim.
 - **Linted like the body** ("Linting: one linter for every persona"): a wrong
   shape or a non-`*` pattern is an **error** (the save is refused; a package
   persona is marked `lintError`), and the bad field or pattern is left out of

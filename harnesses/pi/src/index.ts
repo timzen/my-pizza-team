@@ -29,6 +29,7 @@ import { readTerminalMetadata, registerTerminalFlags } from "./terminal.js";
 import { readTeammateFlag, registerTeammateFlags } from "./teammate-flag.js";
 import { setWaitToolActive } from "./wait-tool.js";
 import { applyPersonaSection, personaSystemPromptText } from "./persona-prompt.js";
+import { PersonaToolScope, applyPersonaScope, checkSkillCommand, checkToolCall, reportScopeOnce } from "./persona-scope.js";
 import { PERSONA_SYSTEM_PROMPT_CAPABILITY } from "./shared/agent-protocol.js";
 import { summarizeRun, hasUsage } from "./runtime/usage.js";
 import { readSessionStats, sameStats, type SessionStats } from "./runtime/session-stats.js";
@@ -329,9 +330,32 @@ async function setupTeammate(
   // an earlier item's persona (persona-prompt.ts; my-pizza-team docs/DESIGN.md
   // "The persona in the system prompt").
 
+  // The same persona's `tools` and `skills` scope the run (persona-scope.ts):
+  // the active tools and the skill listing are set here on every run — and put
+  // back once no persona with a policy is held — and what can't be applied as
+  // written is posted once on the item's thread.
+  const toolScope = new PersonaToolScope(pi);
+  const reportedScope = new Set<string>();
+  loop.onPersonaChange = (persona) => { toolScope.applyTools(persona?.tools); };
+
   pi.on("before_agent_start", async (event) => {
+    const persona = loop.persona;
+    const problems = applyPersonaScope(pi, toolScope, persona, event);
+    const workItemId = loop.currentTask;
+    if (workItemId) {
+      reportScopeOnce(reportedScope, workItemId, problems, (text) => {
+        debug(`[ppt-debug persona scope] ${text}`);
+        client.postComment(workItemId, text).catch(() => {});
+      });
+    }
     return applyPersonaSection(event, personaSystemPromptText(loop.persona));
   });
+
+  // Defence in depth: a tool the persona doesn't permit is refused even when it
+  // is called anyway — by name, or from another tool (codemode) — and so is
+  // `/skill:<name>` for a skill outside its list.
+  pi.on("tool_call", async (event) => checkToolCall(loop.persona, event as { toolName: string; parentToolCallId?: string }));
+  pi.on("input", async (event) => checkSkillCommand(loop.persona, event.text));
 
   // ─── agent_start: track loop activity ──────────────────────────
   // Also marks the run that picks up a work prompt as that WorkItem's own run,

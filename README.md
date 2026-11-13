@@ -635,8 +635,8 @@ customize it. A reference that no longer resolves never fails a run: it falls ba
 to the built-in and the daemon logs it. A persona may also set optional,
 harness-neutral **settings** in its frontmatter — `tools` (`allow`/`deny`, `*`
 patterns), `skills`, a `model` alias, and `requires.mcp` — which the daemon passes to
-the teammate's harness with the persona (enforcement depends on the harness; see
-docs/guide/06-personas.md). Saving a persona lints it (an unclosed code fence or a
+the teammate's harness with the persona (enforcement depends on the harness — the
+Pi harness enforces `tools` and `skills`; see docs/guide/06-personas.md). Saving a persona lints it (an unclosed code fence or a
 malformed setting is refused). See `/api/personas` and
 [docs/DESIGN.md](docs/DESIGN.md#personas-one-library-selected-by-reference).
 
@@ -836,6 +836,14 @@ the team's terminal — its version and whether its server is running (for herdr
 the session) — and warns when the daemon talks to a different tmux (or herdr) server
 than your shell (its windows would open where `tmux attach -t mpt` or `herdr`
 doesn't look).
+
+A persona's `tools` and `skills` settings are enforced here, for teammates and the
+assistant alike: only the tools the persona allows (minus those it denies) are offered
+to the model, a call to any other — even one made from codemode — is refused with a
+reason naming the persona, and only its skills are listed (`/skill:<name>` for another
+is refused). MPT's own tools (`fail`, `upload_attachment`, …) always stay available,
+and the full tool set comes back when the work item ends. What can't be applied — say,
+a `tools.allow` pattern that matches no tool — is posted once on the work item's thread.
 
 Recommended: `@gotgenes/pi-permission-system`, which lets teammates work
 autonomously. Without it they stop at the first permission prompt (the extension

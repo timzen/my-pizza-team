@@ -54,7 +54,25 @@ requires: { mcp: ["code-search"] }
 
 How much of this is enforced **depends on the teammate's harness** — MPT passes the
 settings along with the persona, and each harness applies what it supports — so treat
-them as guardrails, not a sandbox.
+them as guardrails, not a sandbox. Other harnesses may apply none of them.
+
+**On Pi** (teammates and the assistant), `tools` and `skills` are enforced:
+
+- The model is offered only the tools the persona allows, minus those it denies; a
+  persona narrows the tools, it never turns on one that was off. A call to any other
+  tool — also one made from inside another tool, like codemode — is refused with a
+  reason naming the persona.
+- **MPT's own tools always stay**, whatever the persona says: a teammate can always
+  attach a file, fail an item, propose work or wait (and the assistant keeps its
+  story, task and thought tools). Denying one is reported and ignored.
+- Only the persona's skills are listed in the system prompt, and `/skill:<name>` for
+  another skill is refused. The skill files themselves aren't hidden, so this scopes
+  what's offered rather than locking files away.
+- When the work item ends, the full tool set comes back for the next one.
+- Anything that can't be applied as written — a pattern that matches no tool, a skill
+  that isn't installed — is posted once as a comment on the work item's thread when
+  the teammate picks it up, e.g. `persona reviewer: tools.allow pattern 'foo*' matched
+  no tools` (the assistant shows it as a warning in its window instead).
 Saving checks them: a wrong shape (say, `skills: code-review` instead of a list) or a
 pattern with `?`, `[]` or `{}` is refused; a deny that cancels an allowed tool, or an
 empty allow list (no tools at all — only possible in the file), is saved with a

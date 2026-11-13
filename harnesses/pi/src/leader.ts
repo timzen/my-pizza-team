@@ -19,6 +19,8 @@
 //   4. Show status widget with team progress
 //   5. Mirror the daemon's chat into this Pi session and back (ChatMirror),
 //      including its own new-session/resume-session self-directives
+//   6. Scope its tools and skills by the assistant persona's settings
+//      (persona-scope.ts), its own tools always kept
 
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -27,6 +29,7 @@ import { isLeaderAlreadyConnected, type DaemonClient } from "./runtime/client.js
 import { ALL_FEATURES_ON, type Features, featuresFromStatus } from "./shared/agent-protocol.js";
 import { registerLeaderTools } from "./tools.js";
 import { applyFeatureTools, featurePromptNote } from "./features.js";
+import { PersonaToolScope, applyPersonaScope, checkSkillCommand, checkToolCall, reportScopeOnce } from "./persona-scope.js";
 import { summarizeRun, hasUsage } from "./runtime/usage.js";
 import { LEADER_WINDOW } from "./shared/types.js";
 import { readTerminalMetadata } from "./terminal.js";
@@ -293,13 +296,27 @@ export async function setupLeader(
   // to the next run with no restart or session reset.
   // Also the per-run feature refresh: the tool set and a note naming the kinds
   // that are off (features.ts featurePromptNote).
+  // The assistant persona's `tools` and `skills` scope its runs too
+  // (persona-scope.ts), applied after the feature toggles; MPT's own tools are
+  // never removed. What can't be applied is said once per persona, here.
+  const toolScope = new PersonaToolScope(pi);
+  const reportedScope = new Set<string>();
   pi.on("before_agent_start", async (event) => {
     await chat.refreshPersona();
     await syncFeatures();
+    const problems = applyPersonaScope(pi, toolScope, chat.personaScope, event);
+    reportScopeOnce(reportedScope, chat.personaScope?.id ?? "", problems, (text) => {
+      if (ctx.hasUI) ctx.ui.notify(`🍕 ${text}`, "warning");
+    });
     const extra = [chat.persona, featurePromptNote(features)].filter(Boolean);
     if (extra.length === 0) return;
     return { systemPrompt: `${event.systemPrompt}\n\n${extra.join("\n\n")}` };
   });
+
+  // Defence in depth for the persona's scope: refuse a tool it doesn't permit
+  // (also when another tool calls it) and `/skill:<name>` outside its skills.
+  pi.on("tool_call", async (event) => checkToolCall(chat.personaScope, event as { toolName: string; parentToolCallId?: string }));
+  pi.on("input", async (event) => checkSkillCommand(chat.personaScope, event.text));
 
   // Report the Pi session backing the chat so a conversation can be resumed.
   await chat.reportSession(ctx.sessionManager?.getSessionFile?.() ?? null);

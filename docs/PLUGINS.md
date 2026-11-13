@@ -454,7 +454,7 @@ You review the diff …
 - **`model`** — a model *alias* (like `strong` or `fast`) that each team maps to a real model in its config, so the package doesn't hard-code a provider. Absent: the harness's default.
 - **`requires.mcp`** — MCP servers the persona's work needs. They are checked and reported when missing, never started.
 
-Block style works too (`tools:` then indented `allow: [...]` or `- item` lines). Enforcement is up to the teammate's harness, so treat the settings as guardrails a harness may apply, not a sandbox. `mpt plugins doctor` checks them: ✗ for a wrong shape (`skills: code-review` instead of a list) or a pattern using `?`, `[]` or `{}`; ⚠ for a `deny` that cancels an `allow` entry, an empty `allow`, or an unknown key.
+Block style works too (`tools:` then indented `allow: [...]` or `- item` lines). Enforcement is up to the teammate's harness, so treat the settings as guardrails a harness may apply, not a sandbox. The Pi harness enforces `tools` and `skills` (MPT's own protocol tools always stay available; see docs/guide/06-personas.md); other harnesses may not. `mpt plugins doctor` checks them: ✗ for a wrong shape (`skills: code-review` instead of a list) or a pattern using `?`, `[]` or `{}`; ⚠ for a `deny` that cancels an `allow` entry, an empty `allow`, or an unknown key.
 
 ### Manifest
 

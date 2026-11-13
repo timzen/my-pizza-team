@@ -35,6 +35,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { DaemonClient } from "./runtime/client.js";
 import { splitIntoBubbles } from "./runtime/bubbles.js";
+import type { ScopedPersona } from "./persona-scope.js";
 
 const INBOX_POLL_INTERVAL_MS = 1000;
 /** Reasoning deltas are coalesced into one POST per window to spare the daemon. */
@@ -48,6 +49,8 @@ export class ChatMirror {
 
   /** Active persona's system-prompt text (null = fall back to Pi's own prompt). */
   private personaContent: string | null = null;
+  /** The assistant persona's id and tool/skill scope (null until first fetched). */
+  private personaScopeValue: ScopedPersona | null = null;
 
   /** Whether the daemon has designated us as the chat agent. */
 
@@ -123,6 +126,15 @@ export class ChatMirror {
   }
 
   /**
+   * The assistant persona's id with its `tools` / `skills` settings (absent
+   * when it has none), or null when unknown. The leader scopes its tools and
+   * skills by it (persona-scope.ts).
+   */
+  get personaScope(): ScopedPersona | null {
+    return this.personaScopeValue;
+  }
+
+  /**
    * Refresh the cached persona from the daemon (best-effort). Called from the
    * leader's `before_agent_start` hook so a persona
    * change shapes the very next run's system prompt (agent_start fires too late).
@@ -133,6 +145,9 @@ export class ChatMirror {
       // `systemPrompt` is the effective prompt: chat framing + the selected
       // persona's body (or the daemon's default assistant persona).
       this.personaContent = res.systemPrompt || null;
+      // The persona it resolves to (absent from an older daemon: no scope).
+      const p = res.persona;
+      this.personaScopeValue = p ? { id: p.id, tools: p.tools, skills: p.skills } : null;
     } catch {
       // Keep the last known persona if the daemon is briefly unreachable.
     }

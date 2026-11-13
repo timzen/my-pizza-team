@@ -16,7 +16,9 @@
  *     task advancing to the workflow's next state when the run ends;
  *   - usage (tokens and the fake cost) landing on the ledger for both runs;
  *   - the teammate's request carrying the state's persona in its system prompt
- *     (not in the work prompt), and MPT's teammate tools.
+ *     (not in the work prompt), and MPT's teammate tools;
+ *   - the persona's `tools` policy narrowing the declared tools (MPT's kept), and
+ *     a pattern that matches nothing reported once on the item's thread.
  */
 
 import * as fs from "node:fs";
@@ -83,7 +85,12 @@ test("a scripted Pi leads and works a board task end to end, with no model", { s
   assert(answered, `no scripted reply in the chat:\n${JSON.stringify((await chat()).messages)}\n${await pane(sb, "leader")}`);
 
   // ─── A teammate: claims a board task, calls a tool, completes it ───
-  const persona = await send<{ persona: { id: string } }>(sb, "/api/personas", { id: "scripted-implementer", title: "Scripted implementer", content: PERSONA });
+  const persona = await send<{ persona: { id: string } }>(sb, "/api/personas", {
+    id: "scripted-implementer", title: "Scripted implementer", content: PERSONA,
+    // Scopes the teammate's tools (harnesses/pi/src/persona-scope.ts): only `read`
+    // plus MPT's own tools; the pattern matching nothing is reported on the thread.
+    tools: { allow: ["read", "nomatch*"] },
+  });
   assertEquals(persona.status, 201, JSON.stringify(persona.body));
   const wf = await send(sb, "/api/workflows/default/states/in_progress", { persona: "scripted-implementer" }, "PUT");
   assertEquals(wf.status, 200, JSON.stringify(wf.body));
@@ -150,6 +157,14 @@ test("a scripted Pi leads and works a board task end to end, with no model", { s
   for (const tool of ["upload_attachment", "fail", "propose_work"]) {
     assert(workReqs[0]!.tools.includes(tool), `teammate tools lack ${tool}: ${workReqs[0]!.tools.join(", ")}`);
   }
+  // The persona's tool policy: `read` and MPT's tools are declared, Pi's other
+  // built-ins are not, and the unmatched pattern got one comment on the thread.
+  for (const req of workReqs) {
+    assert(req.tools.includes("read"), `read missing: ${req.tools.join(", ")}`);
+    for (const tool of ["bash", "edit", "write"]) assert(!req.tools.includes(tool), `${tool} offered despite the persona: ${req.tools.join(", ")}`);
+  }
+  const scopeNotes = bodies.filter((b) => b.includes("persona scripted-implementer: tools.allow pattern 'nomatch*' matched no tools"));
+  assertEquals(scopeNotes.length, 1, bodies.join("\n"));
   // The second turn saw the tool's result.
   assert(workReqs[1]!.messages.some((m) => m.role === "toolResult"), JSON.stringify(workReqs[1]!.messages));
 

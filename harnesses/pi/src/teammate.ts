@@ -117,6 +117,14 @@ export class TeammateLoop {
    */
   public onClaimCompletion: ((completion: "once" | "poll") => void) | null = null;
 
+  /**
+   * Called when the held persona changes: at each claim (its persona, or null)
+   * and when the item ends (null). Wired by setupTeammate to apply the
+   * persona's tool scope at once and restore the full tool set after the item
+   * (persona-scope.ts); before_agent_start re-applies it on every run anyway.
+   */
+  public onPersonaChange: ((persona: ClaimPersona | null) => void) | null = null;
+
   /** Called when the agent is dismissed from the UI */
   public onDismissed: (() => void) | null = null;
 
@@ -382,6 +390,7 @@ export class TeammateLoop {
         this.currentWorkItemId = response.workItem.id;
         // Its persona replaces any earlier item's (absent from an older daemon: none).
         this.heldPersona = claim.persona ? { workItemId: response.workItem.id, persona: claim.persona } : null;
+        this.onPersonaChange?.(this.persona);
         this.onClaimCompletion?.(claim.completion === "poll" ? "poll" : "once");
         this.client.heartbeat("working", response.workItem.id).catch(() => {});
 
@@ -521,6 +530,7 @@ export class TeammateLoop {
     // The item is over: its persona must not reach the next run (the fresh
     // session request, a retry's claim, a resume) — see the header note.
     this.heldPersona = null;
+    this.onPersonaChange?.(null);
     this.requestFreshSession?.();
     this.schedulePoll();
   }
