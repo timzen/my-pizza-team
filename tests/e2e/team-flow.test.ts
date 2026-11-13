@@ -23,7 +23,8 @@
  *      releases the next), DEMO-1 and DEMO-2 (worked: the tracker marks them
  *      done), DEMO-3 (triage mode: a propose_work call, pending on its Triage tab;
  *      the issue stays open). The pending story and the Solitary task never run.
- *   6. Each run's prompt carried its persona (the request log).
+ *   6. Each run's system prompt carried its persona, and only its own; the work
+ *      prompt carried none (the request log).
  *
  * Isolation: the sandbox's private tmux server, and for herdr its own config dir
  * and session (tests/e2e/_herdr.ts). Skips only where tmux / herdr, or
@@ -66,7 +67,8 @@ function teammateScript(gate: string, projectDir: string) {
     teammate: [
       {
         name: "triage",
-        contains: "## Your Role: Triage",
+        // The Pi teammate gets its persona in the system prompt, not the work prompt.
+        system: "## Your Role: Triage",
         turns: [
           gateCall,
           {
@@ -162,22 +164,29 @@ for (const terminal of ["tmux", "herdr"] as const) {
       assertEquals(items.filter((i) => i.ref.workDefId === id).length, 0, `${id} ran`);
     }
 
-    // ─── Each run's prompt carried its persona ────────────────────────
+    // ─── Each run's system prompt carried its persona ─────────────────
     // (And the gate really ran: a bash tool result, not a tool error the run raced past.)
     const gateResults = readRequestLog(log).filter((r) => r.role === "teammate" && r.turn === 1)
       .map((r) => r.messages.findLast((m) => m.role === "toolResult")?.text ?? "");
     assert(gateResults.length === 6 && gateResults.every((t) => t.includes("gate open")), JSON.stringify(gateResults));
-    const prompts = readRequestLog(log)
+    // The Pi teammate gets the persona in its system prompt (a section, one item at
+    // a time) and not in the work prompt; every run has its own, none an earlier one's.
+    const runs = readRequestLog(log)
       .filter((r) => r.role === "teammate" && r.turn === 0)
-      .map((r) => r.messages.findLast((m) => m.role === "user")!.text);
+      .map((r) => ({ prompt: r.messages.findLast((m) => m.role === "user")!.text, system: r.systemPrompt }));
+    const personaTexts = [...new Set(Object.values(EXPECTED_PERSONA).map(([, text]) => text))];
     for (const [def, [, text]] of Object.entries(EXPECTED_PERSONA)) {
       const item = items.find((i) => i.ref.workDefId === def && i.state === "COMPLETE");
       assert(item, `no COMPLETE run of ${def}: ${JSON.stringify(items.filter((i) => i.ref.workDefId === def))}`);
       assertEquals((await itemPersona(a, item.id))?.[0], EXPECTED_PERSONA[def]![0], `${def}'s recorded persona`);
       const title = String(item.title).replace(/^Triage: /, "");
-      const prompt = prompts.find((p) => p.includes(title));
-      assert(prompt, `no logged prompt for ${def} ("${title}")`);
-      assertStringIncludes(prompt, text);
+      const run = runs.find((r) => r.prompt.includes(title));
+      assert(run, `no logged prompt for ${def} ("${title}")`);
+      assertStringIncludes(run.system, text);
+      assert(!run.prompt.includes("## Your Role") && !run.prompt.includes(text), `${def}'s work prompt still carries the role`);
+      for (const other of personaTexts.filter((t) => t !== text)) {
+        assert(!run.system.includes(other), `${def}'s system prompt carries another item's persona: ${other}`);
+      }
     }
 
     const seconds = (Date.now() - started) / 1000;

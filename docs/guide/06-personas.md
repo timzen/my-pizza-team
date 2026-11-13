@@ -45,6 +45,17 @@ Story tasks get their persona from the workflow step they're in (see
 [State personas](02-stories-and-workflows.md#state-personas)). For the assistant, see
 [Assistant personas](04-assistant.md#assistant-personas).
 
+## How a teammate gets its persona
+
+A Pi teammate gets the persona in its **system prompt**, as its own section, for
+exactly the work item it was picked for: the work prompt itself then starts with
+the story or the task, not **Your Role**. That keeps the role in force for a whole
+run (a long conversation's older messages can be summarized away; the system
+prompt isn't) and it never carries over to the teammate's next item. Other
+teammates (`mpt agent`) still get it at the top of the work prompt, as **Your
+Role** — the same words either way. When you watch a Pi teammate, its transcript
+starts at the work prompt; the persona chip says which persona it's using.
+
 ## Seeing who's working how
 
 While a teammate works, a ✦ **persona chip** shows the persona it was given — on its

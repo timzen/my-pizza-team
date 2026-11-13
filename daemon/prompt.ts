@@ -15,6 +15,11 @@
  * "Reference Context" section went with the context library; the persona
  * migration inlined its text into Additional Context — docs/DESIGN.md "Personas".)
  *
+ * The persona's role block (`renderRoleBlock`, `renderTriageRoleBlock`) is left
+ * out for a harness that puts it in its system prompt instead (the claim's
+ * `persona`; docs/DESIGN.md "The persona in the system prompt"). Every other
+ * harness gets the prompt byte-identical to before.
+ *
  * There are no transition instructions: teammates never move work (see
  * docs/DESIGN.md "The Work Model") — completing the work advances its story task
  * mechanically (or, for standalone work, just records the outcome). A poll
@@ -99,6 +104,12 @@ export interface WorkDefPromptInput {
    * checks did; `checks` is how many have ended with wait so far.
    */
   poll?: { since?: string; checks: number };
+  /**
+   * Whether the role block (section 1) is in the prompt. Default true. False for
+   * a harness that declared `persona-system-prompt` (shared/agent-protocol.ts):
+   * it gets the block in the claim's `persona` and puts it in its system prompt.
+   */
+  inlinePersona?: boolean;
 }
 
 /** Comment authors that are the human (see WorkDefPromptInput.comments). */
@@ -118,6 +129,46 @@ export const POLL_CHECK_CONTRACT =
   "Each run is one check; read the thread for what earlier checks did; post what you did; " +
   "finish with done when complete, wait if it isn't yet, fail if it can't be done.";
 
+/**
+ * The one-line framing a board state's role block uses when the state names no
+ * persona.
+ */
+export function stateFraming(state: string): string {
+  return `You are working in the '${state}' state of this story's workflow.`;
+}
+
+/**
+ * The role block that opens a work prompt (`## Your Role: <state>` for board
+ * work, else `## Your Role` when there's a persona), with its trailing blank
+ * line; empty when there is none. `buildWorkDefPrompt` inlines it; the claim's
+ * `persona.prompt` is the same text for a harness that puts it in its system
+ * prompt instead (docs/DESIGN.md "The persona in the system prompt").
+ */
+export function renderRoleBlock(input: { state?: string; persona?: string }): string {
+  const { state, persona } = input;
+  if (state) {
+    return `## Your Role: ${state}\n\n` + (persona?.trim()
+      ? `${normalizeInstructionMarkdown(persona, 3)}\n\n`
+      : `${stateFraming(state)}\n\n`);
+  }
+  if (persona?.trim()) return `## Your Role\n\n${normalizeInstructionMarkdown(persona.trim(), 3)}\n\n`;
+  return "";
+}
+
+/**
+ * The role block that opens every triage prompt (`## Your Role: Triage` plus the
+ * triage persona's body, or the built-in instructions), with its trailing blank line.
+ */
+export function renderTriageRoleBlock(instructions?: string): string {
+  return "## Your Role: Triage\n\n" +
+    `${normalizeInstructionMarkdown((instructions ?? DEFAULT_TRIAGE_INSTRUCTIONS).trim(), 3)}\n\n`;
+}
+
+/**
+ * Build the complete prompt an agent gets on claim (see the file header for the
+ * section order). `inlinePersona: false` leaves the role block out, for a harness
+ * that applies the persona itself.
+ */
 export function buildWorkDefPrompt(input: WorkDefPromptInput): string {
   const { workDef, story, state, persona, comments, poll } = input;
   const directory = workDef.directory || story?.directory;
@@ -127,14 +178,9 @@ export function buildWorkDefPrompt(input: WorkDefPromptInput): string {
   //    because it frames how everything after it should be approached. Board
   //    work always gets the block (the one-line state framing when its state
   //    names no persona); other work only when it has a persona.
-  if (state) {
-    out += `## Your Role: ${state}\n\n`;
-    out += persona?.trim()
-      ? `${normalizeInstructionMarkdown(persona, 3)}\n\n`
-      : `You are working in the '${state}' state of this story's workflow.\n\n`;
-  } else if (persona?.trim()) {
-    out += `## Your Role\n\n${normalizeInstructionMarkdown(persona.trim(), 3)}\n\n`;
-  }
+  //    Left out when the harness puts it in its system prompt instead
+  //    (`inlinePersona: false`; the claim's `persona` carries the same block).
+  if (input.inlinePersona !== false) out += renderRoleBlock({ state, persona });
 
   // 2. Story (board work only) — the bigger picture.
   if (story) {
@@ -341,8 +387,7 @@ export function buildExternalTriagePrompt(input: ExternalTriagePromptInput): str
 /** The shared body of every triage prompt (see `TriageSubject`). */
 function renderTriagePrompt(subject: TriageSubject, common: TriagePromptCommon): string {
   const { instructions, stories, priorComments, priorDecisions } = common;
-  let out = "## Your Role: Triage\n\n";
-  out += `${normalizeInstructionMarkdown((instructions ?? DEFAULT_TRIAGE_INSTRUCTIONS).trim(), 3)}\n\n`;
+  let out = renderTriageRoleBlock(instructions);
   if (subject.preamble) out += `${subject.preamble}\n\n`;
 
   out += `## ${subject.heading}\n\n`;

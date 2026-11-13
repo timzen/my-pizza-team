@@ -15,8 +15,8 @@
  *   - a teammate spawning, claiming a board task, calling an MPT tool for it, and the
  *     task advancing to the workflow's next state when the run ends;
  *   - usage (tokens and the fake cost) landing on the ledger for both runs;
- *   - the teammate's request carrying the state framing and the persona, and MPT's
- *     teammate tools.
+ *   - the teammate's request carrying the state's persona in its system prompt
+ *     (not in the work prompt), and MPT's teammate tools.
  */
 
 import * as fs from "node:fs";
@@ -136,8 +136,15 @@ test("a scripted Pi leads and works a board task end to end, with no model", { s
   const workReqs = requests.filter((r) => r.role === "teammate" && r.rule === "work");
   assertEquals(workReqs.map((r) => r.turn), [0, 1], "the work rule played its two turns in order");
   const prompt = workReqs[0]!.messages.findLast((m) => m.role === "user")!.text;
-  assertStringIncludes(prompt, "## Your Role: in_progress");
-  assertStringIncludes(prompt, "PERSONA-MARKER-7f3a");
+  // The persona is in the system prompt (the Pi harness declares
+  // `persona-system-prompt`), and only there: not in the work prompt.
+  for (const req of workReqs) {
+    assertStringIncludes(req.systemPrompt, "## Your Role: in_progress");
+    assertStringIncludes(req.systemPrompt, "PERSONA-MARKER-7f3a");
+  }
+  assert(!prompt.includes("## Your Role"), `the work prompt still carries the role:\n${prompt}`);
+  assert(!workReqs[0]!.messages.some((m) => m.text.includes("PERSONA-MARKER-7f3a")), "the persona leaked into a message");
+  assert(prompt.startsWith("## Story: Scripted story"), prompt);
   assertStringIncludes(prompt, "## Story: Scripted story");
   assertStringIncludes(prompt, "## Task: Bake the pizza");
   for (const tool of ["upload_attachment", "fail", "propose_work"]) {

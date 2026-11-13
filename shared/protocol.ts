@@ -23,9 +23,9 @@ import type {
   StatusResponse as AgentStatusResponse,
 } from "./agent-protocol.ts";
 
-export { LEADER_ALREADY_CONNECTED, PROTOCOL_VERSION } from "./agent-protocol.ts";
+export { LEADER_ALREADY_CONNECTED, PERSONA_SYSTEM_PROMPT_CAPABILITY, PROTOCOL_VERSION } from "./agent-protocol.ts";
 export type {
-  AgentClaimResponse, AgentNextWorkResponse, AgentSetWorkItemStateResponse, AssistantDelivery, AssistantInboxItem,
+  AgentCapability, AgentClaimResponse, ClaimPersona, AgentNextWorkResponse, AgentSetWorkItemStateResponse, AssistantDelivery, AssistantInboxItem,
   AssistantInboxResponse, AssistantOrigin, CreateLeaderDirectiveResponse, LeaderDirective, LeaderDirectivesResponse,
   PairingPoll, PairingReleaseAction, TranscriptBackfill, TranscriptWatchResponse,
 } from "./agent-protocol.ts";
@@ -414,6 +414,13 @@ export interface AgentRegisterRequest {
   harness?: HarnessKind;
   /** The harness integration's own build version. Informational only. */
   harnessVersion?: string;
+  /** Per-process id, so a process re-registering is told from another. */
+  instanceId?: string;
+  /**
+   * What this harness does itself (agent-protocol.ts `AgentCapability`, e.g.
+   * `persona-system-prompt`). Unknown values are ignored; absent = none.
+   */
+  capabilities?: string[];
 }
 /** The registration reply (agent-protocol.ts), with the daemon's workflow config type. */
 export type AgentRegisterResponse = AgentRegisterResponseOf<WorkflowConfig>;

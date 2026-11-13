@@ -214,6 +214,59 @@ export interface AgentClaimResponse {
    * Additive: absent from an older daemon, which means `once`.
    */
   completion?: "once" | "poll";
+  /**
+   * The role this run is worked in (docs/DESIGN.md "The persona in the system
+   * prompt"): null when the work has none (a Solitary task with no persona).
+   * Additive: absent from an older daemon, whose prompt always carries the role.
+   */
+  persona?: ClaimPersona | null;
+}
+
+/**
+ * The capability a harness declares at registration (`capabilities` in the
+ * POST /api/agents/register body) when it applies the claim's `persona` itself
+ * — in its system prompt — so the daemon leaves the role block out of `prompt`
+ * (docs/DESIGN.md "The persona in the system prompt"). A harness that doesn't
+ * declare it gets the role inline, byte-identical to before. Additive both ways:
+ * an older daemon ignores the field and sends no `persona`, so the role stays in
+ * its prompt and the harness has nothing to add.
+ */
+export const PERSONA_SYSTEM_PROMPT_CAPABILITY = "persona-system-prompt";
+
+/** Every capability a harness may declare at registration. */
+export type AgentCapability = typeof PERSONA_SYSTEM_PROMPT_CAPABILITY;
+
+/**
+ * A claim's persona, resolved by the daemon (the same one the WorkItem records
+ * as its in-flight persona).
+ */
+export interface ClaimPersona {
+  /**
+   * The resolved persona's id (a team id, `builtin:*`, or `<package>/<id>`); null
+   * when a board state names no persona and its one-line framing stands in.
+   */
+  id: string | null;
+  /** The persona's title; null with `id`. */
+  title: string | null;
+  /** The persona's body (raw markdown); null with `id`. */
+  body: string | null;
+  /** Board work: the workflow state being worked. */
+  state?: string;
+  /** Board work whose state names no persona: the one-line framing used instead. */
+  stateFraming?: string;
+  /**
+   * The role block as the daemon renders it for the inline prompt (`## Your
+   * Role…` plus the normalized body, trimmed): what a harness puts in its
+   * system prompt, so every harness gives the model the same words.
+   */
+  prompt: string;
+  /**
+   * True when the role block is in the claim's `prompt` anyway — the harness
+   * didn't declare `PERSONA_SYSTEM_PROMPT_CAPABILITY`, or a Work Source's prompt
+   * hook kept it — so the harness must not add it again. False: the harness
+   * owns it (system prompt) for this run.
+   */
+  inline: boolean;
 }
 
 /**

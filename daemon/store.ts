@@ -103,6 +103,7 @@ import { ThreadStore, type AttachmentInfo } from "./store/threads.ts";
 import { BoardStore, type TaskWithMeta, type WorkflowUsage } from "./store/board.ts";
 import { TriageStore, type AcceptProposalOptions, type ProposalResult, type TriageThread } from "./store/triage.ts";
 import { PersonaStore } from "./store/personas.ts";
+import { renderRoleBlock, renderTriageRoleBlock } from "./prompt.ts";
 import { ThoughtStore } from "./store/thoughts.ts";
 import { recordUsage, dailyUsage, runsOnDay, syncUsageLedger, type UsageEntry, type UsageDay, type UsageRun } from "./store/usage.ts";
 import * as path from "node:path";
@@ -939,10 +940,13 @@ export class Store {
     name: string,
     directory?: string,
     metadata: Record<string, unknown> = {},
-    handshake?: { protocolVersion?: number; harness?: string; harnessVersion?: string; instanceId?: string },
+    handshake?: { protocolVersion?: number; harness?: string; harnessVersion?: string; instanceId?: string; capabilities?: string[] },
   ): void {
     this.members.registerMember(id, name, directory, metadata, handshake);
   }
+
+  /** Did this agent's harness declare `capability` at registration? See `MemberStore.hasCapability`. */
+  memberHasCapability(id: string, capability: string): boolean { return this.members.hasCapability(id, capability); }
 
   /** The live leader a leader registration would collide with, or null; see `MemberStore.leaderRegistrationConflict`. */
   leaderRegistrationConflict(id: string, name: string, instanceId?: string): Member | null {
@@ -1728,6 +1732,27 @@ export class Store {
     if (this.isTriageModeMirror(def)) return this.externalTriage.buildPrompt(def, (persona ?? this.resolveMirrorPersona(def))?.body);
     const src = this.sources.forWorkDef(def);
     return src?.source.buildPrompt ? src.source.buildPrompt(def, base, src.ctx) : base;
+  }
+
+  /**
+   * The role block a claim prompt for `def` opens with — the same text
+   * `buildPromptFor` puts first — and, for board work, the state it frames.
+   * `block` is empty when there is none (a Solitary task with no persona). The
+   * claim route uses it to move the role into a capable harness's system prompt
+   * (docs/DESIGN.md "The persona in the system prompt"); `persona` is the
+   * claim's resolved persona, as for `buildPromptFor`.
+   */
+  claimRoleFor(def: WorkDef, persona: ResolvedPersona | null): { block: string; state?: string } {
+    // Same order as buildPromptFor: a triage-mode mirror first, then its source's prompt.
+    if (this.isTriageModeMirror(def)) return { block: renderTriageRoleBlock((persona ?? this.resolveMirrorPersona(def))?.body) };
+    if (def.parent?.kind === "thought") return { block: renderTriageRoleBlock(this.getTriageInstructions()) };
+    const task = def.parent?.kind === "story" ? this.getTask(def.id) : null;
+    if (task) {
+      // Board work: StorySource.buildPrompt's state persona (none = the one-line framing).
+      const workflow = this.getStory(task.storyId)?.workflow;
+      return { state: task.status, block: renderRoleBlock({ state: task.status, persona: this.getStatePersona(workflow, task.status) }) };
+    }
+    return { block: renderRoleBlock({ persona: persona?.body }) };
   }
 
   /**

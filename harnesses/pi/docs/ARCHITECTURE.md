@@ -55,6 +55,8 @@ src/
 ├── features.ts           # Feature toggles: which leader tools each kind owns (FEATURE_TOOLS),
 │                         #   applyFeatureTools (pi.setActiveTools), featurePromptNote
 ├── wait-tool.ts          # WAIT_TOOL / setWaitToolActive: wait_for_next_check active only for a poll claim
+├── persona-prompt.ts     # The claim's persona as the `teammate_persona` system-prompt section
+│                         #   (applyPersonaSection, personaSystemPromptText)
 ├── permissions.ts        # Dynamic yoloMode toggling + ppt-autonomous authorizer chain link;
 │                         # also keeps the leader/chat agent unblockable on remote-driven runs
 ├── readiness.ts          # Host readiness probe (leader-run): exit 0 = ready, non-zero = not ready
@@ -145,6 +147,19 @@ sources") — posts its analysis with `propose_work` (src/tools.ts → `client.p
 (`proposals`/`nothing`/`question`), and structured proposals. The daemon validates and
 returns a message the agent can act on, so a malformed proposal is a retry rather than
 a broken thread. The tool creates nothing — accepting is the author's decision.
+
+**The persona, in the system prompt.** The teammate registers with
+`capabilities: ["persona-system-prompt"]`, so the daemon leaves the `## Your Role`
+block out of the work prompt and sends the claim's `persona` instead
+(my-pizza-team docs/DESIGN.md "The persona in the system prompt"). The loop holds
+it for exactly the claimed item (`TeammateLoop.persona` / `personaId`): set on
+claim, replaced by the next claim, dropped whenever the item ends (complete, fail,
+wait, a session error's retry) and on stop. A `before_agent_start` hook in
+index.ts writes it into every run's `systemPromptOptions.sections` as
+`teammate_persona`, or deletes that section when nothing is held, so a reused
+session never carries an earlier item's persona and Pi patches only that section
+(src/persona-prompt.ts; a Pi without sections gets it appended to the system
+prompt). A persona the daemon kept inline (`inline: true`) is not added again.
 
 **Poll states (`wait_for_next_check`).** A claim says `completion: "poll"` when the
 task's workflow state polls (my-pizza-team docs/DESIGN.md "Polling States"): each

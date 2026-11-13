@@ -145,6 +145,13 @@ export class MemberStore {
    */
   private instanceIds = new Map<string, string>();
   /**
+   * What each registered agent's harness said it does itself (`capabilities` at
+   * registration, e.g. `persona-system-prompt`; shared/agent-protocol.ts). In
+   * memory only, like `instanceIds`: a restarted daemon hears them again when
+   * the agent re-registers. No entry = none (an older harness).
+   */
+  private capabilities = new Map<string, Set<string>>();
+  /**
    * Ids explicitly dismissed by a human (tombstones). A dismissed id's next
    * heartbeat is told to shut down; an unknown-but-not-dismissed id is told to
    * re-register. In-memory only — a daemon restart clears it (and also wipes
@@ -189,7 +196,7 @@ export class MemberStore {
     name: string,
     directory?: string,
     metadata: Record<string, unknown> = {},
-    handshake?: { protocolVersion?: number; harness?: string; harnessVersion?: string; instanceId?: string },
+    handshake?: { protocolVersion?: number; harness?: string; harnessVersion?: string; instanceId?: string; capabilities?: string[] },
   ): void {
     // (Re)registering clears any dismiss tombstone for this id.
     this.dismissedIds.delete(id);
@@ -198,6 +205,9 @@ export class MemberStore {
     this.sessionStats.delete(id);
     if (handshake?.instanceId) this.instanceIds.set(id, handshake.instanceId);
     else this.instanceIds.delete(id);
+    // A registration states the harness's capabilities afresh (none = none).
+    if (handshake?.capabilities?.length) this.capabilities.set(id, new Set(handshake.capabilities));
+    else this.capabilities.delete(id);
     this.db.prepare(
       `INSERT OR REPLACE INTO members (id, name, directory, metadata, protocol_version, harness, harness_version, status, last_heartbeat)
        VALUES (?, ?, ?, ?, ?, ?, ?, 'idle', ?)`
@@ -244,6 +254,14 @@ export class MemberStore {
     const known = this.instanceIds.get(id);
     if (!known || !instanceId || known === instanceId) return null;
     return live;
+  }
+
+  /**
+   * Did this agent's harness declare `capability` when it registered? False for
+   * an unknown agent and for a harness that declared none (an older one).
+   */
+  hasCapability(id: string, capability: string): boolean {
+    return this.capabilities.get(id)?.has(capability) ?? false;
   }
 
   /** Set a member's status (and refresh its heartbeat time). */
@@ -306,6 +324,7 @@ export class MemberStore {
     this.deps.forgetLiveState(id);
     this.sessionStats.delete(id);
     this.instanceIds.delete(id);
+    this.capabilities.delete(id);
   }
 
   /** Record an agent's session stats (context fill, session cost); stamps `at`. */

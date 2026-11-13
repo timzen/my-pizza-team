@@ -1667,7 +1667,9 @@ claim.
 | Triage-mode mirror | `buildExternalTriagePrompt` (`daemon/sources/external-triage.ts`) | same, with the source's triage persona |
 | Assistant system prompt | `composeSystemPrompt` (`routes/assistant.ts`) | mode framing, then body |
 
-Every body goes through `normalizeInstructionMarkdown(body, 3)` as today.
+Every body goes through `normalizeInstructionMarkdown(body, 3)` as today. For
+a harness that applies the persona itself the block moves to its system prompt
+("The persona in the system prompt", below).
 **The "Reference Context" section is removed** from `buildWorkDefPrompt` along with
 `WorkDefPromptInput.contextEntries`; 0.34–0.36's migration moved its text into
 Additional Context, so a migrated task's prompt carried the same words.
@@ -1676,6 +1678,54 @@ Additional Context, so a migrated task's prompt carried the same words.
 `ASSISTANT_CHAT_FRAMING` prefix is the daemon's and is never part of a persona —
 so any persona works in either view and a persona author never writes delivery
 mechanics.
+
+### The persona in the system prompt
+
+The role block (`## Your Role…` plus the body) opens the work prompt, which a
+harness delivers as a **user message**. That is weaker guidance than the system
+prompt, and in a long run compaction can summarize it away. A harness that can
+put the persona in its system prompt says so, and the daemon hands it the
+persona separately:
+
+- **A capability, declared at registration.** `capabilities:
+  ["persona-system-prompt"]` (shared/agent-protocol.ts
+  `PERSONA_SYSTEM_PROMPT_CAPABILITY`) in the `POST /api/agents/register` body.
+  The daemon keeps it per registration, in memory like the instance id; every
+  (re-)registration states it afresh.
+- **The claim carries the persona.** `POST /api/agents/claim/:workItemId`
+  returns `persona`: the resolved id (a team id, `builtin:*`, a package id, or
+  null when a board state names none), its title and body, for board work the
+  state and — with no persona — the one-line state framing, the role block as
+  the daemon renders it (`prompt`), and `inline`. Null when the work has no role
+  (a Solitary task with no persona).
+- **The prompt leaves the block out — only for that harness.** The base prompt
+  is built without it (`buildWorkDefPrompt`'s `inlinePersona: false`), so a
+  Work Source hook wraps a role-less base; a built-in source that rebuilds the
+  prompt (Story, triage) still opens with the block, which the claim route takes
+  off the front — rendered by the same functions (`renderRoleBlock`,
+  `renderTriageRoleBlock`, via `Store.claimRoleFor`), so it matches exactly. If
+  the block is still in the prompt (a hook kept it elsewhere), `inline` is true
+  and the harness adds nothing: the role is never said twice.
+- **Everyone else is unchanged.** A harness that doesn't declare it (`mpt
+  agent`'s ACP teammates, an older Pi extension) gets the prompt byte-identical
+  to before, `persona.inline: true`. An older daemon ignores `capabilities`
+  and sends no `persona`, so a new harness gets the inline block and adds
+  nothing. Additive both ways; no protocol bump.
+
+**Pi.** The teammate holds the claim's persona for exactly that work item, and
+its `before_agent_start` hook writes it as its own prompt *section*
+(`systemPromptOptions.sections.teammate_persona`) rather than replacing the
+system prompt, so Pi patches only that section when it changes. A teammate can
+reuse one session across items, so the hook sets the section or *removes* it on
+every run: it is dropped whenever the item ends (completed, failed, waited, or
+failed for a retry — the retry is a new claim) and replaced by the next claim.
+Runs on the held item (a resume nudge, a pairing turn) keep it. A Pi without
+prompt sections gets the text appended to the system prompt instead. The id is
+exposed (`TeammateLoop.personaId`) for other parts of the extension to key on.
+
+**What records it.** Nothing about the snapshot changes: the claim records the
+resolved persona on the WorkItem as before (next section), so the persona chip
+and run history show what the run got whichever way it was delivered.
 
 ### The in-flight persona: a snapshot on the WorkItem
 

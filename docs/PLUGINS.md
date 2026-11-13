@@ -127,7 +127,11 @@ question, change the item in its source — the next revision is triaged again.
 Say how your items should be worked by naming a persona (see
 [Personas](guide/06-personas.md)) — the daemon puts
 it at the top of each item's prompt, as **Your Role**, before your `buildPrompt`
-sees it, so you never write that part yourself:
+sees it, so you never write that part yourself. (For a harness that puts the
+persona in its system prompt — the Pi teammate — the `base` your `buildPrompt`
+gets has no **Your Role** block at all; wrap `base`, and don't write a role block
+of your own, or that harness gets it twice — in which case the daemon leaves it
+inline rather than add it again.)
 
 ```ts
 return {

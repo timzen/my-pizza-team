@@ -28,6 +28,8 @@ import { DaemonClient } from "./runtime/client.js";
 import { readTerminalMetadata, registerTerminalFlags } from "./terminal.js";
 import { readTeammateFlag, registerTeammateFlags } from "./teammate-flag.js";
 import { setWaitToolActive } from "./wait-tool.js";
+import { applyPersonaSection, personaSystemPromptText } from "./persona-prompt.js";
+import { PERSONA_SYSTEM_PROMPT_CAPABILITY } from "./shared/agent-protocol.js";
 import { summarizeRun, hasUsage } from "./runtime/usage.js";
 import { readSessionStats, sameStats, type SessionStats } from "./runtime/session-stats.js";
 
@@ -211,6 +213,9 @@ async function setupTeammate(
   // needs this session's id.
   const sessionId: string | undefined = ctx.sessionManager?.getSessionId?.();
   const { registerTeammateTools } = await import("./tools.js");
+  // This harness puts the claim's persona in its system prompt (see the
+  // before_agent_start hook below), so the daemon leaves it out of the work prompt.
+  const capabilities = [PERSONA_SYSTEM_PROMPT_CAPABILITY];
 
   // Check daemon reachability
   const serverUp = await client.checkHealth();
@@ -225,6 +230,7 @@ async function setupTeammate(
       name: memberId,
       directory: cwd,
       metadata: readTerminalMetadata(pi),
+      capabilities,
     });
   } catch {
     if (ctx.hasUI) {
@@ -315,6 +321,17 @@ async function setupTeammate(
   loop.setAutonomousPermissions = (autonomous: boolean) => {
     permissions.setYolo(autonomous);
   };
+
+  // ─── before_agent_start: the persona, in the system prompt ──────
+  // The held item's persona becomes its own prompt section for every run while
+  // the item is held (its work run, a resume nudge, a pairing turn on it), and
+  // the section is removed on any other run, so a reused session never carries
+  // an earlier item's persona (persona-prompt.ts; my-pizza-team docs/DESIGN.md
+  // "The persona in the system prompt").
+
+  pi.on("before_agent_start", async (event) => {
+    return applyPersonaSection(event, personaSystemPromptText(loop.persona));
+  });
 
   // ─── agent_start: track loop activity ──────────────────────────
   // Also marks the run that picks up a work prompt as that WorkItem's own run,
@@ -523,7 +540,7 @@ async function setupTeammate(
   // Re-register when the daemon reports it doesn't know us (restart/upgrade),
   // so an `mpt upgrade` or daemon restart doesn't shut down a running teammate.
   loop.reregister = async () => {
-    await client.register({ name: memberId, directory: cwd, metadata: readTerminalMetadata(pi) }).catch(() => {});
+    await client.register({ name: memberId, directory: cwd, metadata: readTerminalMetadata(pi), capabilities }).catch(() => {});
     // A restarted daemon forgot our stats (they're in-memory); tell it again.
     if (lastStats) client.reportSessionStats(lastStats).catch(() => {});
     if (ctx.hasUI) ctx.ui.notify("🍕 Reconnected to daemon (it had restarted).", "info");

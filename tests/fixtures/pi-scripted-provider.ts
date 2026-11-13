@@ -29,6 +29,7 @@
  *   "on"?:       "user" | "toolResult" | "latest",   // default "user"
  *   "contains"?: "a substring",
  *   "regex"?:    "a JS regex; its groups become {{match.N}} / {{match.<name>}}",
+ *   "system"?:   "a substring the current system prompt must contain too",
  *   "turns":     [ Turn, ... ]
  * }
  * Turn = {
@@ -43,6 +44,9 @@
  *   whichever of the two is newer. Default `user`, so a rule keyed on the prompt keeps
  *   playing through its run's tool results. A rule with neither `contains` nor `regex`
  *   always matches, so it makes a fallback.
+ * - `system` adds a condition on the request's current system prompt (Pi's, with
+ *   every section patch applied) — e.g. the persona a Pi teammate gets there
+ *   rather than in its work prompt. It never changes which message turns count from.
  * - The turn played is `turns[n]`, where `n` counts the assistant messages since the
  *   matched message. So a rule matched on the user prompt plays its turns in order
  *   across one run (tool calls → tool results → next turn → … → final text); a rule
@@ -110,6 +114,7 @@ export interface ScriptRule {
   on?: "user" | "toolResult" | "latest";
   contains?: string;
   regex?: string;
+  system?: string;
   turns: ScriptTurn[];
 }
 
@@ -154,13 +159,14 @@ interface Selection {
 }
 
 /** Pick the rule and turn for this request (see the header for the algorithm). */
-function select(rules: ScriptRule[], messages: TranscriptMessage[]): Selection {
+function select(rules: ScriptRule[], messages: TranscriptMessage[], systemPrompt: string): Selection {
   const lastUser = messages.findLastIndex((m) => m.role === "user");
   const lastTool = messages.findLastIndex((m, i) => m.role === "toolResult" && i > lastUser);
   for (const [i, rule] of rules.entries()) {
     const on = rule.on ?? "user";
     const at = on === "user" ? lastUser : on === "toolResult" ? lastTool : Math.max(lastUser, lastTool);
     if (at < 0) continue;
+    if (rule.system !== undefined && !systemPrompt.includes(rule.system)) continue;
     const text = messageText(messages[at]!);
     let match: RegExpMatchArray | null = null;
     if (rule.contains !== undefined && !text.includes(rule.contains)) continue;
@@ -231,13 +237,14 @@ function streamScripted(model: Model, context: TranscriptContext, options?: Simp
       const script = loadScript();
       const rules = [...(script[role] ?? []), ...(script.default ?? [])];
       const messages = context.messages;
-      const sel = select(rules, messages);
+      const systemPrompt = getCurrentSystemPrompt(messages);
+      const sel = select(rules, messages, systemPrompt);
       const request = {
         role,
         pid: process.pid,
         rule: sel.ruleLabel,
         turn: sel.turn,
-        systemPrompt: getCurrentSystemPrompt(messages),
+        systemPrompt,
         tools: getCurrentTools(messages).map((t) => t.name),
         messages: messages.filter((m) => m.role !== "system").map((m) => ({ role: m.role, text: messageText(m) })),
       };

@@ -31,6 +31,13 @@
 //    an empty session; see requestFreshSession). The fresh extension instance
 //    re-registers and polls for the next work item.
 //
+// The claim's persona (my-pizza-team docs/DESIGN.md "The persona in the system
+// prompt") is held for exactly the claimed item — set on claim, replaced by the
+// next claim, dropped whenever the item ends — and read by index.ts's
+// before_agent_start hook (persona-prompt.ts), so it reaches the system prompt
+// of that item's runs only: never a later item's, a retry's or a foreign run's
+// after the item ended.
+//
 // Alongside the work poll, the loop polls its own session directives
 // (`new-session`: Reset in the web UI) and rolls the session on request — see
 // pollSessionDirectives.
@@ -40,7 +47,7 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { DaemonClient } from "./runtime/client.js";
-import type { PairingReleaseAction } from "./shared/agent-protocol.js";
+import type { ClaimPersona, PairingReleaseAction } from "./shared/agent-protocol.js";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
@@ -80,6 +87,8 @@ export class TeammateLoop {
    * a reply to your chat message — as the work item's completion.
    */
   private pendingRelease: PairingReleaseAction | null = null;
+  /** The claim's persona, for the item it was claimed with (see `persona`). */
+  private heldPersona: { workItemId: string; persona: ClaimPersona } | null = null;
 
   public onTaskComplete: ((workItemId: string, result: string) => void) | null = null;
 
@@ -159,6 +168,24 @@ export class TeammateLoop {
 
   get hasPendingRelease(): boolean {
     return this.pendingRelease !== null;
+  }
+
+  /**
+   * The persona of the work item in hand, as its claim sent it — null when no
+   * item is held, or it came without one (no persona for this work, or an
+   * older daemon). index.ts puts it in each run's system prompt.
+   */
+  get persona(): ClaimPersona | null {
+    const held = this.heldPersona;
+    return held && held.workItemId === this.currentWorkItemId ? held.persona : null;
+  }
+
+  /**
+   * The id of the persona the work in hand runs as (null: none, or a board
+   * state with no persona). For other parts of the extension to key on.
+   */
+  get personaId(): string | null {
+    return this.persona?.id ?? null;
   }
 
   // ═══════════════════════════════════════════════════════════════════
@@ -254,6 +281,7 @@ export class TeammateLoop {
     this.running = false;
     this.autonomous = false;
     this.awaitingWorkRun = false;
+    this.heldPersona = null;
     if (this.pollTimer) { clearTimeout(this.pollTimer); this.pollTimer = null; }
     if (this.heartbeatTimer) { clearInterval(this.heartbeatTimer); this.heartbeatTimer = null; }
     if (this.directiveTimer) { clearInterval(this.directiveTimer); this.directiveTimer = null; }
@@ -352,6 +380,8 @@ export class TeammateLoop {
         // We now own this work item. Its state may poll: offer the wait tool
         // only then (an older daemon sends no `completion`: once).
         this.currentWorkItemId = response.workItem.id;
+        // Its persona replaces any earlier item's (absent from an older daemon: none).
+        this.heldPersona = claim.persona ? { workItemId: response.workItem.id, persona: claim.persona } : null;
         this.onClaimCompletion?.(claim.completion === "poll" ? "poll" : "once");
         this.client.heartbeat("working", response.workItem.id).catch(() => {});
 
@@ -480,7 +510,7 @@ export class TeammateLoop {
   }
 
   /**
-   * Wrap up a work item: request a fresh session for context hygiene, and
+   * Wrap up a work item: drop its persona, request a fresh session for context hygiene, and
    * schedule a poll as a safety net. If the session reset goes through, pi
    * emits session_shutdown for this instance (which stops the loop and clears
    * the timer) and a brand-new loop takes over in the fresh session. If the
@@ -488,6 +518,9 @@ export class TeammateLoop {
    * same behavior as before fresh sessions existed.
    */
   private finishWorkItem(): void {
+    // The item is over: its persona must not reach the next run (the fresh
+    // session request, a retry's claim, a resume) — see the header note.
+    this.heldPersona = null;
     this.requestFreshSession?.();
     this.schedulePoll();
   }

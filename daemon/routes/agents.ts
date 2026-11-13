@@ -14,10 +14,13 @@
 
 import type { RouteContext } from "./types.ts";
 import { readBody, fail } from "./http.ts";
-import { buildWorkDefPrompt } from "../prompt.ts";
+import { buildWorkDefPrompt, stateFraming } from "../prompt.ts";
 import { personaRefOf } from "../personas/resolve.ts";
 import { DEFAULT_HARNESS, isExperimentalHarness, type ResolvedPersona, type TeamConfig, type TriageOutcome, type TriageProposal, type WorkDef, type WorkItemRef } from "../../shared/types.ts";
-import { LEADER_ALREADY_CONNECTED, MIN_PROTOCOL_VERSION, PROTOCOL_VERSION, type AgentListResponse } from "../../shared/protocol.ts";
+import {
+  LEADER_ALREADY_CONNECTED, MIN_PROTOCOL_VERSION, PERSONA_SYSTEM_PROMPT_CAPABILITY, PROTOCOL_VERSION,
+  type AgentListResponse, type ClaimPersona,
+} from "../../shared/protocol.ts";
 import { packageVersion } from "../../shared/paths.ts";
 import { dismissParams, focusMember } from "../spawner.ts";
 
@@ -39,6 +42,8 @@ export function registerAgentRoutes(ctx: RouteContext): void {
       harnessVersion?: string;
       /** Per-process id (e.g. one per Pi process), so a process re-registering is told from another. */
       instanceId?: string;
+      /** What the harness does itself (shared/agent-protocol.ts PERSONA_SYSTEM_PROMPT_CAPABILITY). */
+      capabilities?: unknown;
     };
     if (!body.id || !body.name) {
       return fail(c, 400, "Fields 'id' and 'name' are required");
@@ -95,6 +100,10 @@ export function registerAgentRoutes(ctx: RouteContext): void {
       harness: body.harness,
       harnessVersion: body.harnessVersion,
       instanceId,
+      // Additive: unknown or malformed entries are ignored, absent = none.
+      capabilities: Array.isArray(body.capabilities)
+        ? body.capabilities.filter((x): x is string => typeof x === "string")
+        : undefined,
     });
 
     return c.json({
@@ -197,13 +206,19 @@ export function registerAgentRoutes(ctx: RouteContext): void {
 
     store.updateMemberStatus(body.agentId, "working");
 
-    const prompt = buildClaimPrompt(store, item.ref, persona);
+    // The role block goes in the harness's system prompt when it said it puts it
+    // there (docs/DESIGN.md "The persona in the system prompt"); otherwise the
+    // prompt is exactly as before, with the role inline.
+    const systemPrompt = store.memberHasCapability(body.agentId, PERSONA_SYSTEM_PROMPT_CAPABILITY);
+    const { prompt, persona: claimPersona } = def
+      ? claimPromptAndPersona(store, item.ref, def, persona, systemPrompt)
+      : { prompt: "", persona: null };
     // A poll state's run may end with wait (docs/DESIGN.md "Polling States"):
     // say so, and the harness offers its wait tool. Additive: an older harness
     // ignores it, and never sends WAITED.
     const completion = store.completionFor(item.ref.workDefId);
 
-    return c.json({ success: true, workItem: { id: item.id }, prompt, completion });
+    return c.json({ success: true, workItem: { id: item.id }, prompt, completion, persona: claimPersona });
   });
 
   // ─── Set WorkItem State (the single state-setter) ──────────────────
@@ -509,29 +524,55 @@ export function registerAgentRoutes(ctx: RouteContext): void {
 const DAEMON_REALIZED_ACTIONS = new Set(["spawn", "dismiss"]);
 
 /**
- * Assemble the canonical claim prompt for a WorkItem's ref: the daemon's base
+ * Assemble the canonical claim prompt for a WorkItem's ref — the daemon's base
  * prompt, then the owning Work Source's `buildPrompt` contribution, if it has
  * one (docs/DESIGN.md "Work Sources: WorkDef Kinds as Plugins"); a triage-mode
- * external item gets the triage prompt instead.
+ * external item gets the triage prompt instead — and the claim's `persona`.
+ *
+ * With `systemPrompt` (the harness declared `persona-system-prompt`) the role
+ * block is left out of the prompt: the base is built without it, and a
+ * built-in source that rebuilds the prompt (Story, triage) still opens with the
+ * block, which is taken off the front — it is rendered by the same function
+ * (`Store.claimRoleFor`), so it matches exactly. Should a source's hook keep
+ * it somewhere else, `persona.inline` says so and the harness adds nothing.
+ * Without `systemPrompt` the prompt is untouched and `inline` is true.
  */
-function buildClaimPrompt(store: RouteContext["store"], ref: WorkItemRef, persona: ResolvedPersona | null): string {
-  const def = store.getWorkDef(ref.workDefId);
-  if (!def) return "";
+function claimPromptAndPersona(
+  store: RouteContext["store"], ref: WorkItemRef, def: WorkDef, persona: ResolvedPersona | null, systemPrompt: boolean,
+): { prompt: string; persona: ClaimPersona | null } {
+  const base = buildBasePrompt(store, ref, def, persona, !systemPrompt);
   // Store.buildPromptFor: the source's hook, or — for a triage-mode mirror — the
   // triage prompt, with the same resolved persona as its instructions.
-  return store.buildPromptFor(def, buildBasePrompt(store, ref, def, persona), persona);
+  let prompt = store.buildPromptFor(def, base, persona);
+  const role = store.claimRoleFor(def, persona);
+  if (!role.block) return { prompt, persona: null };
+  if (systemPrompt && prompt.startsWith(role.block)) prompt = prompt.slice(role.block.length);
+  return {
+    prompt,
+    persona: {
+      id: persona?.id ?? null,
+      title: persona?.title ?? null,
+      body: persona?.body ?? null,
+      ...(role.state ? { state: role.state } : {}),
+      ...(role.state && !persona ? { stateFraming: stateFraming(role.state) } : {}),
+      prompt: role.block.trimEnd(),
+      inline: !systemPrompt || prompt.includes(role.block),
+    },
+  };
 }
 
 /**
  * The daemon's base prompt for a WorkDef: the persona (when it has one — a
  * Solitary/Scheduled WorkDef's `persona`, or a work-mode mirror's Work Source
- * chain, resolved by `Store.resolveWorkPersona`),
- * the authored WorkDef, and lead comments — no kind-specific framing. A source
- * that needs more (Story: the state persona and story; Thought: the triage
- * prompt) rebuilds it in its `buildPrompt`; a plugin's hook wraps it, so it
- * never needs a persona API (docs/DESIGN.md "Prompt composition").
+ * chain, resolved by `Store.resolveWorkPersona`; left out when `inlinePersona`
+ * is false), the authored WorkDef, and lead comments — no kind-specific framing.
+ * A source that needs more (Story: the state persona and story; Thought: the
+ * triage prompt) rebuilds it in its `buildPrompt`; a plugin's hook wraps it, so
+ * it never needs a persona API (docs/DESIGN.md "Prompt composition").
  */
-function buildBasePrompt(store: RouteContext["store"], ref: WorkItemRef, def: WorkDef, persona: ResolvedPersona | null): string {
+function buildBasePrompt(
+  store: RouteContext["store"], ref: WorkItemRef, def: WorkDef, persona: ResolvedPersona | null, inlinePersona: boolean,
+): string {
   const comments = store.getCommentsForRef(ref);
   return buildWorkDefPrompt({
     workDef: {
@@ -540,6 +581,7 @@ function buildBasePrompt(store: RouteContext["store"], ref: WorkItemRef, def: Wo
     },
     persona: persona?.body,
     comments: comments.length > 0 ? comments : undefined,
+    inlinePersona,
   });
 }
 

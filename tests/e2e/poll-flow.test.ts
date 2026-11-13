@@ -60,7 +60,8 @@ const SCRIPT = {
     { name: "signal-present", on: "toolResult" as const, contains: "SIGNAL:approved", turns: [{ text: "Approved." }] },
     {
       name: "check",
-      contains: "You are the **approval watcher**",
+      // The persona is in the Pi teammate's system prompt, not its work prompt.
+      system: "You are the **approval watcher**",
       turns: [
         { toolCalls: [{ name: "bash", arguments: { command: "test -e approved.txt && echo SIGNAL:approved || echo SIGNAL:pending" } }] },
         { text: "Check finished." },

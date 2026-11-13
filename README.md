@@ -776,13 +776,21 @@ is refused with 409 `leader_already_connected` and stays inactive with one warni
 until the live leader exits or goes offline. An optional per-process `instanceId`
 lets the live leader itself reconnect.
 
+**The persona** a claim is worked in comes back in the claim as `persona` (id,
+title, body, and the rendered **Your Role** block). A harness that registers with
+`capabilities: ["persona-system-prompt"]` — the Pi teammate does — gets a work
+prompt without that block and puts it in its system prompt instead; any other
+harness gets the block at the top of the prompt, as before. See
+[docs/DESIGN.md](docs/DESIGN.md#the-persona-in-the-system-prompt).
+
 Windows in the team's terminal that no registered teammate, the leader or a
 starting spawn accounts for (such as panes a terminal's session restore relaunched)
 are listed in the Team tab as **Unmanaged windows**, with whether an agent appears
 to run in each and a **Close** button. MPT never closes them on its own.
 
-**Matching is directory affinity** — there are no capabilities or skills; every
-teammate is a generalist. `getNextWorkItem()` offers, oldest first:
+**Matching is directory affinity** — there are no matching capabilities or skills
+(a registration's `capabilities` say what the harness does, never what work it
+gets); every teammate is a generalist. `getNextWorkItem()` offers, oldest first:
 
 1. items whose directory is the agent's directory,
 2. then items with no directory,

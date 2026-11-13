@@ -369,6 +369,12 @@ export class DaemonClient {
     directory?: string;
     /** Opaque harness metadata (e.g. tmux window) the daemon stores + relays back. */
     metadata?: Record<string, unknown>;
+    /**
+     * What this harness does itself, e.g. `persona-system-prompt` (it puts the
+     * claim's persona in its system prompt, so the daemon leaves it out of the
+     * work prompt). Additive: an older daemon ignores it.
+     */
+    capabilities?: string[];
   }): Promise<AgentRegisterResponse> {
     return this.post<AgentRegisterResponse>("/api/agents/register", {
       id: this.agentId,
@@ -383,6 +389,7 @@ export class DaemonClient {
       // Per-process, so a reconnect of this process is accepted where another
       // process registering as the same live leader is refused.
       instanceId: processInstanceId(),
+      ...(opts.capabilities?.length ? { capabilities: opts.capabilities } : {}),
     });
   }
 
