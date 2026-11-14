@@ -1800,6 +1800,22 @@ requires: { mcp: ["code-search"] }       # needed, checked — never started
   and the Team tab need nothing new: a run's usage records the model its
   assistant messages name, and `setModel` fires `model_select`, which re-reports
   the session's model.
+- **`requires.mcp` is checked, never acted on.** MCP servers are the user's
+  harness configuration (credentials, commands, per-project trust), so MPT
+  never starts, installs or registers one — a persona that could would be a
+  way to run arbitrary commands from a package. The Pi harness
+  (harnesses/pi/src/persona-mcp.ts) compares the claim's list with the servers
+  its Pi has once per item at claim and posts one comment naming what's missing
+  (or disabled), then carries on: a missing server degrades the work, it
+  doesn't make it impossible, and the thread is where the person who can fix it
+  looks. Pi's runtime API lists only extension-registered servers, so the
+  harness also reads Pi's `mcp.json` files (user-level, and the project's when
+  trusted) read-only, the way Pi does. `mpt doctor` makes the same check ahead of
+  time for personas in use (cli/doctor.ts `personaMcpFacts`), against the
+  user-level file and the `.pi/mcp.json` of the team's project and favorite
+  directories. *Why not in the daemon (or the persona page):* which servers
+  exist depends on the harness and on the working directory, neither of which
+  the daemon can see cheaply or correctly; the UI only lists the requirement.
 - **Linted like the body** ("Linting: one linter for every persona"): a wrong
   shape or a non-`*` pattern is an **error** (the save is refused; a package
   persona is marked `lintError`), and the bad field or pattern is left out of

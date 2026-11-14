@@ -61,6 +61,8 @@ src/
 │                         #   checkToolCall, filterSkills / checkSkillCommand, scopeProblems
 ├── persona-model.ts      # The persona's model applied: findModel, PersonaModelSwitch (pi.setModel
 │                         #   once per item / persona, restore afterwards)
+├── persona-mcp.ts        # The persona's requires.mcp checked: knownMcpServers (Pi's mcp.json files,
+│                         #   read-only, + getMcpServers), mcpRequirementProblem
 ├── permissions.ts        # Dynamic yoloMode toggling + ppt-autonomous authorizer chain link;
 │                         # also keeps the leader/chat agent unblockable on remote-driven runs
 ├── readiness.ts          # Host readiness probe (leader-run): exit 0 = ready, non-zero = not ready
@@ -198,6 +200,16 @@ leader does the same for its assistant persona (`GET /api/assistant/persona`
 `modelProblem`). Usage needs nothing extra: `summarizeRun` takes the model from the
 run's assistant messages, and `setModel` fires `model_select`, which re-reports the
 session stats (the Team tab's model).
+
+**The persona's required MCP servers.** `requires.mcp` is only checked: in
+`onPersonaChange` at claim, `mcpRequirementProblem` (src/persona-mcp.ts) compares
+the list with the servers this Pi has — `<agent dir>/mcp.json`
+(`PI_CODING_AGENT_DIR`, else `~/.pi/agent`), `<cwd>/.pi/mcp.json` when
+`ctx.isProjectTrusted()` (a project entry without `command`/`url`/`type` only
+overrides `enabled`), and extension registrations (`pi.getMcpServers()`, where this
+Pi has it) — the way Pi's built-in MCP support reads them, never writing. A missing
+or disabled server is posted once per item on the thread; the work goes on. Nothing
+is started or installed. cli/pi-config.ts reads the same files for `mpt doctor`.
 
 **Poll states (`wait_for_next_check`).** A claim says `completion: "poll"` when the
 task's workflow state polls (my-pizza-team docs/DESIGN.md "Polling States"): each

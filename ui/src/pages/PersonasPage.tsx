@@ -312,6 +312,13 @@ function PersonaSettingsList({ persona }: { persona: Persona }) {
         ))}
       </dl>
       <p className="text-[11px] text-muted-foreground">Applied by the teammate's harness, as far as it supports them.</p>
+      {persona.requires?.mcp && persona.requires.mcp.length > 0 && (
+        // The daemon can't know a harness's MCP servers (they're per harness and
+        // per working directory), so the check is doctor's and the harness's.
+        <p className="text-[11px] text-muted-foreground">
+          MCP servers are checked, never started: <code>mpt doctor</code> warns when Pi's config lacks one, and a teammate says so on the thread when it claims the work.
+        </p>
+      )}
     </div>
   );
 }

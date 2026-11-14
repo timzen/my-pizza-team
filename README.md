@@ -128,6 +128,15 @@ non-zero only for real breakage.
 running setup again restores it. `mpt doctor` fails the "Extension" check when the
 registration is still in Pi's settings but the directory is gone.
 
+`mpt doctor` also checks the MCP servers personas say they need (`requires.mcp`):
+for each persona something uses (a workflow state, a WorkDef, a source, the
+assistant) it warns when Pi's config lacks one — not in `~/.pi/agent/mcp.json`
+(or `$PI_CODING_AGENT_DIR`), not in a trusted `.pi/mcp.json` of the team's project
+or a favorite directory, or disabled — with the fix (`pi mcp add <name> …`). MPT
+never starts or installs MCP servers; a Pi teammate also posts one comment on the
+work item's thread when it picks up work whose persona's servers are missing, and
+carries on.
+
 ### Plugin packages
 
 A team can pull work from outside sources through **plugin packages** — npm
@@ -650,7 +659,8 @@ Pi harness enforces `tools` and `skills` and applies `model`; see docs/guide/06-
 A `model` alias is mapped to a real model per harness by the team config's
 `modelAliases` (Config → Teammates → Persona Models); the claim carries both the
 alias and the model id resolved for the claiming harness, and `mpt doctor` lists
-aliases personas use that have no mapping. Saving a persona lints it (an unclosed code fence or a
+aliases personas use that have no mapping (and in-use personas' `requires.mcp`
+servers Pi's config lacks). Saving a persona lints it (an unclosed code fence or a
 malformed setting is refused). See `/api/personas` and
 [docs/DESIGN.md](docs/DESIGN.md#personas-one-library-selected-by-reference).
 

@@ -31,6 +31,7 @@ import { setWaitToolActive } from "./wait-tool.js";
 import { applyPersonaSection, personaSystemPromptText } from "./persona-prompt.js";
 import { PersonaToolScope, applyPersonaScope, checkSkillCommand, checkToolCall, reportScopeOnce } from "./persona-scope.js";
 import { PersonaModelSwitch } from "./persona-model.js";
+import { mcpRequirementProblem, registeredMcpServers } from "./persona-mcp.js";
 import { PERSONA_SYSTEM_PROMPT_CAPABILITY } from "./shared/agent-protocol.js";
 import { summarizeRun, hasUsage } from "./runtime/usage.js";
 import { readSessionStats, sameStats, type SessionStats } from "./runtime/session-stats.js";
@@ -354,9 +355,29 @@ async function setupTeammate(
       });
     }
   };
+  // And its `requires.mcp` (persona-mcp.ts): checked once per item at claim
+  // against the MCP servers this Pi has (its mcp.json files, read-only, and
+  // extension registrations). Missing ones are said once on the thread; the
+  // work goes on — MPT never starts or installs a server.
+  const reportedMcp = new Set<string>();
+  const checkMcp = (workItemId: string | null, persona: typeof loop.persona) => {
+    if (!workItemId || !persona?.requires?.mcp?.length) return;
+    let problem: string | null = null;
+    try {
+      const trusted = typeof ctx.isProjectTrusted === "function" ? ctx.isProjectTrusted() === true : false;
+      problem = mcpRequirementProblem(persona, { cwd: ctx.cwd ?? cwd, projectTrusted: trusted, registered: registeredMcpServers(pi) });
+    } catch { /* best-effort: a check that can't run says nothing */ }
+    if (problem) {
+      reportScopeOnce(reportedMcp, workItemId, [problem], (text) => {
+        debug(`[ppt-debug persona mcp] ${text}`);
+        client.postComment(workItemId, text).catch(() => {});
+      });
+    }
+  };
   loop.onPersonaChange = async (persona) => {
     toolScope.applyTools(persona?.tools);
     await applyModel(loop.currentTask, persona);
+    checkMcp(loop.currentTask, persona);
   };
 
   pi.on("before_agent_start", async (event) => {

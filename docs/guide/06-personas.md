@@ -108,6 +108,29 @@ id works when only one provider has it).
 
 Other harnesses get the resolved model with the persona but may not apply it.
 
+### Required MCP servers
+
+`requires: { mcp: ["code-search"] }` says the persona's work depends on those MCP
+servers. MPT **checks** them; it never starts or installs a server — MCP servers
+are configured in the harness (for Pi: `pi mcp add`, which writes
+`~/.pi/agent/mcp.json`, or `.pi/mcp.json` in a trusted project).
+
+- **On Pi**, when a teammate picks up a work item, it compares the persona's list
+  with the servers its Pi has (the user-level `mcp.json`, the project's
+  `.pi/mcp.json` when Pi trusts the project, and servers extensions register). If
+  any is missing — or configured with `"enabled": false` — it posts one comment on
+  the thread, e.g. `persona researcher expects MCP servers: code-search — not
+  configured`, and carries on without them. Whether a configured server actually
+  connects isn't checked here; `pi mcp list` does that.
+- **`mpt doctor`** warns, for each persona something uses (a workflow state, a
+  task, a source, the assistant), about servers Pi's config lacks, and prints the
+  fix (`pi mcp add code-search -- <command>`, or `--url <url>`). A server found only
+  in a project's `.pi/mcp.json` is noted (work elsewhere won't have it); one in an
+  untrusted project's file is a warning, since Pi doesn't read it.
+- A persona's page lists the servers under **Harness settings → Requires MCP**.
+  Whether they're configured is for `mpt doctor` to say: it depends on the
+  harness and on where the work runs, which the daemon can't see.
+
 ## Where you pick one
 
 | What | Where | None picked means |

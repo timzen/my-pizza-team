@@ -30,7 +30,12 @@ import {
   findExtensionRegistrations,
   hasPackage,
   isProjectTrusted,
+  mcpServerKey,
   piAgentDir,
+  piMcpConfigPath,
+  projectMcpConfigPath,
+  readMcpServersFile,
+  type McpServerEntry,
   piSettingsPath,
   readPiSettings,
   type ExtensionRegistration,
@@ -155,6 +160,41 @@ export interface DoctorFacts {
    * config.json. Absent/null = not known (daemon down, or config unreadable).
    */
   personaModels?: PersonaModelFacts | null;
+  /**
+   * The MCP servers in-use personas declare (`requires.mcp`) and whether Pi's
+   * config has them (`personaMcpFacts`). Absent/null = not known (daemon down,
+   * or teammates don't run on Pi).
+   */
+  personaMcp?: PersonaMcpFacts | null;
+}
+
+/** Where Pi's config has a server a persona requires (`personaMcpFacts`). */
+export type McpServerStatus =
+  /** In the user-level mcp.json, enabled: every teammate has it. */
+  | { name: string; status: "user" }
+  /** Only in a trusted project's `.pi/mcp.json` (or enabled there): work in that directory has it. */
+  | { name: string; status: "project"; dir: string }
+  /** Only in the `.pi/mcp.json` of a project Pi doesn't trust, which Pi doesn't read. */
+  | { name: string; status: "untrusted-project"; dir: string }
+  /** Configured with `enabled: false`. */
+  | { name: string; status: "disabled" }
+  /** Nowhere. */
+  | { name: string; status: "missing" };
+
+/** The `requires.mcp` facts `mpt doctor` reports, for the personas in use that declare it. */
+export interface PersonaMcpFacts {
+  /** Pi's user-level MCP config file. */
+  userConfig: string;
+  /** Each persona in use with `requires.mcp`, and where each of its servers stands. */
+  personas: Array<{ id: string; servers: McpServerStatus[] }>;
+}
+
+/** One mcp.json's servers, with where it is: what `personaMcpFacts` compares against. */
+export interface McpConfigSource {
+  /** The user-level file's servers (null: absent or unreadable). */
+  user: Map<string, McpServerEntry> | null;
+  /** The projects teammates work in (the team's project, favoriteDirectories): each one's `.pi/mcp.json`. */
+  projects: Array<{ dir: string; trusted: boolean; servers: Map<string, McpServerEntry> | null }>;
 }
 
 /** The persona-model facts `mpt doctor` reports (shared/model-aliases.ts). */
@@ -458,6 +498,7 @@ export function evaluate(f: DoctorFacts): Check[] {
   if (f.agentEnv) checks.push(agentEnvCheck(f.agentEnv));
 
   if (f.daemonRunning && f.personaModels) checks.push(...personaModelChecks(f.personaModels));
+  if (f.daemonRunning && f.personaMcp) checks.push(...personaMcpChecks(f.personaMcp));
 
   if (f.node) checks.push(...nodeChecks(f.node));
 
@@ -537,6 +578,77 @@ export function personaModelChecks(f: PersonaModelFacts): Check[] {
     detail: `no mapping for the ${f.harness} harness — used by ${u.personas.join(", ")}; their runs keep the default model`,
     fix: `add it on Config → Teammates (Persona Models), or set "modelAliases": { "${f.harness}": { "${u.alias}": "<model id>" } } in config.json`,
   }));
+}
+
+/**
+ * Where each server an in-use persona requires stands in Pi's config: the
+ * user-level mcp.json first (every teammate has those), else a trusted
+ * project's `.pi/mcp.json` (an override there may enable a disabled
+ * user-level server), else an untrusted project's (which Pi doesn't read),
+ * else disabled or missing. `personas` are those with `requires.mcp` that
+ * something uses (workflow states, WorkDefs, sources, the assistant). Pure.
+ */
+export function personaMcpFacts(
+  personas: Array<{ id: string; mcp: string[] }>,
+  config: McpConfigSource,
+  userConfig: string,
+): PersonaMcpFacts {
+  const statusOf = (name: string): McpServerStatus => {
+    const key = mcpServerKey(name);
+    const user = config.user?.get(key);
+    if (user && user.enabled) return { name, status: "user" };
+    for (const p of config.projects) {
+      const entry = p.trusted ? p.servers?.get(key) : undefined;
+      // An override only counts on top of a user-level server; a full entry stands alone.
+      if (entry && entry.enabled && (!entry.override || user)) return { name, status: "project", dir: p.dir };
+    }
+    if (user) return { name, status: "disabled" };
+    const untrusted = config.projects.find((p) => !p.trusted && p.servers?.get(key) && !p.servers.get(key)!.override);
+    if (untrusted) return { name, status: "untrusted-project", dir: untrusted.dir };
+    return { name, status: "missing" };
+  };
+  return {
+    userConfig,
+    personas: personas.map((p) => ({ id: p.id, servers: p.mcp.map(statusOf) })),
+  };
+}
+
+/**
+ * The `requires.mcp` checks: nothing when no persona in use declares MCP
+ * servers; a warning per persona whose servers Pi's config lacks (its runs
+ * go on without them, and their threads say so); else one ok line. Read-only:
+ * the fix is the user's `pi mcp add`.
+ */
+export function personaMcpChecks(f: PersonaMcpFacts): Check[] {
+  if (f.personas.length === 0) return [];
+  const bad = f.personas.filter((p) => p.servers.some((s) => s.status !== "user" && s.status !== "project"));
+  if (bad.length === 0) {
+    const projectOnly = f.personas.flatMap((p) => p.servers).filter((s) => s.status === "project");
+    const names = [...new Set(f.personas.flatMap((p) => p.servers.map((s) => s.name)))];
+    const note = projectOnly.length > 0
+      ? `; only in a project's .pi/mcp.json: ${[...new Set(projectOnly.map((s) => `${s.name} (${(s as { dir: string }).dir})`))].join(", ")} — work elsewhere won't have it`
+      : "";
+    return [{ name: "Persona MCP servers", status: "ok", detail: `${f.personas.length} persona(s) in use need ${names.join(", ")}; all configured in Pi${note}` }];
+  }
+  return bad.map((p) => {
+    const missing = p.servers.filter((s) => s.status === "missing").map((s) => s.name);
+    const disabled = p.servers.filter((s) => s.status === "disabled").map((s) => s.name);
+    const untrusted = p.servers.filter((s) => s.status === "untrusted-project") as Array<{ name: string; dir: string }>;
+    const parts: string[] = [];
+    if (missing.length > 0) parts.push(`${missing.join(", ")} not configured`);
+    if (disabled.length > 0) parts.push(`${disabled.join(", ")} disabled`);
+    for (const u of untrusted) parts.push(`${u.name} only in ${u.dir}/.pi/mcp.json, which Pi doesn't read (project not trusted)`);
+    const fixes: string[] = [];
+    for (const name of missing) fixes.push(`pi mcp add ${name} -- <command>   (or: pi mcp add ${name} --url <url>)`);
+    if (disabled.length > 0) fixes.push(`enable ${disabled.join(", ")} with /mcp in Pi, or drop "enabled": false from ${f.userConfig}`);
+    for (const u of untrusted) fixes.push(`trust ${u.dir} in Pi (/trust), or add ${u.name} to ${f.userConfig}`);
+    return {
+      name: `Persona ${p.id} MCP servers`,
+      status: "warn" as const,
+      detail: `expects ${p.servers.map((s) => s.name).join(", ")}: ${parts.join("; ")} — its runs go on without them`,
+      fix: `${fixes.join("; ")}; then start fresh teammates (or /reload)`,
+    };
+  });
 }
 
 /**
@@ -845,6 +957,13 @@ export async function gather(opts: GatherOptions): Promise<DoctorFacts> {
     } catch { /* unreachable daemon or unreadable config.json: the check is skipped */ }
   }
 
+  let personaMcp: PersonaMcpFacts | null = null;
+  if (daemonRunning) {
+    try {
+      personaMcp = await gatherPersonaMcp(opts, agentDir);
+    } catch { /* unreachable daemon or unreadable config: the check is skipped */ }
+  }
+
   // tmux specifically: its presence and socket are what the checks below compare
   // (the daemon's tmux server), whatever the team's `terminal` says.
   const terminal = createTerminalBackend("tmux");
@@ -881,7 +1000,36 @@ export async function gather(opts: GatherOptions): Promise<DoctorFacts> {
     plugins,
     agentEnv: agentEnvFacts(opts.teamDir),
     personaModels,
+    personaMcp,
   };
+}
+
+/**
+ * The `requires.mcp` facts: the daemon's personas that declare MCP servers and
+ * are in use (`GET /api/personas/:id/usage`), against Pi's mcp.json files —
+ * the user-level one, and `.pi/mcp.json` in the team's project and each
+ * favorite directory (where teammates work). Null when teammates don't run on
+ * Pi (`defaultHarness`), since only Pi's config is known here.
+ */
+export async function gatherPersonaMcp(opts: Pick<GatherOptions, "teamDir" | "projectDir" | "daemonUrl">, agentDir: string): Promise<PersonaMcpFacts | null> {
+  const config = (readTeamConfigFile(opts.teamDir) ?? {}) as { defaultHarness?: string; favoriteDirectories?: string[] };
+  if ((config.defaultHarness || DEFAULT_HARNESS) !== "pi") return null;
+  const res = await fetch(`${opts.daemonUrl}/api/personas`, { signal: AbortSignal.timeout(1500) });
+  if (!res.ok) return null;
+  const all = (await res.json() as { personas?: Array<{ id: string; requires?: { mcp?: string[] } }> }).personas ?? [];
+  const inUse: Array<{ id: string; mcp: string[] }> = [];
+  for (const p of all) {
+    const mcp = p.requires?.mcp ?? [];
+    if (mcp.length === 0) continue;
+    const usage = await fetch(`${opts.daemonUrl}/api/personas/${encodeURIComponent(p.id)}/usage`, { signal: AbortSignal.timeout(1500) });
+    if (usage.ok && ((await usage.json() as { usedBy?: unknown[] }).usedBy ?? []).length > 0) inUse.push({ id: p.id, mcp });
+  }
+  const dirs = [...new Set([opts.projectDir, ...(config.favoriteDirectories ?? [])].map((d) => path.resolve(d)))];
+  const userConfig = piMcpConfigPath(agentDir);
+  return personaMcpFacts(inUse, {
+    user: readMcpServersFile(userConfig),
+    projects: dirs.map((dir) => ({ dir, trusted: isProjectTrusted(dir, agentDir), servers: readMcpServersFile(projectMcpConfigPath(dir)) })),
+  }, userConfig);
 }
 
 /**

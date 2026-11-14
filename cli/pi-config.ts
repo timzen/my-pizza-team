@@ -185,3 +185,60 @@ export function hasPackage(settings: PiSettings, source: string): boolean {
     return s === source || s.startsWith(`${source}@`);
   });
 }
+
+// ─── MCP servers (read-only; `mpt doctor`'s `requires.mcp` check) ───────────
+// Pi reads `<agent dir>/mcp.json` and, in a trusted project, `.pi/mcp.json`
+// (pi-coding-agent docs/mcp.md). MPT never writes either — servers are the
+// user's to configure (`pi mcp add`). harnesses/pi/src/persona-mcp.ts reads the
+// same files the same way at claim time; the extension can't import this file.
+
+/** Pi's user-level MCP config. */
+export function piMcpConfigPath(agentDir = piAgentDir()): string {
+  return path.join(agentDir, "mcp.json");
+}
+
+/** A project's MCP config (read by Pi only when the project is trusted). */
+export function projectMcpConfigPath(projectDir: string): string {
+  return path.join(projectDir, ".pi", "mcp.json");
+}
+
+/** The key two server names share when Pi treats them as one (`-` and `_` alike). */
+export function mcpServerKey(name: string): string {
+  return name.replace(/[^A-Za-z0-9_]/g, "_");
+}
+
+/** One `mcpServers` entry as the check needs it. */
+export interface McpServerEntry {
+  name: string;
+  /** False for `enabled: false` (absent `enabled` = true). */
+  enabled: boolean;
+  /** A project entry without `command`/`url`/`type`: it only overrides `enabled` of a user-level server. */
+  override: boolean;
+}
+
+/**
+ * The servers one mcp.json configures, keyed by `mcpServerKey`; null when the
+ * file is absent or can't be parsed (Pi reports a broken file itself).
+ */
+export function readMcpServersFile(file: string): Map<string, McpServerEntry> | null {
+  if (!existsSync(file)) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(fs.readFileSync(file, "utf8").replace(/^\uFEFF/, ""));
+  } catch {
+    return null;
+  }
+  const servers = (parsed as { mcpServers?: unknown } | null)?.mcpServers;
+  if (!servers || typeof servers !== "object" || Array.isArray(servers)) return null;
+  const out = new Map<string, McpServerEntry>();
+  for (const [name, value] of Object.entries(servers as Record<string, unknown>)) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) continue;
+    const v = value as Record<string, unknown>;
+    out.set(mcpServerKey(name), {
+      name,
+      enabled: v.enabled !== false,
+      override: !("command" in v) && !("url" in v) && !("type" in v),
+    });
+  }
+  return out;
+}
