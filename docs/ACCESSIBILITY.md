@@ -110,6 +110,27 @@ writes (its path is printed; `$TMPDIR/mpt-a11y-report.md` by default), with a se
 the first offending element. Each allowlist entry names the task that removes it. Since
 task 3 the list is **empty**: any serious or critical finding fails the scan.
 
+### Smoke test: every phone route renders
+
+The scan above checks what a page says; `tests/e2e/phone-routes.test.ts` (part of
+`npm run test:e2e`) checks that every phone page renders at all. It seeds a teammate, a
+finished and an in-progress run and a note on a sandboxed daemon, then loads every `/m`
+route as an iPhone 13 — and every desktop page the phone view reuses (e.g.
+`/teammates/:id`) at desktop size — and fails on a page error, a `console.error` not in
+its `CONSOLE_ALLOWLIST`, or a page with no text or h1. (It exists because
+`/m/teammates/:id` was blank for several releases: a desktop component there needed the
+side dock, which the phone shell doesn't have.)
+
+The routes come from the sources, so a new one is usually covered as is: the tabs in
+`lib/mobile.ts` `MOBILE_TAB_PATHS`, the guide, every `useMatch(…)` / `<Route path=…>`
+under `ui/src/mobile/`, and the App.tsx routes of the pages `ui/src/mobile/` imports
+from `@/pages/`. A route with a new kind of `:param` fails until you give it a sample in
+the test's `sampleParams`; a desktop page the phone links to without importing goes in
+`EXTRA_DESKTOP_ROUTES`. `PHONE_ROUTES=/m,/m/chat` loads only those. A component a phone
+route can reach must not need a desktop-only context: read `SideDockContext` with
+`useContext` and render nothing (or less) without it, as `PageHelpButton` does, rather
+than calling `useSideDock()`, which throws outside the desktop shell.
+
 ### By hand: the keyboard pass
 
 For any UI change, use the changed screens with the keyboard only — Tab / Shift+Tab /

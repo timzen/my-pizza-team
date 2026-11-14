@@ -566,6 +566,15 @@ region, silent on load; the chat a quiet `role="log"`; a story's Make pending an
 (empty since task 3), or an allowlist entry that's been fixed
 (unit-tested by `tests/a11y-gate.test.ts` in the fast suite). Both are root devDependencies.
 
+`tests/e2e/phone-routes.test.ts` is the phone view's smoke test (in `npm run test:e2e`;
+[ACCESSIBILITY.md](ACCESSIBILITY.md) "Smoke test"): on a sandboxed daemon with a seeded
+teammate, runs and a note, it loads every `/m` route (iPhone 13) and every desktop page
+`ui/src/mobile/` reuses (desktop size) in one Chromium, and fails on a `pageerror`, an
+unexpected `console.error`, or a page with no text or h1. The route list is derived from
+the sources (`MOBILE_TAB_PATHS`, `useMatch`/`<Route path>` under `ui/src/mobile/`, and
+App.tsx's routes for the `@/pages/` it imports). It and `model-picker-ui.test.ts` share
+`tests/e2e/_ui.ts` (`hasChromium`, `ensureUiBuilt`: `npm run ui:build` when ui/dist is stale).
+
 ## Agent Lifecycle
 
 ```

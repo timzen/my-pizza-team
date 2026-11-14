@@ -20,45 +20,17 @@
  *   - Config → General's Assistant model picker creates the leader's directive.
  */
 
-import * as fs from "node:fs";
-import * as path from "node:path";
-import { spawnSync } from "node:child_process";
 import { test } from "node:test";
-import { fileURLToPath } from "node:url";
 import { chromium, devices, type Page } from "playwright-core";
 import { AxeBuilder } from "@axe-core/playwright";
 import { assert, assertEquals } from "../_assert.ts";
 import { sandbox, type Sandbox } from "./_sandbox.ts";
-
-const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
-const UI_INDEX = path.join(REPO, "ui", "dist", "index.html");
+import { ensureUiBuilt, hasChromium } from "./_ui.ts";
 
 const MODELS = [
   { ref: "acme/base", id: "base", name: "Acme Base", provider: "acme" },
   { ref: "acme/strong", id: "strong", name: "Acme Strong", provider: "acme" },
 ];
-
-/** Is Playwright's Chromium installed? (Skip, rather than fail, on a machine without it.) */
-function hasChromium(): boolean {
-  try { return fs.existsSync(chromium.executablePath()); } catch { return false; }
-}
-
-/** The newest mtime under `dir` (ms). */
-function newest(dir: string): number {
-  let t = 0;
-  for (const f of fs.readdirSync(dir, { recursive: true, withFileTypes: true })) {
-    if (f.isFile()) t = Math.max(t, fs.statSync(path.join(f.parentPath, f.name)).mtimeMs);
-  }
-  return t;
-}
-
-/** Build the UI when ui/dist is missing or older than its sources (or the shared types it imports). */
-function ensureUiBuilt(): void {
-  const built = fs.existsSync(UI_INDEX) ? fs.statSync(UI_INDEX).mtimeMs : 0;
-  if (built > Math.max(newest(path.join(REPO, "ui", "src")), newest(path.join(REPO, "shared")))) return;
-  const r = spawnSync("npm", ["run", "ui:build"], { cwd: REPO, stdio: "inherit" });
-  if (r.status !== 0) throw new Error("npm run ui:build failed");
-}
 
 async function api(sb: Sandbox, route: string, body?: unknown, method = body === undefined ? "GET" : "POST"): Promise<any> {
   const res = await fetch(`http://127.0.0.1:${sb.port}${route}`, {

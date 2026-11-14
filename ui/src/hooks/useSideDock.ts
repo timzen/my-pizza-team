@@ -73,7 +73,15 @@ export interface SideDockValue {
 
 export const SideDockContext = createContext<SideDockValue | null>(null);
 
-/** The dock's shared state; throws outside SideDockProvider. */
+/**
+ * The dock's shared state; throws outside SideDockProvider. Only the desktop
+ * shell has one, so call this only from desktop-only components (App.tsx's
+ * ShellFrame, SideDock, NavBar, HelpPanel). Anything a phone route (`/m`) can
+ * render — a desktop page the phone view reuses, a shared component — reads
+ * `SideDockContext` with `useContext` and copes with null instead
+ * (PageHelpButton, EmptyState, FieldHint, useStartChat, TourProvider);
+ * tests/e2e/phone-routes.test.ts catches a page that doesn't.
+ */
 export function useSideDock(): SideDockValue {
   const ctx = useContext(SideDockContext);
   if (!ctx) throw new Error("useSideDock must be used inside SideDockProvider");
