@@ -4,7 +4,8 @@
  * A workflow is an ordered list of active states between the implicit `todo`
  * and `done` buckets (see docs/DESIGN.md "The Work Model"). There is no transition matrix: this module answers
  * position questions (what's active, what's next, is this a teammate state, is
- * it a poll state — docs/DESIGN.md "Polling States") and
+ * it a poll state — docs/DESIGN.md "Polling States"; its stall threshold —
+ * "Stalled Teammates") and
  * the store applies the two mechanical rules (advance, admission). Humans may
  * move tasks anywhere, so there is no permission checking here either.
  */
@@ -78,12 +79,33 @@ export function validateWorkflow(wf: WorkflowConfig): string | null {
     seen.add(s.name);
     const completion = stateCompletionError(s);
     if (completion) return `State "${s.name}": ${completion}`;
+    if (s.stallMinutes !== undefined && !isStallMinutes(s.stallMinutes)) {
+      return `State "${s.name}": stallMinutes must be a number of minutes, 0 or more (0 = never flagged)`;
+    }
   }
   return null;
 }
 
+/** A usable `stallMinutes`: a finite number, 0 or more. */
+function isStallMinutes(v: unknown): v is number {
+  return typeof v === "number" && Number.isFinite(v) && v >= 0;
+}
+
+/**
+ * The `stallMinutes` of `status` when it is a teammate state that sets one,
+ * else null (the team's applies) — docs/DESIGN.md "Stalled Teammates".
+ */
+export function stateStallMinutes(wf: WorkflowConfig, status: string): number | null {
+  const s = wf.states.find((st) => st.name === status);
+  if (!s || s.type !== "teammate" || !isStallMinutes(s.stallMinutes)) return null;
+  return s.stallMinutes;
+}
+
 /** The completion fields of a workflow state (docs/DESIGN.md "Polling States"). */
 const COMPLETION_FIELDS = ["completion", "pollEvery", "pollTimeout", "onTimeout"] as const;
+
+/** Every teammate-only field a manual state may wrongly set: the completion fields plus `stallMinutes`. */
+const TEAMMATE_ONLY_FIELDS = [...COMPLETION_FIELDS, "stallMinutes"] as const;
 
 /**
  * Why a teammate state's completion fields are refused, or null — the shared
@@ -94,13 +116,13 @@ function stateCompletionError(s: WorkflowState): string | null {
 }
 
 /**
- * The completion fields a state sets that do nothing there — any of them on a
- * manual state (no teammate runs it). The workflow loader logs a warning for
+ * The teammate-only fields (completion, `stallMinutes`) a state sets that do
+ * nothing there — any of them on a manual state (no teammate runs it). The workflow loader logs a warning for
  * each, as it does for a manual state's persona.
  */
 export function ignoredStateFields(s: WorkflowState): string[] {
   if (s.type !== "manual") return [];
-  return COMPLETION_FIELDS.filter((f) => s[f] !== undefined);
+  return TEAMMATE_ONLY_FIELDS.filter((f) => s[f] !== undefined);
 }
 
 /** A poll state's settings with the defaults applied (durations in milliseconds). */

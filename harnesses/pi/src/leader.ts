@@ -38,6 +38,8 @@ import { PersonaModelSwitch, modelProblem } from "./persona-model.js";
 import { ModelListReporter, ModelPreferences, SetModelRealizer, availableModels } from "./model-choice.js";
 import { MODEL_FAILOVER_CAPABILITY, SET_MODEL_CAPABILITY } from "./shared/agent-protocol.js";
 import { attachSessionStats, type SessionStatsReporter } from "./stats-report.js";
+import { attachActivity } from "./activity-report.js";
+import { ActivityTracker } from "./runtime/activity.js";
 import { summarizeRun, hasUsage } from "./runtime/usage.js";
 import { LEADER_WINDOW } from "./shared/types.js";
 import { readTerminalMetadata } from "./terminal.js";
@@ -162,13 +164,16 @@ export async function setupLeader(
   // reported means ready — so work kept being scheduled into it. The daemon runs
   // whenever it matters and answers with no agents connected.
   const HEARTBEAT_INTERVAL_MS = 30_000;
+  // What the leader is doing, with each beat (activity-report.ts) — shown, never
+  // flagged: the leader holds no work item, so it is never stalled.
+  const activity = attachActivity(pi, new ActivityTracker());
   const heartbeatTick = async () => {
     if (rejected) return;
     if (!registered) {
       await tryRegister(); // a failure is retried next beat
       if (rejected || !registered) return;
     }
-    const res = await client.heartbeat("idle");
+    const res = await client.heartbeat("idle", undefined, activity.report());
     if (res.dismissed || res.reregister) {
       // The daemon doesn't know us (it restarted, or forgot us) — re-register.
       registered = false;

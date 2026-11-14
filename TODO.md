@@ -110,6 +110,16 @@ number. Delete an item when it's done.
   check's time in an env var), and how its output reaches the next real check's
   prompt. Not part of the polling-states story.
 
+## Stalled teammates (docs/DESIGN.md "Stalled Teammates")
+
+- **A state's `stallMinutes` in the workflow editor (deferred):** the daemon honors a
+  teammate state's `stallMinutes` (validated, warned about on a manual state), but
+  Config → Workflows has no field for it yet; it's set by editing the workflow file.
+- **Activity from `mpt agent` (Kiro, Claude Code) teammates (deferred):**
+  `agent/supervisor.ts` sends no activity and no session stats, so its teammates
+  are never flagged stalled (there is nothing to measure progress by). ACP's
+  `session/update` tool calls could feed the same `runtime/activity.ts` tracker.
+
 ## Work Sources as plugins — package loading — built
 
 Third-party Work Sources load from plugin packages declared per team in

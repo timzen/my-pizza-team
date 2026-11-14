@@ -138,6 +138,12 @@ export function registerSharedRoutes(ctx: RouteContext): void {
       notices: store.getNotices(),
       // The team-wide model failover (daemon/failover.ts), for the Team tab's banner.
       failover: store.failover.view(),
+      // The teammates stalled right now (docs/DESIGN.md "Stalled Teammates"):
+      // `mpt status` prints a line each.
+      stalled: members.flatMap((m) => {
+        const stall = store.getMemberStall(m.id);
+        return stall ? [{ id: m.id, name: m.name, ...stall }] : [];
+      }),
     });
   });
 

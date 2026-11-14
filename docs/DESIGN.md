@@ -1332,6 +1332,52 @@ agent deregistering (or being dismissed) mid-item.
 Auto-re-enqueuing on a guess risks two agents doing the same work; MORIBUND makes
 reaping honest and puts the recovery decision with the human.
 
+## Stalled Teammates: Progress, not Pulse
+
+Reaping catches an agent that stops heartbeating. It can't catch one that keeps
+heartbeating while it is stuck. On 2026-11-14 a teammate ran `node --test … |
+grep …` through Pi's bash tool, a test never settled, and the process slept at 0%
+CPU for 13 hours. The heartbeat stayed fresh, the status said "working", and
+nothing in MPT noticed. So the harness also reports **progress**: with every
+heartbeat it sends `activity` (`idle`, `model`, or `tool` with the tool's name,
+start time and a short preview of its input) and `lastProgressAt` (the last time
+a model turn or tool call completed, or a run started or ended). The heartbeat is
+the carrier because it keeps flowing while a tool runs. Session stats only arrive
+after a turn.
+
+The rule is in one place, shared/stall.ts `stallOf`. A teammate is **stalled**
+when all of these hold:
+
+- it is live (status `working`; the reaper has made a silent one `offline`);
+- it holds a claimed `IN_PROGRESS` item;
+- it isn't `idle` by its own report;
+- nothing has progressed for more than `stallMinutes`.
+
+The threshold is the workflow state's `stallMinutes` if set (a state known for
+long builds can allow more, or 0 for never), else the team's (default 30; 0 =
+off). The claim counts as a start, so a fresh claim never looks stalled because
+of the previous session's progress. A harness that reports no activity (an older
+one) is measured by its session stats' `at`; one that reports neither (an `mpt
+agent` teammate today) is never flagged, since a guess from the claim alone
+would flag every long run. That's coarser, but it is additive: nothing about the
+protocol version changes.
+
+*Why a flag, not a state:* a long build is legitimate, and only a human can tell
+a slow build from a hung one. Stalled is computed on read (`Store.getMemberStall`),
+never stored. It is not a member status and not a work item state, and nothing is
+failed, retried or killed because of it. It clears by itself as soon as progress
+resumes. It appears in `GET /api/agents` (`stalled`), `/api/status` (`stalled`)
+and `mpt status`. The Team tab, the teammate page, the Inbox note and the
+Interrupt action build on it.
+
+*Why previews are short and redacted:* the preview is for recognizing the stuck
+call ("bash `node --test …`"), not for auditing it. The harness picks one
+identifying field (bash's command, a file tool's path; never file contents),
+collapses it to one line, redacts obvious secrets (`*_TOKEN=…`, `--password …`,
+`Bearer …`) and cuts it to 120 characters (agent-protocol.ts
+`cleanActivityPreview`). The daemon runs the same cleanup again on receipt, so a
+harness that skips it can't store more.
+
 ## Team Size: Declared, not Clicked
 
 The team's size is a **number you declare** (`minTeammates`), not a button you

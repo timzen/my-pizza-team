@@ -37,6 +37,7 @@ import {
   LEADER_ALREADY_CONNECTED,
   PROTOCOL_VERSION,
   featureDisabledMessage,
+  type AgentActivityReport,
   type AgentClaimResponse,
   type AgentNextWorkResponse,
   type AgentRegisterResponse,
@@ -456,14 +457,23 @@ export class DaemonClient {
    * If heartbeats stop, the daemon considers the agent offline and may
    * release its assigned tasks.
    *
+   * `activity` (optional) says what the agent is doing and when it last made
+   * progress (runtime/activity.ts), so the daemon can flag it as stalled while
+   * its heartbeat stays fresh. An older daemon ignores it.
+   *
    * Never throws — safe for background intervals.
    */
-  async heartbeat(status: "idle" | "working" | "pairing", currentTask?: string): Promise<{ dismissed?: boolean; reregister?: boolean }> {
+  async heartbeat(
+    status: "idle" | "working" | "pairing",
+    currentTask?: string,
+    activity?: AgentActivityReport | null,
+  ): Promise<{ dismissed?: boolean; reregister?: boolean }> {
     try {
       const res = await this.post<{ success: boolean; dismissed?: boolean; reregister?: boolean }>("/api/agents/heartbeat", {
         id: this.agentId,
         status,
         currentTask,
+        ...(activity ? { activity: activity.activity, lastProgressAt: activity.lastProgressAt } : {}),
       });
       return { dismissed: res.dismissed, reregister: res.reregister };
     } catch {

@@ -209,6 +209,13 @@ built in; an external source (a tracker, a ticket queue) comes from a
 [plugin package](#plugin-package) and gets its own tab on **Work**. See
 [Sources](07-sources.md).
 
+## Stalled
+
+A teammate that is alive and working on a run, but hasn't finished anything (no model
+turn, no tool call) for longer than `stallMinutes` (default 30). It's a flag, not a
+status: nothing is stopped, and it clears when progress resumes. See
+[Stalled teammates](03-teammates.md#stalled-teammates).
+
 ## Story
 
 A group of related [board tasks](#board-task) with an order, a [workflow](#workflow),

@@ -34,7 +34,7 @@ import {
   type Comment, DONE_STATE, type Story, type TaskPollRecord, TODO_STATE, type WorkDef, type WorkflowConfig, type WorkItem, type WorkItemState,
 } from "../../shared/types.ts";
 import { buildWorkDefPrompt } from "../prompt.ts";
-import { firstActiveState, isActiveState, isTeammateState, isValidPosition, nextState, pollSettings, type PollSettings } from "../workflow-engine.ts";
+import { firstActiveState, isActiveState, isTeammateState, isValidPosition, nextState, pollSettings, stateStallMinutes, type PollSettings } from "../workflow-engine.ts";
 import { plural } from "./toggle.ts";
 import type { ItemTerminalOutcome, SourceContext, SourceToggle, WorkSource } from "./types.ts";
 
@@ -271,6 +271,17 @@ export class StorySource implements WorkSource {
     const task = this.deps.getTask(taskId);
     if (!task) return null;
     return pollSettings(this.deps.getWorkflowForStory(task.storyId), task.status);
+  }
+
+  /**
+   * The `stallMinutes` the task's current state sets (docs/DESIGN.md "Stalled
+   * Teammates"), or null when it sets none (or the task is unknown): the
+   * team's threshold applies.
+   */
+  stallMinutesFor(taskId: string): number | null {
+    const task = this.deps.getTask(taskId);
+    if (!task) return null;
+    return stateStallMinutes(this.deps.getWorkflowForStory(task.storyId), task.status);
   }
 
   /**

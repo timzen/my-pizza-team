@@ -48,7 +48,7 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { DaemonClient } from "./runtime/client.js";
-import type { ClaimPersona, ModelErrorKind, PairingReleaseAction } from "./shared/agent-protocol.js";
+import type { AgentActivityReport, ClaimPersona, ModelErrorKind, PairingReleaseAction } from "./shared/agent-protocol.js";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
@@ -138,6 +138,13 @@ export class TeammateLoop {
    * already has its model; not awaited at the item's end.
    */
   public onPersonaChange: ((persona: ClaimPersona | null) => void | Promise<void>) | null = null;
+
+  /**
+   * What the agent is doing and when it last made progress, sent with every
+   * heartbeat (activity-report.ts) so the daemon can flag a stalled teammate.
+   * Wired by setupTeammate; unset, heartbeats carry no activity.
+   */
+  public activityReport: (() => AgentActivityReport) | null = null;
 
   /** Called when the agent is dismissed from the UI */
   public onDismissed: (() => void) | null = null;
@@ -322,7 +329,7 @@ export class TeammateLoop {
   /** Pause autonomous work (human is pairing) */
   pause(): void {
     this.autonomous = false;
-    this.client.heartbeat("pairing").catch(() => {});
+    this.client.heartbeat("pairing", undefined, this.activityReport?.()).catch(() => {});
   }
 
   /** Resume autonomous work */
@@ -340,7 +347,7 @@ export class TeammateLoop {
       const status = this.autonomous
         ? this.currentWorkItemId ? "working" : "idle"
         : "pairing";
-      const res = await this.client.heartbeat(status, this.currentWorkItemId || undefined);
+      const res = await this.client.heartbeat(status, this.currentWorkItemId || undefined, this.activityReport?.());
       if (res.dismissed) {
         this.stop();
         if (this.onDismissed) this.onDismissed();
@@ -425,7 +432,7 @@ export class TeammateLoop {
         this.heldProbe = claim.failoverProbe?.modelId ? { workItemId: response.workItem.id, modelId: claim.failoverProbe.modelId } : null;
         await Promise.resolve(this.onPersonaChange?.(this.persona)).catch(() => {});
         this.onClaimCompletion?.(claim.completion === "poll" ? "poll" : "once");
-        this.client.heartbeat("working", response.workItem.id).catch(() => {});
+        this.client.heartbeat("working", response.workItem.id, this.activityReport?.()).catch(() => {});
 
         // Execute the work using the daemon-assembled prompt.
         await this.executeTask(response.workItem.id, claim.prompt);

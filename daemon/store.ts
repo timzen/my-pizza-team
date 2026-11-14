@@ -58,7 +58,8 @@ import {
 } from "../shared/types.ts";
 import { normalizeDirectory } from "../shared/directory.ts";
 import { saveTeamConfig } from "../shared/team-config.ts";
-import type { AvailableModel, ModelChangeView, ModelErrorKind, PluginLoadStatus, SetModelParams } from "../shared/protocol.ts";
+import type { AgentActivityReport, AgentStall, AvailableModel, ModelChangeView, ModelErrorKind, PluginLoadStatus, SetModelParams } from "../shared/protocol.ts";
+import { resolveStallMinutes, stallOf } from "../shared/stall.ts";
 import { FAILOVER_STATE_KEY, ModelFailover, type FailoverEvent } from "./failover.ts";
 import { FAILOVER_NOTES_KEY, FailoverNotes, failoverComment } from "./failover-notes.ts";
 import type { TeamPersonaInput, TeamPersonaUpdate } from "./personas/library.ts";
@@ -197,8 +198,10 @@ export class Store {
   /** Web-UI pairing intent per teammate (docs/DESIGN.md "Watching and Pairing with a Teammate"). In-memory. */
   readonly pairing = new TeammatePairing();
   /**
-   * The clock the failover reads (daemon/failover.ts). Tests replace it with a
-   * fake one; everything else in the Store keeps `Date.now()`.
+   * The clock the failover (daemon/failover.ts) and the stall check
+   * (`getMemberStall`, and the session stats' `at` it falls back to) read.
+   * Tests replace it with a fake one; everything else in the Store keeps
+   * `Date.now()`.
    */
   clock: () => number = () => Date.now();
   /** The team-wide model failover (docs/DESIGN.md "Model Failover"). */
@@ -326,6 +329,7 @@ export class Store {
       setWorkItemStateRow: (id, state) => this.setWorkItemStateRow(id, state),
       forgetLiveState: (id) => { this.transcripts.forget(id); this.pairing.forget(id); },
       saveConfig: () => this.saveConfig(),
+      now: () => this.clock(),
     });
     this.board = new BoardStore(domain, {
       policy: this.storySource,
@@ -1018,7 +1022,7 @@ export class Store {
   updateMemberStatus(id: string, status: string): void { this.members.updateMemberStatus(id, status); }
 
   /** Record a heartbeat; a reaped agent coming back restores its MORIBUND items (docs/DESIGN.md "Reaping"). */
-  heartbeat(id: string, status: string): void { this.members.heartbeat(id, status); }
+  heartbeat(id: string, status: string, activity?: AgentActivityReport | null): void { this.members.heartbeat(id, status, activity); }
 
   /** Every registered member, by name. */
   getMembers(): Member[] { return this.members.getMembers(); }
@@ -1034,6 +1038,33 @@ export class Store {
 
   /** An agent's last-reported session stats, if it has reported any this session. */
   getMemberSessionStats(id: string): MemberSessionStats | undefined { return this.members.getMemberSessionStats(id); }
+
+  /** An agent's last activity report (what it is doing, last progress), if its harness sends them. */
+  getMemberActivity(id: string): AgentActivityReport | undefined { return this.members.getMemberActivity(id); }
+
+  /**
+   * Is this agent stalled — live, working on a claimed item, and no progress
+   * for longer than the threshold (docs/DESIGN.md "Stalled Teammates";
+   * shared/stall.ts `stallOf`)? Null when not. The threshold is the item's
+   * workflow state's `stallMinutes` (story tasks), else the team's. Computed
+   * on read, so it clears by itself when progress resumes.
+   */
+  getMemberStall(id: string, now: number = this.clock()): AgentStall | null {
+    const member = this.getMember(id);
+    if (!member || member.status !== "working") return null;
+    const item = this.getWorkItems({ states: ["IN_PROGRESS"] }).items.find((wi) => wi.memberId === id);
+    if (!item) return null;
+    const claimedAt = Date.parse(item.lastStateChangeAt);
+    return stallOf({
+      now,
+      stallMinutes: resolveStallMinutes(this.config, this.storySource.stallMinutesFor(item.ref.workDefId)),
+      status: member.status,
+      workItemId: item.id,
+      claimedAt: Number.isFinite(claimedAt) ? claimedAt : null,
+      report: this.getMemberActivity(id) ?? null,
+      sessionStatsAt: this.getMemberSessionStats(id)?.at ?? null,
+    });
+  }
 
   /**
    * The model an agent's session last reported, as a ref: `provider/id`, or the

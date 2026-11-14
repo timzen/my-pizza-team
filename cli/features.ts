@@ -15,11 +15,14 @@
  *
  * `mpt status` also prints a line while a team-wide model failover is in
  * effect (`/api/status` `failover`; shared/failover.ts `failoverLine`, the
- * same words as the Team tab's banner).
+ * same words as the Team tab's banner), and one per stalled teammate
+ * (`/api/status` `stalled`; shared/stall.ts `stallLine`).
  */
 
 import { FEATURE_NAMES, featureDisabledMessage, featuresFromStatus, type FeatureName } from "../shared/agent-protocol.ts";
 import { failoverLine, type FailoverLineInput } from "../shared/failover.ts";
+import type { StalledAgentView } from "../shared/protocol.ts";
+import { stallLine } from "../shared/stall.ts";
 
 export { featureDisabledMessage };
 
@@ -32,6 +35,8 @@ export interface StatusSummaryInput {
   features?: Partial<Record<FeatureName, boolean>>;
   /** The team-wide model failover; absent from daemons that predate it. */
   failover?: FailoverLineInput;
+  /** The stalled teammates; absent from daemons that predate stall detection. */
+  stalled?: StalledAgentView[];
 }
 
 /** A clock time for the status line: the terminal's local HH:MM. */
@@ -42,9 +47,15 @@ function localTime(iso: string): string {
 /**
  * The summary lines `mpt status` prints (without indentation). A switched-off
  * kind's count is left out — it would be a number for something the team doesn't
- * use — and a final line names what's off and where to turn it back on.
+ * use — and a final line names what's off and where to turn it back on. Then
+ * the failover line, if one is in effect, and a line per stalled teammate
+ * (its duration measured to `now`).
  */
-export function statusSummaryLines(data: StatusSummaryInput, formatTime: (iso: string) => string = localTime): string[] {
+export function statusSummaryLines(
+  data: StatusSummaryInput,
+  formatTime: (iso: string) => string = localTime,
+  now: number = Date.now(),
+): string[] {
   const features = featuresFromStatus(data);
   const lines: string[] = [];
   if (features.stories) {
@@ -56,6 +67,7 @@ export function statusSummaryLines(data: StatusSummaryInput, formatTime: (iso: s
   if (off.length > 0) lines.push(`Turned off: ${off.join(", ")} (Config → General → Work items)`);
   const failover = failoverLine(data.failover, formatTime);
   if (failover) lines.push(`${failover} — Config → Models`);
+  for (const stall of data.stalled ?? []) lines.push(`⚠️  ${stallLine(stall, now)}`);
   return lines;
 }
 

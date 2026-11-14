@@ -66,6 +66,8 @@ src/
 │                         #   SetModelRealizer (set-model)
 ├── model-error.ts        # classifyPiModelError: a failed run's error kind (throttle/5xx/auth/context/other)
 ├── stats-report.ts       # attachSessionStats: the Team tab's stats, reported by teammate and leader alike
+├── activity-report.ts    # attachActivity: the heartbeat's activity report (runtime/activity.ts), for the
+│                         #   daemon's stall check — teammate and leader alike
 ├── persona-mcp.ts        # The persona's requires.mcp checked: knownMcpServers (Pi's mcp.json files,
 │                         #   read-only, + getMcpServers), mcpRequirementProblem
 ├── permissions.ts        # Dynamic yoloMode toggling + ppt-autonomous authorizer chain link;
@@ -150,6 +152,17 @@ percent; null when Pi doesn't know yet), `ctx.model` (id, name, provider), and t
 summed over every entry exactly as Pi's footer does. Unchanged numbers aren't
 re-sent; after a daemon restart (`reregister`) the last report is sent again.
 Display-only: failures are swallowed.
+
+**Activity (teammates and the leader, every heartbeat).** src/activity-report.ts
+`attachActivity` feeds an `ActivityTracker` (`src/runtime/activity.ts`) Pi's
+`agent_start`, `turn_end`, `tool_execution_start`, `tool_execution_end` and
+`agent_end`. Each heartbeat carries its `report()`: `activity` (`idle`, `model`, or
+`tool` with the tool's name, start time and a one-line, redacted preview of its
+input — bash's command, a file tool's path, never contents) and `lastProgressAt`
+(a turn or tool call completed, or a run started or ended). The daemon flags a
+teammate that holds a claimed item with no progress past `stallMinutes` as stalled
+(my-pizza-team docs/DESIGN.md "Stalled Teammates"). A tool that never returns is
+exactly what this sees: its heartbeat keeps flowing, its progress doesn't.
 
 **Triage answers (`propose_work`).** A teammate holding a triage item — a note's, or
 an external source's item in triage mode (my-pizza-team docs/DESIGN.md "External
@@ -426,7 +439,7 @@ The extension communicates with the my-pizza-team daemon (default: `http://local
 | Route | Method | Purpose |
 |-------|--------|---------|
 | `/api/agents/register` | POST | Register agent (name, working `directory`, metadata) |
-| `/api/agents/heartbeat` | POST | Agent keepalive (restores this agent's MORIBUND items) |
+| `/api/agents/heartbeat` | POST | Agent keepalive (restores this agent's MORIBUND items); carries the activity report |
 | `/api/agents/next-work?agentId=X` | GET | Poll for a `READY` WorkItem (directory affinity) |
 | `/api/agents/claim/:workItemId` | POST | Lease the WorkItem (→ IN_PROGRESS) + get the daemon prompt |
 | `/api/agents/work-items/:workItemId/state` | POST | Set COMPLETE (advance task) or FAILED (leave stuck) |

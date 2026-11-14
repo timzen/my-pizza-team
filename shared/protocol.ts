@@ -16,6 +16,7 @@ import type {
   TriageBadge, TriageOutcome, TriageProposalState, TriageSkipReason, WorkflowConfig, WorkItemState,
 } from "./types.ts";
 import type {
+  AgentActivity,
   AgentRegisterResponse as AgentRegisterResponseOf,
   AssistantDelivery,
   AssistantOrigin,
@@ -31,10 +32,12 @@ import type {
 } from "./agent-protocol.ts";
 
 export {
+  ACTIVITY_PREVIEW_MAX, cleanActivityPreview,
   LEADER_ALREADY_CONNECTED, MODEL_ERROR_KINDS, MODEL_FAILOVER_CAPABILITY, PERSONA_SYSTEM_PROMPT_CAPABILITY, PROTOCOL_VERSION,
   SET_MODEL_ACTION, SET_MODEL_CAPABILITY, classifyModelError, isModelErrorKind,
 } from "./agent-protocol.ts";
 export type {
+  AgentActivity, AgentActivityReport, AgentActivityState,
   AvailableModel, ModelErrorKind, SetModelParams, SetModelSource,
   AgentCapability, AgentClaimResponse, ClaimPersona, AgentNextWorkResponse, AgentSetWorkItemStateResponse, AssistantDelivery, AssistantInboxItem,
   AssistantInboxResponse, AssistantOrigin, CreateLeaderDirectiveResponse, LeaderDirective, LeaderDirectivesResponse,
@@ -94,6 +97,8 @@ export interface StatusResponse extends AgentStatusResponse<WorkflowConfig> {
   notices: Array<{ id: string; message: string }>;
   /** The team-wide model failover (GET /api/failover), for the Team tab's banner. */
   failover: FailoverView;
+  /** The teammates stalled right now (docs/DESIGN.md "Stalled Teammates"); empty when none. */
+  stalled: StalledAgentView[];
 }
 
 // GET /api/stories
@@ -453,8 +458,12 @@ export interface AgentModelsRequest { models: AvailableModel[] }
 /** The registration reply (agent-protocol.ts), with the daemon's workflow config type. */
 export type AgentRegisterResponse = AgentRegisterResponseOf<WorkflowConfig>;
 
-// POST /api/agents/heartbeat
-export interface AgentHeartbeatRequest { id: string; status: "idle" | "working" | "pairing" | "offline"; currentTask?: string }
+// POST /api/agents/heartbeat — `activity` and `lastProgressAt` (agent-protocol.ts
+// `AgentActivityReport`) are additive: an older harness sends neither.
+export interface AgentHeartbeatRequest {
+  id: string; status: "idle" | "working" | "pairing" | "offline"; currentTask?: string;
+  activity?: AgentActivity; lastProgressAt?: number;
+}
 export interface AgentHeartbeatResponse { success: boolean }
 
 // POST /api/agents/:id/session-stats — context-window fill and session cost,
@@ -520,6 +529,36 @@ export interface AgentView {
   models?: AvailableModel[] | null;
   /** The model a user pinned on it (`AvailableModel.ref`), or null for none. */
   modelPin?: string | null;
+  // Stall detection (docs/DESIGN.md "Stalled Teammates"). Always sent by the
+  // daemon; optional so a fixture (or an older daemon) reads as "not reported".
+  /** What its harness last said it is doing (with its heartbeat), or null when it never said. */
+  activity?: AgentActivity | null;
+  /** When it last made progress (a model turn or tool call completed), as its harness reported; null when never. */
+  lastProgressAt?: number | null;
+  /** Set while it is stalled: live, holding a claimed item, and no progress for longer than the threshold. */
+  stalled?: AgentStall | null;
+}
+
+/**
+ * A stalled teammate (shared/stall.ts `stallOf`): alive and working on a
+ * claimed item, but nothing has completed for longer than the threshold. A
+ * flag, not a status: it clears by itself when progress resumes.
+ */
+export interface AgentStall {
+  /** When progress stopped (epoch ms): the last progress, or the claim when that came later. */
+  since: number;
+  /** What it is doing (its harness's last report), or null for a harness that doesn't report activity. */
+  activity: AgentActivity | null;
+  /** The threshold that applied, in minutes (the state's `stallMinutes`, else the team's). */
+  stallMinutes: number;
+  /** The claimed work item it is stuck on. */
+  workItemId: string;
+}
+
+/** One stalled teammate as `GET /api/status` lists it (`mpt status` prints a line each). */
+export interface StalledAgentView extends AgentStall {
+  id: string;
+  name: string;
 }
 export interface AgentListResponse { daemonVersion: string; protocolVersion: number; agents: AgentView[] }
 

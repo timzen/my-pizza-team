@@ -200,6 +200,22 @@ with the fix) — dismiss a failed one once you've seen it.
 For runs stuck on a teammate that went silent, see the Queue's
 [recovery actions](01-tasks-and-runs.md#the-queue).
 
+### Stalled teammates
+
+A teammate can also be alive but stuck, for example on a test that never finishes.
+It keeps checking in, and its status still says working. While it works, it reports
+what it's doing: thinking, or which tool it's running (for a shell command, the
+command, shortened, with passwords and tokens hidden). If nothing finishes for 30
+minutes, MPT flags it **stalled**. Nothing finishing means no model turn and no
+tool call completes. `mpt status` prints a line for each stalled teammate, for
+example ``bright-muad-dib stalled 13h: bash `node --test …` ``.
+
+Stalled is only a flag. MPT never stops or fails the run itself, because a long
+build is legitimate. The flag goes away as soon as the teammate makes progress
+again. Change the threshold with `stallMinutes` in `config.json` (0 turns it off).
+A workflow step can set its own `stallMinutes`, for example a longer one for a
+step known to run long builds.
+
 ## Pausing distribution
 
 The **pause button** (⏸) in the navbar stops the daemon from handing out new runs;

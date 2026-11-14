@@ -196,6 +196,8 @@ the assistant); a daemon refusal it does meet is shown as "Stories are disabled 
 enable them in Config (features.stories)".
 While a [model failover](docs/DESIGN.md#model-failover) is in effect it also prints
 `Failover: <from> → <to> since <time> (<kind>) — Config → Models`.
+It prints a line per [stalled](docs/DESIGN.md#stalled-teammates) teammate too:
+``⚠️  bright-muad-dib stalled 13h: bash `node --test …` ``.
 
 ### Which Node runs mpt
 
@@ -352,6 +354,9 @@ most of it is editable on the **Config** page. Minimal:
   "maxTeammates": 4,
   "minTeammates": 2,                     // Declared team size (omit = half of maxTeammates; 0 = none)
   "agentTimeoutSeconds": 90,             // Silence before an agent is reaped
+  "stallMinutes": 30,                    // No progress on a claimed item before a live teammate is
+                                         // flagged stalled (0 = off; a workflow state's own
+                                         // `stallMinutes` overrides it). A flag only: nothing is killed.
   "teammates": {
     "nouns": ["ripley", "deckard", "neo"] // Name generation (adjective-noun)
   },
@@ -818,7 +823,8 @@ advances a board task; FAILED leaves it for a human). See
 3. POST /api/agents/claim/:workItemId     → lease (→ IN_PROGRESS) + the daemon's prompt
    (the agent does the work in the ref's directory and posts a comment)
 4. POST /api/agents/work-items/:id/state  → { state: "COMPLETE" } or { state: "FAILED" }
-5. POST /api/agents/heartbeat             → keep-alive (restores this agent's MORIBUND items)
+5. POST /api/agents/heartbeat             → keep-alive (restores this agent's MORIBUND items);
+                                             optional `activity` + `lastProgressAt`: what it's doing
    POST /api/agents/:id/session-stats     → optional, after each turn: context fill + session cost
    POST /api/agents/:id/models            → optional: the models the harness can use changed
    GET  /api/agents/:id/directives        → asks to realize itself (new-session, set-model)
@@ -881,6 +887,21 @@ trip, escalation, exhaustion and end — `GET /api/failover/notes`, `POST
 `Failover:` line in `mpt status`. See
 [docs/DESIGN.md](docs/DESIGN.md#model-failover) and the guide's
 [Models and failover](docs/guide/11-models.md).
+
+**Stalled teammates.** A teammate can be alive and stuck: a test that never settles sleeps at 0% CPU
+while the heartbeat stays fresh. So with every heartbeat the harness says what
+it is doing — `activity: { state: "idle" | "model" | "tool", tool?, since,
+preview? }` (a tool's input as one short, redacted line: bash's command, a
+file tool's path, never contents) — and when it last made progress
+(`lastProgressAt`: a model turn or tool call completed). A live teammate working
+on a claimed item with no progress for more than `stallMinutes` (default 30;
+0 = off; a workflow state may set its own, e.g. for a long build) is flagged
+**stalled**: `stalled: { since, activity, stallMinutes, workItemId }` in `GET
+/api/agents`, the list in `/api/status` `stalled`, and a line in `mpt status`.
+A harness that reports no activity (an older one) is measured by its session
+stats' age; one that reports neither is never flagged. Stalled is a flag, not a status: nothing is failed or killed, and it
+clears by itself when progress resumes. See
+[docs/DESIGN.md](docs/DESIGN.md#stalled-teammates).
 
 Windows in the team's terminal that no registered teammate, the leader or a
 starting spawn accounts for (such as panes a terminal's session restore relaunched)

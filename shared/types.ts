@@ -64,6 +64,14 @@ export interface TeamConfig {
   teammates?: TeammateConfig;
   /** Seconds without heartbeat before an agent is marked offline (default: 90) */
   agentTimeoutSeconds?: number;
+  /**
+   * Minutes a live teammate may hold a claimed work item without progress (no
+   * model turn or tool call completing) before it is flagged **stalled**
+   * (default `DEFAULT_STALL_MINUTES`, 30; 0 = off). A flag only: nothing is
+   * failed or killed (docs/DESIGN.md "Stalled Teammates"). A workflow state's
+   * own `stallMinutes` overrides it for that state's runs. config.json only.
+   */
+  stallMinutes?: number;
   /** API token for authentication (optional; required when binding non-localhost) */
   apiToken?: string;
   /**
@@ -461,6 +469,13 @@ export interface WorkflowState {
    *   automatically.
    */
   onTimeout?: PollTimeoutAction;
+  /**
+   * Teammate states: minutes without progress before a run of this state is
+   * flagged stalled, overriding the team's `stallMinutes` — e.g. longer for a
+   * state known to run long builds; 0 = never flagged in this state
+   * (docs/DESIGN.md "Stalled Teammates"). Unset = the team's.
+   */
+  stallMinutes?: number;
 }
 
 /** A teammate state's completion mode (`WorkflowState.completion`). */

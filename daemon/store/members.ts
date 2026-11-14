@@ -5,7 +5,9 @@
  * The connected agents' side of the Store (docs/DESIGN.md "Reaping", "Team
  * Size", "One Agent to Talk To"):
  *   - members: register, heartbeat (a reaped agent coming back restores its
- *     MORIBUND items), list, remove, and the in-memory session stats;
+ *     MORIBUND items), list, remove, and the in-memory session stats and
+ *     activity reports (what the harness is doing, for the stall check —
+ *     docs/DESIGN.md "Stalled Teammates");
  *   - dismissals: the in-memory tombstones that make a dismissed agent's next
  *     heartbeat answer `dismissed`, and the "it has gone" signals the spawner
  *     waits on before closing its tmux window;
@@ -28,6 +30,7 @@
  */
 
 import type { DatabaseSync } from "node:sqlite";
+import type { AgentActivityReport } from "../../shared/agent-protocol.ts";
 import {
   generateTeammateName,
   resolveMinTeammates,
@@ -135,6 +138,8 @@ export interface MemberStoreDeps {
   forgetLiveState(memberId: string): void;
   /** Persist the live config to config.json (the Store's single writer). */
   saveConfig(): void;
+  /** The Store's clock (epoch ms), for the session stats' `at`; tests fake it. */
+  now(): number;
 }
 
 export class MemberStore {
@@ -147,6 +152,12 @@ export class MemberStore {
    * and a restarted daemon hears again after the agent's next turn.
    */
   private sessionStats = new Map<string, MemberSessionStats>();
+  /**
+   * Each live agent's activity report (what it is doing, when it last made
+   * progress), from its latest heartbeat that carried one. In memory only,
+   * like the session stats; no entry = an older harness that never reports.
+   */
+  private activity = new Map<string, AgentActivityReport>();
   /**
    * Each registered agent's per-process instance id (`instanceId` at
    * registration), when its harness sends one. In memory only, like the members
@@ -221,8 +232,9 @@ export class MemberStore {
     // (Re)registering clears any dismiss tombstone for this id.
     this.dismissedIds.delete(id);
     this.dismissals.delete(id);
-    // …and any session stats: a registration is a fresh harness session.
+    // …and any session stats and activity: a registration is a fresh harness session.
     this.sessionStats.delete(id);
+    this.activity.delete(id);
     if (handshake?.instanceId) this.instanceIds.set(id, handshake.instanceId);
     else this.instanceIds.delete(id);
     // A registration states the harness's capabilities afresh (none = none).
@@ -295,10 +307,12 @@ export class MemberStore {
   /**
    * Record a heartbeat. A previously-reaped agent coming back restores its
    * MORIBUND WorkItems to IN_PROGRESS — it was alive after all (see
-   * docs/DESIGN.md "Reaping").
+   * docs/DESIGN.md "Reaping"). `activity`, when the harness sent one,
+   * replaces the last report; a heartbeat without one keeps it.
    */
-  heartbeat(id: string, status: string): void {
+  heartbeat(id: string, status: string, activity?: AgentActivityReport | null): void {
     const prev = this.getMember(id);
+    if (activity) this.activity.set(id, activity);
     this.db.prepare("UPDATE members SET status = ?, last_heartbeat = ? WHERE id = ?").run(status, Date.now(), id);
     if (prev && prev.status === "offline" && status !== "offline") {
       const rows = this.db.prepare("SELECT id FROM work_items WHERE member_id = ? AND state = 'MORIBUND'").all(id) as Array<Record<string, unknown>>;
@@ -346,6 +360,7 @@ export class MemberStore {
     this.db.prepare("DELETE FROM members WHERE id = ?").run(id);
     this.deps.forgetLiveState(id);
     this.sessionStats.delete(id);
+    this.activity.delete(id);
     this.instanceIds.delete(id);
     this.capabilities.delete(id);
     this.availableModels.delete(id);
@@ -439,7 +454,12 @@ export class MemberStore {
 
   /** Record an agent's session stats (context fill, session cost); stamps `at`. */
   setMemberSessionStats(id: string, stats: Omit<MemberSessionStats, "at">): void {
-    this.sessionStats.set(id, { ...stats, at: Date.now() });
+    this.sessionStats.set(id, { ...stats, at: this.deps.now() });
+  }
+
+  /** An agent's last activity report (its heartbeat's), or undefined when it never sent one. */
+  getMemberActivity(id: string): AgentActivityReport | undefined {
+    return this.activity.get(id);
   }
 
   /** An agent's last-reported session stats, if it has reported any this session. */

@@ -402,6 +402,64 @@ export interface AgentSetWorkItemStateResponse {
   retry?: { workItemId: string; attempt: number; maxAttempts: number; retryAt: string };
 }
 
+// ─── Activity (docs/DESIGN.md "Stalled Teammates") ──────────────────
+//
+// What a harness is doing, sent with every heartbeat — the heartbeat keeps
+// flowing while a tool runs, so the daemon can tell "alive but stuck" (a hung
+// `node --test` for 13 hours) from "busy". Additive: an older harness sends no
+// activity, and the daemon falls back to the age of its session stats.
+
+/** What the harness is doing: no run in flight, waiting on the model, or running a tool. */
+export type AgentActivityState = "idle" | "model" | "tool";
+
+/** The harness's current activity, as `POST /api/agents/heartbeat` carries it. */
+export interface AgentActivity {
+  state: AgentActivityState;
+  /** With `tool`: the tool's name (e.g. `bash`). */
+  tool?: string;
+  /** When this state began (epoch ms). */
+  since: number;
+  /**
+   * With `tool`: a short, single-line view of its input — for bash the
+   * command, for a file tool the path, never file contents — at most
+   * `ACTIVITY_PREVIEW_MAX` characters, secrets redacted (`cleanActivityPreview`).
+   */
+  preview?: string;
+}
+
+/** What a heartbeat adds to say what the agent is doing (all optional on the wire). */
+export interface AgentActivityReport {
+  activity: AgentActivity;
+  /** The last time a model turn or a tool call completed (or a run started or ended), epoch ms. */
+  lastProgressAt: number;
+}
+
+/** The longest activity preview, in characters (an ellipsis marks a cut). */
+export const ACTIVITY_PREVIEW_MAX = 120;
+
+/**
+ * `NAME=value` assignments whose name says secret (`GITHUB_TOKEN=…`,
+ * `AWS_SECRET_ACCESS_KEY=…`, `DB_PASSWORD=…`), `--token value` style flags, and
+ * `Authorization: Bearer …` headers: the value becomes `***`.
+ */
+const SECRET_PATTERNS: Array<[RegExp, string]> = [
+  [/\b([A-Za-z0-9_]*(?:TOKEN|SECRET|PASSWORD|PASSWD|API_?KEY|ACCESS_?KEY|PRIVATE_?KEY|CREDENTIALS?)[A-Za-z0-9_]*)=("[^"]*"|'[^']*'|\S+)/gi, "$1=***"],
+  [/(--?(?:token|secret|password|passwd|api-?key|access-?key))([= ])("[^"]*"|'[^']*'|\S+)/gi, "$1$2***"],
+  [/\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]+/g, "$1 ***"],
+];
+
+/**
+ * An activity preview fit to show and store: whitespace (newlines included)
+ * collapsed to single spaces, obvious secrets redacted, cut to
+ * `ACTIVITY_PREVIEW_MAX` with an ellipsis. Run by the harness before sending and
+ * again by the daemon on receipt, so a harness that forgot can't leak more.
+ */
+export function cleanActivityPreview(text: string): string {
+  let out = text.replace(/\s+/g, " ").trim();
+  for (const [pattern, replacement] of SECRET_PATTERNS) out = out.replace(pattern, replacement);
+  return out.length > ACTIVITY_PREVIEW_MAX ? `${out.slice(0, ACTIVITY_PREVIEW_MAX - 1)}…` : out;
+}
+
 // ─── Web pairing (docs/DESIGN.md "Watching and Pairing with a Teammate") ─
 
 /** A release the teammate hasn't picked up yet: resume its work, or complete/fail it. */

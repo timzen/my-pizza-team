@@ -23,6 +23,7 @@ import {
 } from "../../shared/protocol.ts";
 import { packageVersion } from "../../shared/paths.ts";
 import { resolvePersonaModel } from "../../shared/model-aliases.ts";
+import { readActivityReport } from "../../shared/stall.ts";
 import { parseAvailableModels } from "../agent-models.ts";
 import { offerDefaultModelAfterUnpin, offerDefaultModelOnRegister } from "../default-model.ts";
 import { dismissParams, focusMember } from "../spawner.ts";
@@ -130,7 +131,7 @@ export function registerAgentRoutes(ctx: RouteContext): void {
   });
 
   app.post("/api/agents/heartbeat", async (c) => {
-    const body = await readBody(c) as { id?: string; status?: string };
+    const body = await readBody(c) as { id?: string; status?: string; activity?: unknown; lastProgressAt?: unknown };
     if (!body.id || !body.status) return fail(c, 400, "Fields 'id' and 'status' are required");
     const member = store.getMember(body.id);
     if (!member) {
@@ -146,7 +147,10 @@ export function registerAgentRoutes(ctx: RouteContext): void {
       }
       return c.json({ success: false, reregister: true });
     }
-    store.heartbeat(body.id, body.status);
+    // What the harness is doing, for the stall check (docs/DESIGN.md "Stalled
+    // Teammates"). Additive: absent or malformed = an older harness, whose
+    // stall check falls back to its session stats' age.
+    store.heartbeat(body.id, body.status, readActivityReport(body));
     return c.json({ success: true });
   });
 
@@ -411,6 +415,7 @@ export function registerAgentRoutes(ctx: RouteContext): void {
       agents: members.map(m => {
         const assignment = store.getAssignmentForMember(m.id);
         const item = inFlight.find((wi) => wi.memberId === m.id);
+        const report = store.getMemberActivity(m.id);
         return {
           id: m.id, name: m.name, directory: m.directory, status: m.status,
           currentWork: assignment?.taskId || null, lastHeartbeat: m.lastHeartbeat,
@@ -427,6 +432,11 @@ export function registerAgentRoutes(ctx: RouteContext): void {
           modelSwitching: store.memberHasCapability(m.id, SET_MODEL_CAPABILITY),
           models: store.getAvailableModels(m.id),
           modelPin: store.getModelPin(m.id),
+          // Stall detection (docs/DESIGN.md "Stalled Teammates"): what its harness
+          // last said it is doing, and the stall flag when it is stuck.
+          activity: report?.activity ?? null,
+          lastProgressAt: report?.lastProgressAt ?? null,
+          stalled: store.getMemberStall(m.id),
         };
       }),
     } satisfies AgentListResponse);

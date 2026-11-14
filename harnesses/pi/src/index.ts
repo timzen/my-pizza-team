@@ -37,6 +37,8 @@ import { MODEL_FAILOVER_CAPABILITY, PERSONA_SYSTEM_PROMPT_CAPABILITY, SET_MODEL_
 import { classifyPiModelError } from "./model-error.js";
 import { summarizeRun, hasUsage } from "./runtime/usage.js";
 import { attachSessionStats } from "./stats-report.js";
+import { attachActivity } from "./activity-report.js";
+import { ActivityTracker } from "./runtime/activity.js";
 
 /**
  * This extension's build version, read from its own package.json.
@@ -271,6 +273,9 @@ async function setupTeammate(
   // ─── Session stats (the Team tab's model, context fill, session cost) ──
   // stats-report.ts: after every turn, compaction and model switch.
   const stats = attachSessionStats(pi, client, ctx);
+  // ─── Activity (the stall check): sent with every heartbeat ──────────
+  const activity = attachActivity(pi, new ActivityTracker());
+  loop.activityReport = () => activity.report();
   // …and the models this Pi can use (the web UI's picker), again when they change.
   const modelList = new ModelListReporter((models) => client.reportAvailableModels(models), initialModels);
 

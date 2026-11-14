@@ -165,6 +165,17 @@ test("heartbeat swallows transport failures — it runs on an interval", async (
   await assert.doesNotReject(() => c.heartbeat("idle"));
 });
 
+test("heartbeat sends the activity report, and nothing extra without one", async () => {
+  await withServer(null, async (url, calls) => {
+    const activity = { state: "tool", tool: "bash", since: 1000, preview: "npm test" };
+    await client(url).heartbeat("working", "wi-1", { activity, lastProgressAt: 900 });
+    await client(url).heartbeat("idle");
+    assert.equal(calls[0].url, "/api/agents/heartbeat");
+    assert.deepEqual(calls[0].body, { id: "agent-1", status: "working", currentTask: "wi-1", activity, lastProgressAt: 900 });
+    assert.deepEqual(calls[1].body, { id: "agent-1", status: "idle" });
+  });
+});
+
 // ─── The agent protocol ──────────────────────────────────────────────
 
 test("register posts identity, host, directory, and the version handshake", async () => {
