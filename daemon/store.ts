@@ -58,7 +58,8 @@ import {
 } from "../shared/types.ts";
 import { normalizeDirectory } from "../shared/directory.ts";
 import { saveTeamConfig } from "../shared/team-config.ts";
-import type { AvailableModel, ModelChangeView, PluginLoadStatus, SetModelParams } from "../shared/protocol.ts";
+import type { AvailableModel, ModelChangeView, ModelErrorKind, PluginLoadStatus, SetModelParams } from "../shared/protocol.ts";
+import { FAILOVER_STATE_KEY, ModelFailover } from "./failover.ts";
 import type { TeamPersonaInput, TeamPersonaUpdate } from "./personas/library.ts";
 import { cachedTerminalStatus, type SpawnCapability } from "./spawner.ts";
 import type { TerminalBackend, TerminalStatus } from "./terminal/backend.ts";
@@ -194,6 +195,13 @@ export class Store {
   readonly transcripts = new TeammateTranscripts();
   /** Web-UI pairing intent per teammate (docs/DESIGN.md "Watching and Pairing with a Teammate"). In-memory. */
   readonly pairing = new TeammatePairing();
+  /**
+   * The clock the failover reads (daemon/failover.ts). Tests replace it with a
+   * fake one; everything else in the Store keeps `Date.now()`.
+   */
+  clock: () => number = () => Date.now();
+  /** The team-wide model failover (docs/DESIGN.md "Model Failover"). */
+  readonly failover: ModelFailover;
   /**
    * The Work Sources (WorkDef kinds as plugins; docs/DESIGN.md "Work Sources:
    * WorkDef Kinds as Plugins"). The Store calls them at its hook points
@@ -345,6 +353,21 @@ export class Store {
     this.notes = new ThoughtStore(domain, {
       getActiveWorkItem: (id) => this.queue.getActiveWorkItem(id),
       setWorkItemStateRow: (id, state) => this.queue.setWorkItemStateRow(id, state),
+    });
+    this.failover = new ModelFailover({
+      config,
+      load: () => this.getSetting(FAILOVER_STATE_KEY),
+      save: (value) => this.setSetting(FAILOVER_STATE_KEY, value),
+      getMembers: () => this.getMembers(),
+      getMember: (id) => this.getMember(id),
+      hasCapability: (id, cap) => this.memberHasCapability(id, cap),
+      getModelPin: (id) => this.getModelPin(id),
+      currentModel: (id) => this.getMemberModelRef(id),
+      sendFailoverModel: (id, params) => "directive" in this.requestModelChange(id, params, { sameSourceOnly: true }),
+      workItemState: (id) => this.getWorkItem(id)?.state ?? null,
+      releaseRetries: (kinds, now) => this.releaseRetriesFor(kinds, now),
+      now: () => this.clock(),
+      log: (message) => console.log(`[failover] ${message}`),
     });
     // Session persona titles come from the persona library (the persona domain).
     this.chat = new AssistantChat(this.db, teamDir, (id) => this.getPersona(id)?.title ?? null);
@@ -879,11 +902,15 @@ export class Store {
   private notifyItemTerminal(itemId: string): ItemTerminalOutcome { return this.queue.notifyItemTerminal(itemId); }
 
   /** An errored agent session: `[retry]` + a backoff-held retry, or `[failed]`; see `QueueStore.failWorkItemForSessionError`. */
-  failWorkItemForSessionError(id: string, sessionError: string, now: number = Date.now()): {
-    ok: boolean; error?: string; retry?: { workItemId: string; attempt: number; maxAttempts: number; retryAt: string };
+  failWorkItemForSessionError(id: string, sessionError: string, now: number = Date.now(), errorKind?: ModelErrorKind): {
+    ok: boolean; error?: string; errorKind?: ModelErrorKind;
+    retry?: { workItemId: string; attempt: number; maxAttempts: number; retryAt: string };
   } {
-    return this.queue.failWorkItemForSessionError(id, sessionError, now);
+    return this.queue.failWorkItemForSessionError(id, sessionError, now, errorKind);
   }
+
+  /** Release retries held in backoff after a failure of one of `kinds`; see `QueueStore.releaseRetriesFor`. */
+  releaseRetriesFor(kinds: readonly ModelErrorKind[], now: number = Date.now()): string[] { return this.queue.releaseRetriesFor(kinds, now); }
 
   /** Cancel a READY WorkItem (human). */
   cancelWorkItem(id: string): boolean { return this.queue.cancelWorkItem(id); }
@@ -958,8 +985,10 @@ export class Store {
   getModelPin(id: string): string | null { return this.members.getModelPin(id); }
 
   /** Ask an agent to switch models (a `set-model` self-directive); see `MemberStore.requestModelChange`. */
-  requestModelChange(memberId: string, params: SetModelParams): { directive: LeaderDirective } | { error: "unknown" | "unsupported" } {
-    return this.members.requestModelChange(memberId, params);
+  requestModelChange(
+    memberId: string, params: SetModelParams, opts: { sameSourceOnly?: boolean } = {},
+  ): { directive: LeaderDirective } | { error: "unknown" | "unsupported" } {
+    return this.members.requestModelChange(memberId, params, opts);
   }
 
   /** An agent reporting its self-directive's outcome (a done user set-model sets the pin); false if unknown. */
@@ -996,6 +1025,16 @@ export class Store {
 
   /** An agent's last-reported session stats, if it has reported any this session. */
   getMemberSessionStats(id: string): MemberSessionStats | undefined { return this.members.getMemberSessionStats(id); }
+
+  /**
+   * The model an agent's session last reported, as a ref: `provider/id`, or the
+   * id with no provider — the form `AvailableModel.ref` falls back to
+   * (daemon/agent-models.ts). Null when it never reported one.
+   */
+  getMemberModelRef(id: string): string | null {
+    const m = this.getMemberSessionStats(id)?.model;
+    return m ? (m.provider ? `${m.provider}/${m.id}` : m.id) : null;
+  }
 
   /** Dismiss a member: remove it and leave a tombstone so its next heartbeat is told `dismissed`. */
   dismissMember(id: string): void { this.members.dismissMember(id); }

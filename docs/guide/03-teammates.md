@@ -65,6 +65,11 @@ doesn't need the assistant for that; otherwise it's greyed out and says why, wit
 It also warns when the [readiness probe](08-configuration.md#readiness-probe)
 is failing — a new teammate would start but get no work until it passes.
 
+While a model [failover](glossary.md#failover) is in effect, a banner at the top of the
+tab says which model the team is running instead of which, and when the usual one is
+tried again; **End failover now** switches everyone back at once (see
+[Failover](08-configuration.md#failover)).
+
 ### Unmanaged windows
 
 When the team's terminal (its tmux session, or herdr workspace) holds a window that
@@ -109,7 +114,8 @@ watching.
 
 The header's **model chip** shows the model the teammate is running. A pin icon (📌) means you
 pinned it (a [model pin](glossary.md#model-pin)); an amber **failover** mark means a
-substitute is standing in while its usual model is throttled or failing. Hover or
+substitute is standing in while its usual model is throttled or failing (see
+[Failover](08-configuration.md#failover)). Hover or
 focus the chip for the why.
 
 Click the chip (or Tab to it and press Enter) for the models its harness can use:

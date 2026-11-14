@@ -122,6 +122,18 @@ export const FIELD_HELP = {
     text: "Maps each alias a persona can name to one harness's model id, e.g. strong to provider/model for Pi.",
     learnMore: { topic: "personas", anchor: "model-aliases" },
   },
+  failoverChain: {
+    text: "Models to fall back through, primary first; a model id or an alias. The whole team switches together.",
+    learnMore: { topic: "configuration", anchor: "failover" },
+  },
+  failoverOn: {
+    text: "Which failures count. Credential and context-window errors never switch models.",
+    learnMore: { topic: "configuration", anchor: "failover" },
+  },
+  failoverRevert: {
+    text: "After this long, one work item is tried on the primary again; if it works, the team switches back.",
+    learnMore: { topic: "configuration", anchor: "failover" },
+  },
   nameNouns: {
     text: "Nouns for generated teammate names (adjective-noun). Empty uses the built-in list.",
   },

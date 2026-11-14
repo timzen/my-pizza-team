@@ -9,7 +9,7 @@
  *   enqueues attempt n+1 held until its backoff passes and the team is ready
  * - on success of a retry, completes normally (a board task advances)
  * - once retries run out, leaves the item FAILED + unread (Inbox) with
- *   `[failed] <error> after N attempts`
+ *   `[failed] <error> (<error kind>) after N attempts`
  * - works the same for board tasks and Solitary/Scheduled WorkDefs
  * - a plain FAILED (the agent gave up) is never retried
  */
@@ -142,7 +142,7 @@ test("retries exhausted → FAILED, unread (Inbox), with a [failed] comment carr
 
     const comments = bodies(store, defId);
     assertEquals(comments.filter((b) => b.startsWith("[retry]")).length, 2);
-    assertStringIncludes(comments.at(-1)!, `[failed] ${ERR} after 3 attempts`);
+    assertStringIncludes(comments.at(-1)!, `[failed] ${ERR} (server error (5xx)) after 3 attempts`);
     assert(!comments.some((b) => b.startsWith("[done]")));
   }, WITH_MEMBER);
 });

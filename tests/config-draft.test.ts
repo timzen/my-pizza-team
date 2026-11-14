@@ -8,9 +8,10 @@
  */
 
 import { test } from "node:test";
-import { assertEquals } from "./_assert.ts";
+import { assertEquals, assertStringIncludes } from "./_assert.ts";
+import { failoverSummary } from "../ui/src/lib/models.ts";
 import {
-  BUILT_IN_HARNESSES, configBody, defaultModelHarnesses, harnessOptions, isValidModelAlias, modelAliasRows, normalizeNoun,
+  BUILT_IN_HARNESSES, configBody, defaultModelHarnesses, failoverForm, failoverProblem, harnessOptions, modelAliasNamesOf, moveChainEntry, isValidModelAlias, modelAliasRows, normalizeNoun,
   sameDefaultModels, setDefaultModel, setModelAlias, terminalSwitchWarning, type ConfigData,
 } from "../ui/src/lib/config-draft.ts";
 
@@ -113,4 +114,30 @@ test("sameDefaultModels: blank and absent alike, whitespace and order ignored", 
 test("defaultModelHarnesses: Pi first, then configured and live harnesses once", () => {
   assertEquals(defaultModelHarnesses(undefined, []), ["pi"]);
   assertEquals(defaultModelHarnesses({ kiro: "k", pi: "a" }, ["claude", "kiro"]), ["pi", "kiro", "claude"]);
+});
+
+// ─── Failover policy (Config → Models; docs/DESIGN.md "Model Failover") ───
+
+test("failoverForm fills the defaults; failoverProblem says what Save would refuse; chain entries move", () => {
+  assertEquals(failoverForm(undefined), { enabled: false, on: ["throttle", "5xx"], after: 2, windowMinutes: 10, chain: [], revertAfterMinutes: 30 });
+  assertEquals(failoverForm({ enabled: true, after: 3, chain: ["a", "b"] }).after, 3);
+  assertEquals(failoverProblem(undefined), null, "off with no chain is fine");
+  assertStringIncludes(failoverProblem({ enabled: true, chain: ["a"] })!, "at least two models");
+  assertStringIncludes(failoverProblem({ chain: ["a", "a"] })!, "twice");
+  assertEquals(failoverProblem({ enabled: true, chain: ["a", "b"] }), null);
+  assertEquals(moveChainEntry(["a", "b", "c"], 2, -1), ["a", "c", "b"]);
+  assertEquals(moveChainEntry(["a", "b"], 0, -1), ["a", "b"], "out of range: unchanged");
+  assertEquals(modelAliasNamesOf({ pi: { strong: "x", fast: "y" }, kiro: { strong: "z" } }), ["fast", "strong"]);
+});
+
+test("failoverSummary: what the team runs instead, and when the primary is tried again", () => {
+  const now = Date.parse("2026-03-01T12:00:00Z");
+  const view = {
+    enabled: true, active: true, from: "acme/a", to: "acme/b", replaces: ["acme/a"], since: null, trips: [],
+    nextProbeAt: new Date(now + 20 * 60_000).toISOString(), probe: null, exhausted: false, recentFailures: 0,
+  };
+  assertEquals(failoverSummary(view, now), "Failover: the team is on acme/b instead of acme/a. acme/a is tried again in 20 min.");
+  assertStringIncludes(failoverSummary({ ...view, probe: { workItemId: "w", memberId: "m", startedAt: "" } }, now), "Trying acme/a again on one work item now.");
+  assertStringIncludes(failoverSummary({ ...view, exhausted: true }, now), "the last model in the chain is failing too");
+  assertEquals(failoverSummary({ ...view, active: false }, now), "No failover: the team runs its usual models.");
 });

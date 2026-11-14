@@ -62,7 +62,9 @@ src/
 ├── persona-model.ts      # The persona's model applied: findModel, modelProblem, PersonaModelSwitch
 │                         #   (pi.setModel once per key — applyTarget — restore afterwards)
 ├── model-choice.ts       # The effective model: availableModels + ModelListReporter, ModelPreferences.resolve
-│                         #   (failover ?? pin ?? persona ?? team default ?? Pi's), SetModelRealizer (set-model)
+│                         #   (probe ?? failover substitute over pin ?? persona ?? team default ?? Pi's),
+│                         #   SetModelRealizer (set-model)
+├── model-error.ts        # classifyPiModelError: a failed run's error kind (throttle/5xx/auth/context/other)
 ├── stats-report.ts       # attachSessionStats: the Team tab's stats, reported by teammate and leader alike
 ├── persona-mcp.ts        # The persona's requires.mcp checked: knownMcpServers (Pi's mcp.json files,
 │                         #   read-only, + getMcpServers), mcpRequirementProblem
@@ -211,8 +213,12 @@ and their `availableModels` (`ctx.modelRegistry.getAvailable()` — models with
 credentials — each with `ref` `provider/id`); `ModelListReporter` re-sends the
 list (`POST /api/agents/:id/models`) on `agent_settled` and `model_select` when it
 changed. `ModelPreferences.resolve` is the one place the model is decided:
-failover ?? the user's pin ?? the persona's model (held item / assistant persona)
-?? the team default ?? Pi's default (null: the switch restores). The pin comes from
+the user's pin ?? the persona's model (held item / assistant persona) ?? the team
+default ?? Pi's default (null: the switch restores) — with the failover
+substitute in its place when that model (Pi's default: `PersonaModelSwitch.baseModel`)
+is one of the substitute's `replaces`, and a claim's `failoverProbe` above
+everything for that item (`TeammateLoop.failoverProbe`; my-pizza-team
+docs/DESIGN.md "Model Failover"). Both roles declare `model-failover` for that. The pin comes from
 the registration reply's `modelPin`, so every fresh session starts on it (applied
 at setup, before any claim); its key is the same across items, so a pinned
 teammate doesn't switch back and forth between them. `set-model` directives come
@@ -224,6 +230,14 @@ directive that arrives mid-run until the run settles, then checks the model
 `default`, `failover`), re-applies the effective model and marks the directive
 done — or failed with the reason, the preference put back. `session_shutdown`
 stops it; what waited stays pending for the next instance.
+
+**Error kinds.** A run whose final assistant message failed (`summarizeRun` →
+`sessionError`, with the message's stopReason and `provider/model`) is sent to
+the daemon with `errorKind` from `classifyPiModelError` (src/model-error.ts): Pi's
+providers format errors stably — Bedrock's exception classes as "Throttling
+error:" / "Service unavailable:" / "Internal server error:", other HTTP errors as
+"<provider> API error (<status>)" — so those are read first, then the shared
+`classifyModelError`. The daemon's failover trips on it.
 
 **The persona's required MCP servers.** `requires.mcp` is only checked: in
 `onPersonaChange` at claim, `mcpRequirementProblem` (src/persona-mcp.ts) compares

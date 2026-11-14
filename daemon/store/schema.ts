@@ -181,7 +181,8 @@ const FINAL_SCHEMA = `
     persona_title TEXT,
     persona_origin TEXT,       -- team | builtin | package:<name>
     persona_via TEXT,          -- PersonaVia
-    persona_fallback_from TEXT -- the id that didn't resolve, when a built-in stood in
+    persona_fallback_from TEXT, -- the id that didn't resolve, when a built-in stood in
+    error_kind TEXT            -- the kind of error (throttle|5xx|auth|context|other; docs/DESIGN.md "Model Failover")
   );
 
   -- The usage dashboard's day rollups (store/usage.ts).
@@ -199,6 +200,7 @@ const FINAL_SCHEMA = `
 const MIGRATIONS: ReadonlyArray<(db: DatabaseSync) => void> = [
   migrateFrom036,
   addTaskPoll,
+  addWorkItemErrorKind,
 ];
 
 /** The schema version this code writes: the number of migrations. */
@@ -309,13 +311,24 @@ function addTaskPoll(db: DatabaseSync): void {
   if (!columnsOf(db, "tasks").has("poll")) db.exec("ALTER TABLE tasks ADD COLUMN poll TEXT");
 }
 
+// --- Migration 3: model error kinds ---
+
+/**
+ * Migration 3. Adds `work_items.error_kind`, the kind of an errored attempt's
+ * model failure (docs/DESIGN.md "Model Failover"). Older rows keep NULL: their
+ * kind is unknown, and nothing reads it back for an attempt that has ended.
+ */
+function addWorkItemErrorKind(db: DatabaseSync): void {
+  if (!columnsOf(db, "work_items").has("error_kind")) db.exec("ALTER TABLE work_items ADD COLUMN error_kind TEXT");
+}
+
 // --- Refusing pre-0.36.0 databases ---
 
 /** What 0.36.0 had beyond today's schema; a version-0 database may carry these and still be 0.36.0's. */
 const SCHEMA_036_EXTRA_TABLES = new Set(["comments", "comments_loaded"]);
 const SCHEMA_036_EXTRA_COLUMNS = new Set(["tasks.dirty"]);
 /** Columns added by migrations after 1: a version-0 (0.36.0) database lacks them and is still 0.36.0's. */
-const POST_036_COLUMNS = new Set(["tasks.poll"]);
+const POST_036_COLUMNS = new Set(["tasks.poll", "work_items.error_kind"]);
 
 /** Today's tables and their columns, read off `FINAL_SCHEMA` in a scratch in-memory database. */
 function finalColumns(): Map<string, Set<string>> {

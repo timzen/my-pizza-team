@@ -24,6 +24,8 @@
 interface MessageLike {
   role?: string;
   model?: string;
+  /** The provider the message's model belongs to (Pi's AssistantMessage). */
+  provider?: string;
   /** Pi's AssistantMessage stop reason: "stop" | "length" | "toolUse" | "error" | "aborted". */
   stopReason?: string;
   /** Set by Pi when the model call failed (stopReason "error"). */
@@ -55,6 +57,14 @@ export interface RunUsage {
    * stock reason. An empty-but-successful final message leaves this unset.
    */
   sessionError?: string;
+  /** With `sessionError`: the stopReason of the failed message (a harness may read the kind off it). */
+  sessionErrorStopReason?: string;
+  /**
+   * With `sessionError`: the model the failed call was on, as a ref
+   * (`provider/model`, or the model alone without a provider) — what the
+   * daemon's failover compares with its chain (docs/DESIGN.md "Model Failover").
+   */
+  sessionErrorModel?: string;
 }
 
 /** Sum a run's assistant-message usage and find its last prose. */
@@ -64,6 +74,8 @@ export function summarizeRun(messages: MessageLike[] | undefined): RunUsage {
   const final = [...list].reverse().find((m) => m?.role === "assistant");
   if (final && (final.stopReason === "error" || (final.errorMessage && final.stopReason !== "aborted"))) {
     out.sessionError = final.errorMessage?.trim() || "The model call failed (no error message)";
+    if (final.stopReason) out.sessionErrorStopReason = final.stopReason;
+    if (final.model) out.sessionErrorModel = final.provider ? `${final.provider}/${final.model}` : final.model;
   }
   for (let i = list.length - 1; i >= 0; i--) {
     const msg = list[i];

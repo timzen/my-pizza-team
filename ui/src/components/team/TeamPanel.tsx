@@ -4,6 +4,8 @@
  * What used to be the right-hand TeammateSidebar, now a tab beside the
  * assistant in the left SideDock (DESIGN.md "The Shell: a Dock and a Center"):
  *
+ *  - a team-wide model failover, while one is in effect (FailoverBanner): which
+ *    model the team runs instead, and End failover now.
  *  - unmanaged windows — tabs in the team's terminal container that no
  *    teammate, leader or starting spawn accounts for (UnmanagedWindows); shown
  *    only when there are any, each with a Close button.
@@ -31,6 +33,7 @@ import type { TeamData } from "@/hooks/useTeamData";
 import { FailedSpawnRow, SpawnRequestRow, TeammateRow } from "./TeamParts";
 import { TeamEmpty } from "./TeamEmpty";
 import { UnmanagedWindows } from "./UnmanagedWindows";
+import { FailoverBanner } from "./FailoverBanner";
 
 export function TeamPanel({ team, onSpawn }: { team: TeamData; onSpawn: () => void }) {
   // Which teammate's view (if any) is in the center.
@@ -41,6 +44,7 @@ export function TeamPanel({ team, onSpawn }: { team: TeamData; onSpawn: () => vo
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3">
+        <FailoverBanner />
         {/*
           Version skew (P1b-4). Restarting is the fix; until then these agents keep
           working while quietly skipping whatever the newer protocol added — the

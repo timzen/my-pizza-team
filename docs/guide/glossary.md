@@ -61,6 +61,22 @@ right or across the bottom; it collapses to a rail of icons or goes
 [full page](#full-page). Where it sits, its size and its mode are remembered in this
 browser. See [Getting around](10-tips.md#getting-around).
 
+## Error kind
+
+What kind of failure a teammate's model call hit, recorded on the failed attempt and
+named in its `[retry]` comment: **throttled** (too many requests), **server error**
+(5xx, service unavailable), **authentication** (missing or expired credentials),
+**context window** (the prompt didn't fit), or **other**. Throttled and server errors
+can trigger a [failover](#failover). See [Failover](08-configuration.md#failover).
+
+## Failover
+
+The team switching to the next model of a chain you configure, because calls to the
+current one keep being throttled or failing — the whole team at once, since throttling
+is usually per account. After a while one work item (the **probe**) is tried on the
+usual model; if it works, the team switches back. Off unless you turn it on. See
+[Failover](08-configuration.md#failover).
+
 ## Full page
 
 The [dock](#dock)'s biggest mode: it fills the area below the nav bar, which stays.

@@ -238,6 +238,16 @@ export interface AgentClaimResponse {
    * Additive: absent from an older daemon, whose prompt always carries the role.
    */
   persona?: ClaimPersona | null;
+  /**
+   * Set when this claim is a failover revert probe (docs/DESIGN.md "Model
+   * Failover"): a team-wide failover is active and its revert timer ran out, so
+   * this one work item runs on the chain's primary model — `modelId`, resolved
+   * for this harness — above every other choice (pin, persona, default, the
+   * failover substitute). Its outcome decides the failover: a run whose model
+   * call works ends it; a throttle/5xx re-arms the timer. Sent only to a harness
+   * that declared `MODEL_FAILOVER_CAPABILITY`. Additive: absent means no probe.
+   */
+  failoverProbe?: { modelId: string };
 }
 
 /**
@@ -260,8 +270,19 @@ export const PERSONA_SYSTEM_PROMPT_CAPABILITY = "persona-system-prompt";
  */
 export const SET_MODEL_CAPABILITY = "set-model";
 
+/**
+ * The capability a harness declares when it understands the team-wide model
+ * failover (docs/DESIGN.md "Model Failover"): it applies a `set-model` with
+ * source `failover` as a *substitution* — only while its resolved model (pin,
+ * persona, team default or its own) is one of `SetModelParams.replaces` — and
+ * honours a claim's `failoverProbe`. A harness with only `SET_MODEL_CAPABILITY`
+ * applies a failover model unconditionally, so the daemon sends it one only
+ * when that agent's model is a failed one, and never makes it a probe.
+ */
+export const MODEL_FAILOVER_CAPABILITY = "model-failover";
+
 /** Every capability a harness may declare at registration. */
-export type AgentCapability = typeof PERSONA_SYSTEM_PROMPT_CAPABILITY | typeof SET_MODEL_CAPABILITY;
+export type AgentCapability = typeof PERSONA_SYSTEM_PROMPT_CAPABILITY | typeof SET_MODEL_CAPABILITY | typeof MODEL_FAILOVER_CAPABILITY;
 
 /**
  * A model the harness can use right now (configured, with credentials), as it
@@ -494,6 +515,59 @@ export interface SetModelParams {
   /** Why, for logs and the UI. */
   reason?: string;
   source: SetModelSource;
+  /**
+   * With source `failover`: the failed models this one stands in for. A harness
+   * that declared `MODEL_FAILOVER_CAPABILITY` uses `model` only while the model
+   * it would otherwise run is one of these (absent: always, the older meaning).
+   */
+  replaces?: string[];
+}
+
+// ─── Model error kinds (docs/DESIGN.md "Model Failover") ─────────────
+
+/**
+ * What kind of failure a run's model call hit, sent with a `sessionError`
+ * (`errorKind`): `throttle` (429, rate limited), `5xx` (the service failed or
+ * was unavailable), `auth` (credentials missing or expired), `context` (the
+ * prompt didn't fit the model's context window), `other`. Only `throttle`,
+ * `5xx` (and, if configured, `other`) can trip a failover; `auth` and
+ * `context` stay with readiness and the normal failure path.
+ */
+export type ModelErrorKind = "throttle" | "5xx" | "auth" | "context" | "other";
+
+/** Every `ModelErrorKind`, in display order. */
+export const MODEL_ERROR_KINDS: readonly ModelErrorKind[] = ["throttle", "5xx", "auth", "context", "other"];
+
+/** Is `value` a `ModelErrorKind`? */
+export function isModelErrorKind(value: unknown): value is ModelErrorKind {
+  return typeof value === "string" && (MODEL_ERROR_KINDS as readonly string[]).includes(value);
+}
+
+/**
+ * Classify a model call's error from its text (and an HTTP status when the
+ * caller has one) — the provider-neutral rule both sides share: a harness uses
+ * it after its own, more precise checks, and the daemon falls back to it for a
+ * harness that sends no `errorKind`. Throttle wins over 5xx (a 503 that says
+ * "too many requests" is a throttle); context is checked before the generic
+ * 4xx/auth words so a "too long" 400 is not read as auth.
+ */
+export function classifyModelError(text: string | null | undefined, status?: number | null): ModelErrorKind {
+  const t = (text ?? "").toLowerCase();
+  const code = typeof status === "number" ? status : statusInText(t);
+  if (code === 429 || /throttl|too many requests|rate[ _-]?limit|rate exceeded|quota exceeded|slow down/.test(t)) return "throttle";
+  if (/context (length|window)|maximum context|prompt is too long|too many tokens|input is too long|token limit|request_too_large/.test(t) || code === 413) return "context";
+  if ((code !== null && code >= 500 && code <= 599) ||
+      /service unavailable|unavailable|unable to process|internal server error|server error|overloaded|bad gateway|gateway time-?out|internal error|model stream error/.test(t)) return "5xx";
+  if (code === 401 || code === 403 ||
+      /unauthori[sz]ed|forbidden|access denied|accessdenied|credential|expired ?token|token (has )?expired|invalid api key|api key|not authenticated|authentication|security token/.test(t)) return "auth";
+  return "other";
+}
+
+/** An HTTP status named in an error text ("API error (429)", "status 503", "503 Service…"), or null. */
+function statusInText(t: string): number | null {
+  const m = /\((\d{3})\)|status(?: code)?[ :=]+(\d{3})|^(\d{3})\b/.exec(t);
+  const n = m ? Number(m[1] ?? m[2] ?? m[3]) : NaN;
+  return n >= 400 && n <= 599 ? n : null;
 }
 
 /** POST /api/leader/directives */

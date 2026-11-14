@@ -2,7 +2,7 @@
  * lib/config-draft.ts — The Config page's config.json draft: its shape as the UI
  * edits it, the PUT body built from it, and the small pure rules the tabs apply
  * to it (name-noun normalization, the harness picker's options, the team
- * default model and the persona model alias rows).
+ * default model, the persona model alias rows and the failover policy).
  *
  * The draft lives in ConfigPage, above the tabs (components/config/*), so edits
  * on General, Teammates, Models and Triage save together. Kept pure (no React) so the
@@ -52,6 +52,8 @@ export interface ConfigData {
   modelAliases?: Record<string, Record<string, string>> | null;
   /** `false` ignores personas' `model` settings. Unset = on. */
   personaModels?: boolean;
+  /** The failover policy (shared/failover.ts; docs/DESIGN.md "Model Failover"). Unset = off; `null` clears it on save. */
+  failover?: FailoverDraft | null;
   /** One teammate per directory (exclusive directory leases). Unset = on. */
   exclusiveDirectories?: boolean;
   /** Which work-item kinds are on, defaults applied (docs/DESIGN.md "Feature Toggles"). */
@@ -207,4 +209,61 @@ export function defaultModelHarnesses(defaults: ConfigData["defaultModel"], live
   const out = ["pi"];
   for (const h of [...Object.keys(defaults ?? {}), ...live]) if (!out.includes(h)) out.push(h);
   return out;
+}
+
+/** `TeamConfig.failover` as the Models tab edits it (shared/types.ts `FailoverConfig`). */
+export interface FailoverDraft {
+  enabled?: boolean;
+  on?: Array<"throttle" | "5xx" | "other">;
+  after?: number;
+  windowMinutes?: number;
+  chain?: string[];
+  revertAfterMinutes?: number;
+}
+
+/** The failover policy's defaults (shared/types.ts `resolveFailover`). */
+export const FAILOVER_DEFAULTS: Required<FailoverDraft> = {
+  enabled: false, on: ["throttle", "5xx"], after: 2, windowMinutes: 10, chain: [], revertAfterMinutes: 30,
+};
+
+/** The draft's policy with the defaults filled in, for the form. */
+export function failoverForm(f: ConfigData["failover"]): Required<FailoverDraft> {
+  return {
+    enabled: f?.enabled === true,
+    on: f?.on && f.on.length > 0 ? f.on : FAILOVER_DEFAULTS.on,
+    after: f?.after ?? FAILOVER_DEFAULTS.after,
+    windowMinutes: f?.windowMinutes ?? FAILOVER_DEFAULTS.windowMinutes,
+    chain: f?.chain ?? [],
+    revertAfterMinutes: f?.revertAfterMinutes ?? FAILOVER_DEFAULTS.revertAfterMinutes,
+  };
+}
+
+/**
+ * What's wrong with the policy as drafted, or null — the daemon's rules
+ * (shared/failover.ts `validateFailover`) said before Save: on needs at least
+ * two chain entries, no repeats, and at least one error kind.
+ */
+export function failoverProblem(f: ConfigData["failover"]): string | null {
+  const form = failoverForm(f);
+  const chain = form.chain.map((e) => e.trim()).filter(Boolean);
+  if (new Set(chain).size !== chain.length) return "The chain lists a model twice.";
+  if (form.enabled && chain.length < 2) return "Add at least two models to the chain (the primary, then one to fall back on) to turn failover on.";
+  if (form.on.length === 0) return "Pick at least one kind of error to fail over on.";
+  return null;
+}
+
+/** The chain with entry `index` moved by `delta` (-1 up, +1 down); out of range leaves it as is. */
+export function moveChainEntry(chain: string[], index: number, delta: number): string[] {
+  const to = index + delta;
+  if (index < 0 || index >= chain.length || to < 0 || to >= chain.length) return chain;
+  const next = [...chain];
+  [next[index], next[to]] = [next[to]!, next[index]!];
+  return next;
+}
+
+/** Every alias the draft's `modelAliases` defines, for any harness, sorted (chain suggestions). */
+export function modelAliasNamesOf(aliases: ConfigData["modelAliases"]): string[] {
+  const names = new Set<string>();
+  for (const map of Object.values(aliases ?? {})) for (const a of Object.keys(map ?? {})) names.add(a);
+  return [...names].sort();
 }

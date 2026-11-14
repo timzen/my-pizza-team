@@ -19,7 +19,7 @@ import { personaRefOf, personaSettingsOf } from "../personas/resolve.ts";
 import { DEFAULT_HARNESS, isExperimentalHarness, type ResolvedPersona, type TeamConfig, type TriageOutcome, type TriageProposal, type WorkDef, type WorkItemRef } from "../../shared/types.ts";
 import {
   LEADER_ALREADY_CONNECTED, MIN_PROTOCOL_VERSION, PERSONA_SYSTEM_PROMPT_CAPABILITY, PROTOCOL_VERSION, SET_MODEL_CAPABILITY,
-  type AgentListResponse, type ClaimPersona,
+  isModelErrorKind, type AgentClaimResponse, type AgentListResponse, type ClaimPersona,
 } from "../../shared/protocol.ts";
 import { packageVersion } from "../../shared/paths.ts";
 import { resolvePersonaModel } from "../../shared/model-aliases.ts";
@@ -115,6 +115,8 @@ export function registerAgentRoutes(ctx: RouteContext): void {
     // The team default model for its harness, as a set-model it realizes once it
     // polls (unpinned agents only; daemon/default-model.ts).
     offerDefaultModelOnRegister(store, config, body.id);
+    // A team-wide failover in effect: its substitute too (daemon/failover.ts).
+    store.failover.onRegister(body.id);
 
     return c.json({
       success: true,
@@ -238,8 +240,16 @@ export function registerAgentRoutes(ctx: RouteContext): void {
     // say so, and the harness offers its wait tool. Additive: an older harness
     // ignores it, and never sends WAITED.
     const completion = store.completionFor(item.ref.workDefId);
+    // A team-wide failover (daemon/failover.ts): a persona model that failed is
+    // substituted, and once the revert timer is up this claim may be the probe
+    // that runs on the primary. Additive: `failoverProbe` is absent otherwise.
+    const chosen = store.failover.claimModel(body.agentId, item.id, claimPersona?.modelId ?? null);
+    if (claimPersona && claimPersona.modelId != null) claimPersona.modelId = chosen.modelId;
 
-    return c.json({ success: true, workItem: { id: item.id }, prompt, completion, persona: claimPersona });
+    return c.json({
+      success: true, workItem: { id: item.id }, prompt, completion, persona: claimPersona,
+      ...(chosen.probe ? { failoverProbe: chosen.probe } : {}),
+    } satisfies AgentClaimResponse);
   });
 
   // ─── Set WorkItem State (the single state-setter) ──────────────────
@@ -259,7 +269,7 @@ export function registerAgentRoutes(ctx: RouteContext): void {
 
   app.post("/api/agents/work-items/:workItemId/state", async (c) => {
     const workItemId = c.req.param("workItemId");
-    const body = await readBody(c) as { agentId?: string; state?: string; sessionError?: unknown; reason?: unknown };
+    const body = await readBody(c) as { agentId?: string; state?: string; sessionError?: unknown; errorKind?: unknown; model?: unknown; reason?: unknown };
     if (!body.agentId) return fail(c, 400, "Field 'agentId' is required");
     if (body.state !== "COMPLETE" && body.state !== "FAILED" && body.state !== "WAITED") {
       return fail(c, 400, "Field 'state' must be 'COMPLETE', 'FAILED' or 'WAITED'");
@@ -279,9 +289,15 @@ export function registerAgentRoutes(ctx: RouteContext): void {
     }
 
     if (body.state === "FAILED" && typeof body.sessionError === "string") {
-      const res = store.failWorkItemForSessionError(workItemId, body.sessionError);
+      // The kind is the harness's when it sent one, else the daemon reads the
+      // text (QueueStore.failWorkItemForSessionError); the model is the harness's,
+      // else the session's last-reported one (docs/DESIGN.md "Model Failover").
+      const kind = isModelErrorKind(body.errorKind) ? body.errorKind : undefined;
+      const res = store.failWorkItemForSessionError(workItemId, body.sessionError, Date.now(), kind);
       store.updateMemberStatus(body.agentId, "idle");
       if (!res.ok) return fail(c, 400, res.error);
+      const model = typeof body.model === "string" && body.model.trim() ? body.model.trim().slice(0, 200) : store.getMemberModelRef(body.agentId);
+      store.failover.recordFailure({ memberId: body.agentId, workItemId, kind: res.errorKind ?? "other", model });
       return c.json({ success: true, ...(res.retry ? { retry: res.retry } : {}) });
     }
 
@@ -290,12 +306,17 @@ export function registerAgentRoutes(ctx: RouteContext): void {
       // A refused wait leaves the item in flight: the agent can still finish it.
       if (!res.ok) return fail(c, 400, res.error);
       store.updateMemberStatus(body.agentId, "idle");
+      // The model call worked: a failover probe on this item succeeded.
+      store.failover.recordSuccess(workItemId);
       return c.json({ success: true, waited: true, ...(res.poll ? { checks: res.poll.checks } : {}) });
     }
 
     const res = store.setWorkItemState(workItemId, body.state);
     store.updateMemberStatus(body.agentId, "idle");
     if (!res.ok) return fail(c, 400, res.error);
+    // COMPLETE, or a FAILED the agent chose: either way its model calls worked,
+    // so a failover probe on this item succeeded (daemon/failover.ts).
+    store.failover.recordSuccess(workItemId);
     return c.json({ success: true, newStatus: res.newStatus, completed: res.completed });
   });
 

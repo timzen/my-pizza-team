@@ -12,6 +12,7 @@ import * as assert from "node:assert";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
+const { ModelPreferences } = await import("../src/model-choice.ts");
 const { PersonaModelSwitch, findModel, modelName } = await import("../src/persona-model.ts");
 const { TeammateLoop } = await import("../src/teammate.ts");
 
@@ -114,7 +115,7 @@ function loopWith(claims, pi, sent) {
     getNextWork: async () => (queue.length ? { workItem: { id: queue[0].id, title: "t" } } : { workItem: null }),
     claimWorkItem: async () => {
       const c = queue.shift();
-      return { success: true, prompt: `## Task: ${c.id}`, persona: c.persona };
+      return { success: true, prompt: `## Task: ${c.id}`, persona: c.persona, ...(c.failoverProbe ? { failoverProbe: c.failoverProbe } : {}) };
     },
   };
   const loop = new TeammateLoop(pi, client);
@@ -144,6 +145,38 @@ test("teammate: the claim's model is in place before the prompt is sent, and res
   loop.stop();
 });
 
+test("teammate: a claim's failover probe runs that item on the primary, above the failover substitute", async () => {
+  const { pi, ctx } = fakePi();
+  const sent = [];
+  const { loop, claimNext } = loopWith([
+    { id: "wi-1", persona: null, failoverProbe: { modelId: "acme/strong-1" } },
+    { id: "wi-2", persona: null },
+  ], pi, sent);
+  const prefs = new ModelPreferences();
+  prefs.set("failover", "acme/fast", ["acme/base", "acme/strong-1"]);
+  const sw = new PersonaModelSwitch(pi, ctx);
+  // As index.ts wires applyModel.
+  loop.onPersonaChange = async (p) => {
+    const id = loop.currentTask;
+    const probe = id ? loop.failoverProbe : null;
+    await sw.applyTarget(prefs.resolve(p || probe ? id : null, p, { probe, harnessModel: sw.baseModel }));
+  };
+  // Stop the loop even when an assertion fails: its poll timer would keep the process alive.
+  try {
+    await claimNext();
+    assert.strictEqual(loop.failoverProbe, "acme/strong-1");
+    assert.deepStrictEqual(sent, [{ text: "## Task: wi-1", model: "acme/strong-1" }], "the probe runs on the primary");
+    loop.handleAgentEnd();
+    await loop.handleAgentComplete("done");
+    await new Promise((r) => setImmediate(r));
+    assert.strictEqual(loop.failoverProbe, null, "the probe is the item's alone");
+    await claimNext();
+    assert.strictEqual(sent[1].model, "acme/fast", "the next item gets the substitute for the failed Pi default");
+  } finally {
+    loop.stop();
+  }
+});
+
 const index = fs.readFileSync(path.join(import.meta.dirname, "../src/index.ts"), "utf-8");
 const leader = fs.readFileSync(path.join(import.meta.dirname, "../src/leader.ts"), "utf-8");
 
@@ -154,6 +187,7 @@ test("index.ts and leader.ts wire the model switch", () => {
   assert.match(index, /reportScopeOnce\(reportedModel, workItemId, \[problem\],[\s\S]*?client\.postComment\(workItemId, text\)/);
   assert.match(leader, /new PersonaModelSwitch\(pi, ctx\)/);
   // Both apply the effective model (model-choice.ts), of which the persona's is one input.
-  assert.match(index, /modelPrefs\.resolve\(persona \? workItemId : null, persona\)[\s\S]*?modelSwitch\.applyTarget\(target\)/);
-  assert.match(leader, /modelPrefs\.resolve\(persona \? persona\.id \?\? "" : null, persona\)[\s\S]*?modelSwitch\.applyTarget\(target\)/);
+  // ... with a failover probe (teammate only) and the base model a failover may substitute.
+  assert.match(index, /modelPrefs\.resolve\(persona \|\| probe \? workItemId : null, persona, \{ probe, harnessModel: modelSwitch\.baseModel \}\)[\s\S]*?modelSwitch\.applyTarget\(target\)/);
+  assert.match(leader, /modelPrefs\.resolve\(persona \? persona\.id \?\? "" : null, persona, \{ harnessModel: modelSwitch\.baseModel \}\)[\s\S]*?modelSwitch\.applyTarget\(target\)/);
 });

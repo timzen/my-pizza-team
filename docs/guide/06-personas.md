@@ -108,6 +108,10 @@ id works when only one provider has it).
 - **A pinned model wins.** A model you pin on a teammate or the assistant (a
   [model pin](glossary.md#model-pin)) is used instead of its persona's model, for
   every work item, until you clear the pin.
+- **During a failover** a persona's model that is being throttled or failing is
+  replaced by the team's fallback model for as long as the
+  [failover](08-configuration.md#failover) lasts; an alias can also be an entry in the
+  failover chain.
 
 Other harnesses get the resolved model with the persona but may not apply it.
 

@@ -33,7 +33,8 @@ import { PersonaToolScope, applyPersonaScope, checkSkillCommand, checkToolCall, 
 import { PersonaModelSwitch, modelProblem } from "./persona-model.js";
 import { ModelListReporter, ModelPreferences, SetModelRealizer, availableModels } from "./model-choice.js";
 import { mcpRequirementProblem, registeredMcpServers } from "./persona-mcp.js";
-import { PERSONA_SYSTEM_PROMPT_CAPABILITY, SET_MODEL_CAPABILITY } from "./shared/agent-protocol.js";
+import { MODEL_FAILOVER_CAPABILITY, PERSONA_SYSTEM_PROMPT_CAPABILITY, SET_MODEL_CAPABILITY } from "./shared/agent-protocol.js";
+import { classifyPiModelError } from "./model-error.js";
 import { summarizeRun, hasUsage } from "./runtime/usage.js";
 import { attachSessionStats } from "./stats-report.js";
 
@@ -220,7 +221,9 @@ async function setupTeammate(
   // This harness puts the claim's persona in its system prompt (see the
   // before_agent_start hook below), so the daemon leaves it out of the work prompt.
   // And it switches models on request (`set-model`, model-choice.ts).
-  const capabilities = [PERSONA_SYSTEM_PROMPT_CAPABILITY, SET_MODEL_CAPABILITY];
+  // And it applies a failover substitute only over the failed models, and runs a
+  // revert probe on the primary (`model-failover`; docs/DESIGN.md "Model Failover").
+  const capabilities = [PERSONA_SYSTEM_PROMPT_CAPABILITY, SET_MODEL_CAPABILITY, MODEL_FAILOVER_CAPABILITY];
   // The agent's model preferences (model-choice.ts): the user's pin comes back
   // in every registration reply, so it holds from this session's start.
   const modelPrefs = new ModelPreferences();
@@ -347,7 +350,10 @@ async function setupTeammate(
   const modelSwitch = new PersonaModelSwitch(pi, ctx);
   const reportedModel = new Set<string>();
   const applyModel = async (workItemId: string | null, persona: typeof loop.persona) => {
-    const target = modelPrefs.resolve(persona ? workItemId : null, persona);
+    // A failover revert probe runs the item on the primary; otherwise the
+    // failover substitute applies over whatever this resolves to (model-choice.ts).
+    const probe = workItemId && workItemId === loop.currentTask ? loop.failoverProbe : null;
+    const target = modelPrefs.resolve(persona || probe ? workItemId : null, persona, { probe, harnessModel: modelSwitch.baseModel });
     const problem = await modelSwitch.applyTarget(target);
     if (problem && workItemId) {
       reportScopeOnce(reportedModel, workItemId, [problem], (text) => {
@@ -487,7 +493,11 @@ async function setupTeammate(
 
     // A run whose model call failed (stopReason "error") is not a completion —
     // handleAgentComplete fails it for a daemon-side retry instead.
-    await loop.handleAgentComplete(lastText, usage.sessionError);
+    // Its kind (model-error.ts) and model go along, for the daemon's failover.
+    const errorDetail = usage.sessionError
+      ? { errorKind: classifyPiModelError(usage.sessionError, usage.sessionErrorStopReason), model: usage.sessionErrorModel }
+      : {};
+    await loop.handleAgentComplete(lastText, usage.sessionError, errorDetail);
   });
 
   // ─── Live transcript (web UI watch view) ─────────────────────────

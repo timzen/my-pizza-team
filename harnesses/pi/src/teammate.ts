@@ -48,7 +48,7 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { DaemonClient } from "./runtime/client.js";
-import type { ClaimPersona, PairingReleaseAction } from "./shared/agent-protocol.js";
+import type { ClaimPersona, ModelErrorKind, PairingReleaseAction } from "./shared/agent-protocol.js";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
@@ -90,6 +90,8 @@ export class TeammateLoop {
   private pendingRelease: PairingReleaseAction | null = null;
   /** The claim's persona, for the item it was claimed with (see `persona`). */
   private heldPersona: { workItemId: string; persona: ClaimPersona } | null = null;
+  /** The claim's failover probe model, for the item it was claimed with (see `failoverProbe`). */
+  private heldProbe: { workItemId: string; modelId: string } | null = null;
 
   public onTaskComplete: ((workItemId: string, result: string) => void) | null = null;
 
@@ -198,6 +200,16 @@ export class TeammateLoop {
   get persona(): ClaimPersona | null {
     const held = this.heldPersona;
     return held && held.workItemId === this.currentWorkItemId ? held.persona : null;
+  }
+
+  /**
+   * The model a failover revert probe runs the work in hand on (the claim's
+   * `failoverProbe`; my-pizza-team docs/DESIGN.md "Model Failover"), or null
+   * when this item isn't the probe. It wins over every other model choice.
+   */
+  get failoverProbe(): string | null {
+    const held = this.heldProbe;
+    return held && held.workItemId === this.currentWorkItemId ? held.modelId : null;
   }
 
   /**
@@ -409,6 +421,8 @@ export class TeammateLoop {
         this.currentWorkItemId = response.workItem.id;
         // Its persona replaces any earlier item's (absent from an older daemon: none).
         this.heldPersona = claim.persona ? { workItemId: response.workItem.id, persona: claim.persona } : null;
+        // A failover revert probe runs this item on the primary (absent: no probe).
+        this.heldProbe = claim.failoverProbe?.modelId ? { workItemId: response.workItem.id, modelId: claim.failoverProbe.modelId } : null;
         await Promise.resolve(this.onPersonaChange?.(this.persona)).catch(() => {});
         this.onClaimCompletion?.(claim.completion === "poll" ? "poll" : "once");
         this.client.heartbeat("working", response.workItem.id).catch(() => {});
@@ -467,8 +481,12 @@ export class TeammateLoop {
    * nothing was done, so posting "[done]" and setting COMPLETE would silently
    * swallow the work. Instead the item is failed with the error; the daemon
    * posts the `[retry]`/`[failed]` comment and enqueues the retry.
+   * `errorDetail` (its kind, model-error.ts, and the model the call was on)
+   * goes with it, for the daemon's failover (docs/DESIGN.md "Model Failover").
    */
-  async handleAgentComplete(lastMessage: string, sessionError?: string): Promise<void> {
+  async handleAgentComplete(
+    lastMessage: string, sessionError?: string, errorDetail: { errorKind?: ModelErrorKind; model?: string } = {},
+  ): Promise<void> {
     this.debugLog(`[ppt-debug] handleAgentComplete called. currentWorkItemId=${this.currentWorkItemId}, msgLen=${lastMessage.length}`);
     if (!this.currentWorkItemId) {
       this.debugLog(`[ppt-debug] handleAgentComplete: no currentWorkItemId, returning early`);
@@ -502,7 +520,7 @@ export class TeammateLoop {
     // ─── Session errored? Not a completion — the daemon retries it. ───
     if (sessionError) {
       this.debugLog(`[ppt-debug] WorkItem ${workItemId}: agent session errored (${sessionError}) — failing for retry, NOT completing.`);
-      const res = await this.client.failWorkItemForSessionError(workItemId, sessionError).catch((e) => {
+      const res = await this.client.failWorkItemForSessionError(workItemId, sessionError, errorDetail).catch((e) => {
         this.debugLog(`[ppt-debug] failWorkItemForSessionError FAILED: ${e}`);
         return null;
       });
@@ -549,6 +567,7 @@ export class TeammateLoop {
     // The item is over: its persona must not reach the next run (the fresh
     // session request, a retry's claim, a resume) — see the header note.
     this.heldPersona = null;
+    this.heldProbe = null;
     void Promise.resolve(this.onPersonaChange?.(null)).catch(() => {});
     this.requestFreshSession?.();
     this.schedulePoll();

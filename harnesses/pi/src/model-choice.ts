@@ -10,7 +10,7 @@
 //   - `ModelPreferences.resolve` — **the one place** the effective model is
 //     decided:
 //
-//         failover ?? pin ?? persona model ?? team default ?? Pi's default
+//         probe ?? substitute(pin ?? persona model ?? team default ?? Pi's default)
 //
 //     The pin is the user's choice for this agent (a done `set-model` with
 //     source `user`; the daemon keeps it and sends it back as `modelPin` at every
@@ -20,6 +20,14 @@
 //     substitute are set by `set-model` with source `default` / `failover`.
 //     Null means "Pi's own default": the switch (persona-model.ts) puts back
 //     the model it started on.
+//
+//     The failover substitute (docs/DESIGN.md "Model Failover") is applied
+//     *on top* of that resolution: with `replaces` (the failed models), it is
+//     used only while the resolved model — or Pi's own, when nothing else
+//     applies — is one of them, so an agent on a healthy model keeps it, and a
+//     persona's per-item model is substituted item by item. Without `replaces`
+//     (an older daemon) it wins outright. A claim's `failoverProbe` (the
+//     revert probe) wins over everything, for that work item only.
 //   - `SetModelRealizer` — carries out `set-model` directives **between runs**:
 //     one arriving while a run is in flight waits for it to settle
 //     (`agent_settled`, after Pi's own retries and follow-ups), then the model
@@ -95,8 +103,13 @@ export class ModelPreferences {
   pin: string | null = null;
   /** The team default (source `default`). */
   teamDefault: string | null = null;
-  /** The failover substitute (source `failover`), which wins over everything while set. */
+  /** The failover substitute (source `failover`), applied over the resolved model (see `failoverReplaces`). */
   failover: string | null = null;
+  /**
+   * The failed models the substitute stands in for; null = it stands in for
+   * everything (a `set-model` without `replaces`, from an older daemon).
+   */
+  failoverReplaces: string[] | null = null;
 
   /** The preference a `set-model` source writes. */
   get(source: SetModelSource): string | null {
@@ -104,26 +117,52 @@ export class ModelPreferences {
     return origin === "pin" ? this.pin : origin === "default" ? this.teamDefault : this.failover;
   }
 
-  /** Set (or, with null, clear) the preference a `set-model` source writes. */
-  set(source: SetModelSource, model: string | null): void {
-    const origin = ORIGIN_OF[source];
-    if (origin === "pin") this.pin = model;
-    else if (origin === "default") this.teamDefault = model;
-    else this.failover = model;
+  /** The failover substitute's `replaces` list (null for none/all); see `failoverReplaces`. */
+  getReplaces(source: SetModelSource): string[] | null {
+    return ORIGIN_OF[source] === "failover" ? this.failoverReplaces : null;
   }
 
   /**
-   * The effective model: failover ?? pin ?? persona model ?? team default, or
-   * null for Pi's default. `scope` is what a persona's model is held for — the
+   * Set (or, with null, clear) the preference a `set-model` source writes.
+   * `replaces` is the failover's list of failed models (ignored for the others).
+   */
+  set(source: SetModelSource, model: string | null, replaces: string[] | null = null): void {
+    const origin = ORIGIN_OF[source];
+    if (origin === "pin") this.pin = model;
+    else if (origin === "default") this.teamDefault = model;
+    else {
+      this.failover = model;
+      this.failoverReplaces = model === null ? null : replaces;
+    }
+  }
+
+  /**
+   * The effective model: the probe (`opts.probe`) if any, else pin ?? persona
+   * model ?? team default (null for Pi's default, `opts.harnessModel`), with
+   * the failover substitute in place of it when it is one of the substitute's
+   * `replaces` (or always, with no list). `scope` is what a persona's model is held for — the
    * work item (teammate) or the persona id (leader); null when nothing is held,
    * so the persona's model doesn't apply. The key makes the switch idempotent:
    * the pin's is the same across work items (no switch back and forth between
    * items), the persona's is per scope.
    */
-  resolve(scope: string | null, persona: ModelPersona | null): EffectiveModel | null {
-    if (this.failover) {
-      return { origin: "failover", modelId: this.failover, key: `failover|${this.failover}`, who: "failover", label: `model ${this.failover}` };
+  resolve(scope: string | null, persona: ModelPersona | null, opts: ResolveOptions = {}): EffectiveModel | null {
+    if (opts.probe) {
+      const probe = opts.probe;
+      return { origin: "failover", modelId: probe, key: `${scope ?? ""}|probe|${probe}`, who: "failover probe", label: `primary model ${probe}` };
     }
+    const base = this.resolveBase(scope, persona);
+    if (this.failover) {
+      const running = base?.modelId ?? opts.harnessModel ?? null;
+      if (this.failoverReplaces === null || (running !== null && this.failoverReplaces.includes(running))) {
+        return { origin: "failover", modelId: this.failover, key: `failover|${this.failover}`, who: "failover", label: `model ${this.failover}` };
+      }
+    }
+    return base;
+  }
+
+  /** pin ?? persona model ?? team default, before any failover substitution. */
+  private resolveBase(scope: string | null, persona: ModelPersona | null): EffectiveModel | null {
     if (this.pin) {
       return { origin: "pin", modelId: this.pin, key: `pin|${this.pin}`, who: "pinned model", label: `model ${this.pin}` };
     }
@@ -142,6 +181,17 @@ export class ModelPreferences {
     }
     return null;
   }
+}
+
+/** What `ModelPreferences.resolve` may also be told. */
+export interface ResolveOptions {
+  /** The claim's failover probe model (`failoverProbe`): wins over everything for this work item. */
+  probe?: string | null;
+  /**
+   * The model Pi runs when nothing else applies (the one it started on), so a
+   * failover can substitute that too. Null/absent: unknown, never substituted.
+   */
+  harnessModel?: string | null;
 }
 
 /** A `set-model` directive as the realizer needs it. */
@@ -163,12 +213,14 @@ export interface SetModelRealizerDeps {
 }
 
 /** A directive's params read as set-model's, or null when they aren't. */
-function readParams(params: Record<string, unknown>): { model: string | null; source: SetModelSource } | null {
+function readParams(params: Record<string, unknown>): { model: string | null; source: SetModelSource; replaces: string[] | null } | null {
   const source = params.source === "user" || params.source === "default" || params.source === "failover" ? params.source : null;
   if (!source) return null;
-  if (params.model === null) return { model: null, source };
+  // A failover's `replaces` (the failed models); anything but a list of strings = none.
+  const replaces = Array.isArray(params.replaces) ? params.replaces.filter((m): m is string => typeof m === "string" && !!m.trim()) : null;
+  if (params.model === null) return { model: null, source, replaces: null };
   if (typeof params.model !== "string" || !params.model.trim()) return null;
-  return { model: params.model.trim(), source };
+  return { model: params.model.trim(), source, replaces };
 }
 
 /**
@@ -240,17 +292,18 @@ export class SetModelRealizer {
     const { prefs } = this.deps;
     const params = readParams(directive.params || {});
     let error: string | null = null;
-    if (!params) error = "set-model needs { model: string | null, source: \"user\" | \"failover\" | \"default\" }";
+    if (!params) error = "set-model needs { model: string | null, source: \"user\" | \"failover\" | \"default\", replaces?: string[] }";
     else if (params.model !== null) error = this.deps.check(params.model);
     if (!error && params) {
       const before = prefs.get(params.source);
-      prefs.set(params.source, params.model);
+      const beforeReplaces = prefs.getReplaces(params.source);
+      prefs.set(params.source, params.model, params.replaces);
       const res = await this.deps.apply();
       // Only a problem with *this* choice fails it (a cleared pin falling back to
       // a persona model this Pi can't use is that persona's problem, reported as such).
       if (res.problem && res.origin === ORIGIN_OF[params.source]) {
         error = res.problem;
-        prefs.set(params.source, before);
+        prefs.set(params.source, before, beforeReplaces);
         await this.deps.apply();
       }
     }

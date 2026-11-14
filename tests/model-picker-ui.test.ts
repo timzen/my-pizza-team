@@ -58,12 +58,16 @@ test("modelChipView: pending, failed, and an active failover substitute", () => 
   const failed = modelChipView(state({ lastChange: change({ status: "failed", error: "isn't a model this Pi knows" }) }), null);
   assertEquals(failed.failed, "isn't a model this Pi knows");
   assertStringIncludes(failed.tooltip, "failed: isn't a model this Pi knows");
-  const fo = modelChipView(state({ lastChange: change({ source: "failover", reason: "throttled" }) }), null);
+  const onSubstitute = { id: "strong", name: "Acme Strong", provider: "acme" };
+  const fo = modelChipView(state({ current: onSubstitute, lastChange: change({ source: "failover", reason: "throttled" }) }), null);
   assertEquals(fo.failover, true);
   assertStringIncludes(fo.tooltip, "Failover: using Acme Strong instead of its usual model — throttled");
   // A failover that cleared its substitute (model null) is no longer in effect.
   assertEquals(failoverActive(change({ source: "failover", model: null })), false);
   assertEquals(failoverActive(change({ source: "failover", status: "pending" })), false);
+  // A harness substitutes only over a failed model: an agent still on its healthy one isn't marked.
+  assertEquals(modelChipView(state({ lastChange: change({ source: "failover" }) }), null).failover, false);
+  assertEquals(failoverActive(change({ source: "failover" }), "acme/strong"), true);
 });
 
 test("modelChipView: an old harness is read-only and says why; before load, the session's model", () => {

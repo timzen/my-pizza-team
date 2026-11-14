@@ -54,6 +54,7 @@ import {
   type AssistantDelivery,
   type AssistantInboxResponse,
   type AvailableModel,
+  type ModelErrorKind,
   type CreateLeaderDirectiveResponse,
   type FeatureName,
   type LeaderDirective,
@@ -523,10 +524,18 @@ export class DaemonClient {
    * and posts the attempt's `[retry]`/`[failed]` comment itself, so the caller
    * posts nothing (my-pizza-team docs/DESIGN.md "Errored Sessions Retry").
    */
-  async failWorkItemForSessionError(workItemId: string, sessionError: string): Promise<AgentSetWorkItemStateResponse> {
+  async failWorkItemForSessionError(
+    workItemId: string, sessionError: string, detail: { errorKind?: ModelErrorKind; model?: string } = {},
+  ): Promise<AgentSetWorkItemStateResponse> {
+    // `errorKind` / `model` are additive (docs/DESIGN.md "Model Failover"): an
+    // older daemon ignores them, and one without them classifies the text itself.
     return this.post<AgentSetWorkItemStateResponse>(
       `/api/agents/work-items/${encodeURIComponent(workItemId)}/state`,
-      { agentId: this.agentId, state: "FAILED", sessionError }
+      {
+        agentId: this.agentId, state: "FAILED", sessionError,
+        ...(detail.errorKind ? { errorKind: detail.errorKind } : {}),
+        ...(detail.model ? { model: detail.model } : {}),
+      }
     );
   }
 

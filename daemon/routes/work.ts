@@ -32,6 +32,7 @@ export function registerWorkRoutes(ctx: RouteContext): void {
       state: wi.state, read: wi.read, memberId: wi.memberId,
       enqueuedAt: wi.enqueuedAt, lastStateChangeAt: wi.lastStateChangeAt,
       attempt: wi.attempt, retryAt: wi.retryAt, error: wi.error,
+      ...(wi.errorKind ? { errorKind: wi.errorKind } : {}),
       // The claim-time persona snapshot (docs/DESIGN.md "The in-flight persona").
       ...(wi.persona ? { persona: wi.persona } : {}),
       // A triage-mode external item's run: its outcome is on the mirror's Triage tab.

@@ -214,10 +214,60 @@ test("the chat mirror hands set-model to onModelDirective before the session han
   assert.match(poll, /if \(directive\.action === "set-model" && this\.onModelDirective\) \{[\s\S]*?continue;[\s\S]*?this\.rollingSession = true/);
   const leader = fs.readFileSync(path.join(import.meta.dirname, "../src/leader.ts"), "utf-8");
   assert.match(leader, /chat\.onModelDirective = \(directive\) => modelRealizer\.offer\(directive\)/);
-  assert.match(leader, /capabilities: \[SET_MODEL_CAPABILITY\]/);
+  assert.match(leader, /capabilities: \[SET_MODEL_CAPABILITY, MODEL_FAILOVER_CAPABILITY\]/);
   assert.match(leader, /pi\.on\("agent_settled"[\s\S]*?modelRealizer\.runSettled\(\)/);
   const index = fs.readFileSync(path.join(import.meta.dirname, "../src/index.ts"), "utf-8");
   assert.match(index, /loop\.onModelDirective = \(directive\) => modelRealizer\.offer\(directive\)/);
   assert.match(index, /pi\.on\("agent_settled"[\s\S]*?modelRealizer\.runSettled\(\)/);
   assert.match(index, /modelRealizer\.runStarted\(\)/);
+});
+
+// ─── Failover substitution (my-pizza-team docs/DESIGN.md "Model Failover") ───
+
+test("failover with `replaces`: substitutes only a failed model — pin, persona, default or Pi's own", () => {
+  const prefs = new ModelPreferences();
+  prefs.set("failover", "acme/base", ["acme/strong-1", "acme/pinned"]);
+  assert.strictEqual(prefs.resolve("wi-1", persona("acme/other")).origin, "persona", "a healthy persona model is kept");
+  const sub = prefs.resolve("wi-1", persona("acme/strong-1"));
+  assert.deepStrictEqual([sub.origin, sub.modelId], ["failover", "acme/base"], "a failed persona model is substituted");
+  prefs.pin = "acme/pinned";
+  assert.strictEqual(prefs.resolve("wi-1", null).origin, "failover", "a failed pin is substituted");
+  prefs.pin = null;
+  prefs.teamDefault = "acme/strong-1";
+  assert.strictEqual(prefs.resolve(null, null).origin, "failover", "a failed team default is substituted");
+  prefs.teamDefault = null;
+  assert.strictEqual(prefs.resolve(null, null, { harnessModel: "acme/pinned" }).origin, "failover", "a failed Pi default is substituted");
+  assert.strictEqual(prefs.resolve(null, null, { harnessModel: "acme/fine" }), null, "a healthy Pi default is kept");
+  prefs.set("failover", null);
+  assert.strictEqual(prefs.failoverReplaces, null, "clearing the substitute clears its list");
+});
+
+test("failover without `replaces` (an older daemon) wins outright; a probe wins over everything", () => {
+  const prefs = new ModelPreferences();
+  prefs.pin = "acme/pinned";
+  prefs.set("failover", "acme/base");
+  assert.strictEqual(prefs.resolve("wi-1", persona("acme/strong-1")).modelId, "acme/base");
+  const probe = prefs.resolve("wi-1", persona("acme/strong-1"), { probe: "acme/strong-1" });
+  assert.deepStrictEqual([probe.origin, probe.modelId, probe.who], ["failover", "acme/strong-1", "failover probe"]);
+  assert.notStrictEqual(probe.key, prefs.resolve("wi-1", null).key, "the probe has its own switch key");
+});
+
+test("a failover set-model's `replaces` is read from the directive, and restored with it on failure", async () => {
+  const { prefs, realizer, completed } = wired();
+  await realizer.offer({ id: "f1", params: { model: "acme/base", source: "failover", replaces: ["acme/strong-1", 3, ""] } });
+  assert.deepStrictEqual(prefs.failoverReplaces, ["acme/strong-1"]);
+  await realizer.offer({ id: "f2", params: { model: "acme/nope", source: "failover", replaces: ["x"] } });
+  assert.deepStrictEqual([prefs.failover, prefs.failoverReplaces], ["acme/base", ["acme/strong-1"]], "a refused one leaves the last");
+  await realizer.offer({ id: "f3", params: { model: null, source: "failover" } });
+  assert.deepStrictEqual([prefs.failover, prefs.failoverReplaces], [null, null]);
+  assert.deepStrictEqual(completed.map((c) => c.status), ["done", "failed", "done"]);
+});
+
+test("PersonaModelSwitch.baseModel is the model before any switch", async () => {
+  const { pi, ctx } = fakePi();
+  const sw = new PersonaModelSwitch(pi, ctx);
+  assert.strictEqual(sw.baseModel, "acme/base");
+  await sw.applyTarget({ modelId: "acme/strong-1", key: "k", who: "w", label: "l" });
+  assert.strictEqual(modelName(pi.model), "acme/strong-1");
+  assert.strictEqual(sw.baseModel, "acme/base", "still the one it started on");
 });

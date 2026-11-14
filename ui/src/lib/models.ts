@@ -12,10 +12,10 @@
  * never by anything vendor-specific. The effective model is the one the
  * session reports running; a pending `set-model` is shown as a switch in
  * progress, a done `failover` one as a substitution, and the user's pin with a
- * 📌.
+ * 📌. `failoverSummary` is the one line for a team-wide failover.
  */
 
-import type { AgentModelResponse, AvailableModel, ModelChangeView } from "@shared/protocol";
+import type { AgentModelResponse, AvailableModel, FailoverView, ModelChangeView } from "@shared/protocol";
 
 /** The session's model (`MemberSessionStats.model`). */
 export type SessionModel = { id: string; name: string; provider: string };
@@ -34,9 +34,32 @@ export function modelLabel(ref: string | null, models: AvailableModel[] | null |
   return models?.find((m) => m.ref === ref)?.name ?? ref;
 }
 
-/** Is this change a failover substitute that is in effect (done, with a model)? */
-export function failoverActive(change: ModelChangeView | null | undefined): boolean {
-  return !!change && change.source === "failover" && change.status === "done" && change.model !== null;
+/**
+ * Is this change a failover substitute that is in effect (done, with a model)?
+ * With `currentRef` (the model the session runs), only when it is that model:
+ * a harness applies a substitute only over a failed model (docs/DESIGN.md
+ * "Model Failover"), so an agent on a healthy one isn't marked.
+ */
+export function failoverActive(change: ModelChangeView | null | undefined, currentRef?: string | null): boolean {
+  if (!change || change.source !== "failover" || change.status !== "done" || change.model === null) return false;
+  return currentRef == null || currentRef === change.model;
+}
+
+/**
+ * One line for an active team-wide failover (GET /api/failover): what the team
+ * runs instead of what, since when, and when the primary is tried again — the
+ * Team tab's banner and Config → Models say it the same way.
+ */
+export function failoverSummary(f: FailoverView, now = Date.now()): string {
+  if (!f.active || !f.to) return "No failover: the team runs its usual models.";
+  const mins = (iso: string | null) => (iso ? Math.max(0, Math.round((Date.parse(iso) - now) / 60_000)) : null);
+  const parts = [`Failover: the team is on ${f.to} instead of ${f.replaces.join(", ") || f.from}`];
+  if (f.since) parts.push(`since ${new Date(f.since).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`);
+  if (f.exhausted) parts.push("(the last model in the chain is failing too)");
+  const next = mins(f.nextProbeAt);
+  const tail = f.probe ? `Trying ${f.from} again on one work item now.`
+    : next === null ? "" : next === 0 ? `${f.from} is tried again with the next work item.` : `${f.from} is tried again in ${next} min.`;
+  return `${parts.join(" ")}.${tail ? ` ${tail}` : ""}`;
 }
 
 /** Everything the model chip shows, in words. */
@@ -69,7 +92,7 @@ export function modelChipView(state: AgentModelResponse | null | undefined, sess
   const change = state?.lastChange ?? null;
   const pending = change?.status === "pending" ? modelLabel(change.model, models) : null;
   const failed = change?.status === "failed" ? (change.error || "the harness refused it") : null;
-  const failover = failoverActive(change);
+  const failover = failoverActive(change, current ? sessionModelRef(current) : null);
   const supported = !!state?.supported;
   const changeable = supported && (models?.length ?? 0) > 0;
 

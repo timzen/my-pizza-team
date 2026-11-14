@@ -155,6 +155,11 @@ So an errored session is **neither a completion nor a give-up**:
   lands in the Inbox — with `[failed] <error> after N attempts`.
 - Policy: `retry: { maxRetries: 3, backoffMinutes: [1, 5, 15] }` in config.json
   (`resolveRetry`; 0 disables retrying; the last backoff repeats).
+- Each errored attempt records its **error kind** (`errorKind`: `throttle`,
+  `5xx`, `auth`, `context`, `other`) — the harness's classification when it sends
+  one, else the daemon's reading of the text (`classifyModelError`) — and both
+  comments name it: `[retry] Attempt 1/4 failed: <error> (throttled). …`. The
+  kind is what the team-wide failover trips on ("Model Failover").
 - Board tasks keep their position while a retry waits (the retry is just the
   task's next WorkItem); Solitary/Scheduled WorkDefs work the same.
 
@@ -2575,8 +2580,8 @@ endpoints.
 
 ## Choosing a Model
 
-The user can change an agent's model from the web UI, and the daemon will be
-able to fail over when model calls are throttled or failing. Both are asks to
+The user can change an agent's model from the web UI, and the daemon fails
+over when model calls are throttled or failing ("Model Failover"). Both are asks to
 the agent — a `set-model` self-directive (above) — because only the harness can
 switch its model, and only between runs.
 
@@ -2604,12 +2609,14 @@ switch its model, and only between runs.
 - **One resolution, on the harness side** (Pi: harnesses/pi/src/model-choice.ts
   `ModelPreferences.resolve`):
 
-      effective = failover ?? pin ?? persona model ?? team default ?? harness default
+      effective = probe ?? substitute(pin ?? persona model ?? team default ?? harness default)
 
   The persona's model (its alias resolved by the daemon, "Persona settings")
   applies to the work item it was claimed with (the assistant persona's, to the
   leader); the team default and the failover substitute arrive as `set-model`
-  with source `default` / `failover`. *Why the harness:* it is where every input
+  with source `default` / `failover`. The substitute replaces the resolved
+  model only when it is one of the failed ones, and a failover probe runs one
+  work item on the primary ("Model Failover"). *Why the harness:* it is where every input
   meets — the claim, the pin from registration, the directives — and where the
   switch happens; the daemon sends inputs, not an answer it would have to keep
   in step with every run.
@@ -2651,6 +2658,70 @@ switch its model, and only between runs.
   dropping an earlier one). Pinned agents (or ones with a user pick pending) are
   left alone: the pin wins anyway. `mpt doctor` cross-checks the default and the
   alias targets against the live agents' reported models.
+
+## Model Failover
+
+When calls to the team's model keep being throttled or failing with 5xx, the
+daemon switches the **whole team** to the next model of a configured chain, and
+back once the first one works again (daemon/failover.ts). Off by default:
+
+    "failover": { "enabled": false, "on": ["throttle", "5xx"], "after": 2, "windowMinutes": 10,
+                  "chain": ["<model or alias>", ...], "revertAfterMinutes": 30 }
+
+- **Error kinds.** Every errored session carries a kind ("Errored Sessions
+  Retry"). The Pi harness reads it off Pi's formatted provider error (the HTTP
+  status in "<provider> API error (429)", Bedrock's exception-class prefixes
+  "Throttling error:" / "Service unavailable:", the stopReason —
+  harnesses/pi/src/model-error.ts) and sends it with the model the call was
+  on; the daemon falls back to the provider-neutral text rule
+  (`classifyModelError`, shared/agent-protocol.ts) for a harness that sends
+  none. Neither side knows a vendor beyond what its own harness formats.
+- **One state, team-wide.** Throttling is usually per account, not per agent,
+  so the failover is one state for the team (persisted in `settings`, so it
+  survives a restart), not per agent: switching one agent off a throttled
+  account while its neighbours keep hammering it helps nobody.
+- **Trip.** `after` failures of an `on` kind on the chain's *current* entry
+  within `windowMinutes`, across all agents, move the team to the next entry.
+  Chain entries are model ids or `modelAliases` names, resolved per harness. A
+  failure on another model doesn't count (an agent still on a model the team
+  already left, or one outside the chain); one whose model is unknown counts
+  against the current entry. **`auth` and `context` never trip**, whatever
+  `on` says (the config refuses them): another model wouldn't fix expired
+  credentials — readiness handles those — or a prompt too big for the window.
+- **Substitute, not override.** The agents are told with a `set-model`
+  (source `failover`) that carries `replaces`, the failed entries. A harness
+  declaring `model-failover` substitutes only while the model it resolves —
+  pin, persona (per work item), default or its own — is one of them, so a
+  pinned agent on a failed model moves too and one on a healthy model stays.
+  An older set-model harness would apply the substitute unconditionally, so it
+  is sent one only when the daemon's view of its model (pin ?? team default ??
+  session model) failed. The claim's persona model is substituted by the
+  daemon as well, for any harness. Failover asks supersede only earlier
+  failover asks: a user's pick pending isn't lost to one.
+- **Retry now.** On each switch, retries held in backoff after an `on`-kind
+  failure are released (`retryAt` = now). *The attempt rule:* the failed
+  attempt counted once, when it failed; releasing moves only `retryAt` — the
+  retry keeps its attempt number, nothing is refunded and nothing added, so no
+  item ever runs more than `retry.maxRetries + 1` times. The readiness gate
+  still applies.
+- **Escalate.** The substitute tripping moves on down the chain; at the end
+  the team stays on the last entry (`exhausted`) and normal retries carry on.
+- **Revert, half-open.** `revertAfterMinutes` after a switch, the next claim
+  by a `model-failover` harness is the **probe**: its claim carries
+  `failoverProbe` and that one item runs on the primary. A run whose model
+  calls work (COMPLETE, WAITED, or a FAILED the agent chose) ends the failover
+  and every agent sent a substitute is sent `model: null`; an `on`-kind failure
+  re-arms the timer; any other ending (auth, context, cancelled) says nothing
+  about the primary, so the next claim probes again. *Why a probe, not a
+  timer:* switching everyone back on a timer would re-throttle the whole team
+  at once if the primary is still saturated; one item finds out first.
+- **Ending by hand.** **End failover now** (the Team tab's banner, Config →
+  Models; `POST /api/failover/end`) ends it at once. Switching the policy off,
+  or a chain that no longer reaches the model in use, ends it too.
+- **Visible.** `GET /api/failover` (and `failover` in `/api/status`): active,
+  from → to, since, the trips, the next probe. The Team tab shows a banner while
+  it's active; the teammate chip's failover mark shows only on an agent
+  actually running the substitute.
 
 ## One Agent to Talk To
 

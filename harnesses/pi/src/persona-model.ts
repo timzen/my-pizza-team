@@ -145,6 +145,17 @@ export class PersonaModelSwitch {
   }
 
   /**
+   * The model this session runs with nothing switched in — the one before the
+   * first switch, else the live one — as `provider/id`, or null when unknown.
+   * What a failover substitute compares when no other choice applies
+   * (model-choice.ts `ResolveOptions.harnessModel`).
+   */
+  get baseModel(): string | null {
+    const m = this.previous ?? this.ctx.model;
+    return m ? modelName(m) : null;
+  }
+
+  /**
    * Apply `persona`'s model for `key` (a work item id, or the leader's persona
    * id). Idempotent per key: a repeat call does nothing, so a manual model change
    * within the item stands. A different key restores first. No persona model

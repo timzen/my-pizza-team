@@ -21,6 +21,7 @@ import type {
   AssistantOrigin,
   AvailableModel,
   LeaderDirective,
+  ModelErrorKind,
   PairingReleaseAction,
   PersonaRequirements,
   PersonaSettings,
@@ -29,9 +30,12 @@ import type {
   StatusResponse as AgentStatusResponse,
 } from "./agent-protocol.ts";
 
-export { LEADER_ALREADY_CONNECTED, PERSONA_SYSTEM_PROMPT_CAPABILITY, PROTOCOL_VERSION, SET_MODEL_ACTION, SET_MODEL_CAPABILITY } from "./agent-protocol.ts";
+export {
+  LEADER_ALREADY_CONNECTED, MODEL_ERROR_KINDS, MODEL_FAILOVER_CAPABILITY, PERSONA_SYSTEM_PROMPT_CAPABILITY, PROTOCOL_VERSION,
+  SET_MODEL_ACTION, SET_MODEL_CAPABILITY, classifyModelError, isModelErrorKind,
+} from "./agent-protocol.ts";
 export type {
-  AvailableModel, SetModelParams, SetModelSource,
+  AvailableModel, ModelErrorKind, SetModelParams, SetModelSource,
   AgentCapability, AgentClaimResponse, ClaimPersona, AgentNextWorkResponse, AgentSetWorkItemStateResponse, AssistantDelivery, AssistantInboxItem,
   AssistantInboxResponse, AssistantOrigin, CreateLeaderDirectiveResponse, LeaderDirective, LeaderDirectivesResponse,
   PairingPoll, PairingReleaseAction, PersonaRequirements, PersonaSettings, PersonaToolPolicy, TranscriptBackfill, TranscriptWatchResponse,
@@ -88,6 +92,8 @@ export interface StatusResponse extends AgentStatusResponse<WorkflowConfig> {
    * until it's dismissed.
    */
   notices: Array<{ id: string; message: string }>;
+  /** The team-wide model failover (GET /api/failover), for the Team tab's banner. */
+  failover: FailoverView;
 }
 
 // GET /api/stories
@@ -467,7 +473,13 @@ export interface AgentClaimRequest { agentId: string }
 // FAILED with `sessionError` means the agent's session errored (the model call
 // failed), not that the agent gave up: the daemon then retries with backoff and
 // posts the attempt's comment itself (docs/DESIGN.md "Errored Sessions Retry").
-export interface AgentSetWorkItemStateRequest { agentId: string; state: "COMPLETE" | "FAILED"; result?: string; sessionError?: string }
+// With `sessionError`, a harness may add `errorKind` (its classification;
+// absent = the daemon classifies the text) and `model` (the model the failed
+// call was on; absent = the session stats' model) — docs/DESIGN.md "Model Failover".
+export interface AgentSetWorkItemStateRequest {
+  agentId: string; state: "COMPLETE" | "FAILED"; result?: string; sessionError?: string;
+  errorKind?: ModelErrorKind; model?: string;
+}
 // Reply: `AgentSetWorkItemStateResponse`, agent-protocol.ts.
 
 // GET /api/agents/comments/:workItemId
@@ -533,6 +545,8 @@ export interface WorkItemView {
   retryAt?: string;
   /** Why this attempt's agent session errored, if it did. */
   error?: string;
+  /** The kind of that error (docs/DESIGN.md "Model Failover"), when it errored. */
+  errorKind?: ModelErrorKind;
   /** The persona this run was given, snapshotted at claim (absent: no persona, or not claimed yet). */
   persona?: PersonaRef;
   /**
@@ -1058,6 +1072,50 @@ export interface ApplyDefaultModelResponse {
   error?: string;
 }
 export interface UpdateLeaderDirectiveResponse { success: boolean; error?: string }
+
+// --- Model failover (docs/DESIGN.md "Model Failover"; daemon/failover.ts) ---
+
+/** One switch to the next chain entry. */
+export interface FailoverTripView {
+  at: string;
+  /** The chain entry (model id or alias) that failed. */
+  from: string;
+  /** The chain entry switched to. */
+  to: string;
+  /** The error kind of the failure that tripped it. */
+  kind: ModelErrorKind;
+  /** How many failures, within the window, tripped it. */
+  failures: number;
+}
+
+// GET /api/failover (and `failover` in GET /api/status)
+export interface FailoverView {
+  /** The policy is on (`TeamConfig.failover.enabled`). */
+  enabled: boolean;
+  /** A failover is in effect: the team runs `to` in place of the failed models. */
+  active: boolean;
+  /** The primary (chain[0]) while active, else null. */
+  from: string | null;
+  /** The chain entry in use while active, else null. */
+  to: string | null;
+  /** Every failed chain entry being substituted (chain[0 .. current-1]). */
+  replaces: string[];
+  /** When it first tripped (ISO), or null. */
+  since: string | null;
+  /** This failover's switches, oldest first. */
+  trips: FailoverTripView[];
+  /** When the next work item will be routed to the primary to probe it (ISO), or null. */
+  nextProbeAt: string | null;
+  /** The probe in flight, or null. */
+  probe: { workItemId: string; memberId: string; startedAt: string } | null;
+  /** The chain ran out: the last entry tripped too (normal retry handling continues). */
+  exhausted: boolean;
+  /** Recent failures counted toward the next trip (within the window). */
+  recentFailures: number;
+}
+
+// POST /api/failover/end — end it now ("End failover now").
+export interface EndFailoverResponse { success: boolean; failover: FailoverView; error?: string }
 
 // ─── Directory suggestions (docs/DESIGN.md "Favorite Directories") ───
 

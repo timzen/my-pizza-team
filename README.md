@@ -382,7 +382,9 @@ most of it is editable on the **Config** page. Minimal:
 
   // Optional: when a teammate's model call fails (e.g. a Bedrock 503 or expired
   // credentials), the work item is retried automatically — after each backoff, and
-  // once the readiness probe passes. Out of retries → FAILED in the Inbox.
+  // once the readiness probe passes. Out of retries → FAILED in the Inbox. Each
+  // attempt records its error kind (throttle / 5xx / auth / context / other),
+  // shown in the thread's [retry] comment.
   "retry": { "maxRetries": 3, "backoffMinutes": [1, 5, 15] },
 
   // ─── Auto triage ───────────────────────────────────────────────
@@ -419,6 +421,18 @@ most of it is editable on the **Config** page. Minimal:
   // "personaModels": false ignores persona models.
   "modelAliases": { "pi": { "strong": "<provider>/<model>", "fast": "<provider>/<model>" } },
   "personaModels": true,
+  // Team-wide model failover (off by default; Config → Models → Failover): when
+  // `after` model calls on the chain's current model fail with an `on` kind within
+  // `windowMinutes` (across all teammates), the whole team switches to the next
+  // entry (a model id or an alias above); retries waiting on those errors run at
+  // once. `revertAfterMinutes` later one work item is tried on the primary
+  // (chain[0]): if it works the team switches back, if not the timer re-arms.
+  // "auth" and "context" errors never switch models. The Team tab shows a banner
+  // (with "End failover now") while it's active; GET /api/failover has the state.
+  "failover": {
+    "enabled": false, "on": ["throttle", "5xx"], "after": 2, "windowMinutes": 10,
+    "chain": ["strong", "<provider>/<other model>"], "revertAfterMinutes": 30
+  },
 
   // ─── Work distribution ─────────────────────────────────────────
   // One teammate per directory (default true): overlapping work waits its turn.
@@ -841,6 +855,18 @@ to every live unpinned agent (null where its harness has none). `mpt doctor`
 reports the default and the aliases, and warns when one names a model no live agent
 of that harness reports. See
 [docs/DESIGN.md](docs/DESIGN.md#choosing-a-model).
+
+**Model failover.** A session error may carry `errorKind` (`throttle`, `5xx`,
+`auth`, `context`, `other`) and the failed call's `model`; without them the daemon
+reads the kind from the error text. With `failover` on, the daemon switches the
+whole team down the chain when the current model keeps failing, sending a
+`set-model` with source `failover` and `replaces` (the failed models). A harness
+that registers with `capabilities: ["model-failover"]` (the Pi teammate and
+assistant do) substitutes only where its model is a failed one, and runs a claim's
+`failoverProbe` (the revert probe) on the primary; an older set-model harness is
+sent the substitute only when its model failed. `GET /api/failover` reports the
+state (also in `/api/status`), `POST /api/failover/end` ends it. See
+[docs/DESIGN.md](docs/DESIGN.md#model-failover).
 
 Windows in the team's terminal that no registered teammate, the leader or a
 starting spawn accounts for (such as panes a terminal's session restore relaunched)

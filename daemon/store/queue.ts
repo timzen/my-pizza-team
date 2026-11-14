@@ -39,6 +39,7 @@ import {
   type WorkItemState,
 } from "../../shared/types.ts";
 import { normalizeDirectory } from "../../shared/directory.ts";
+import { classifyModelError, isModelErrorKind, type ModelErrorKind } from "../../shared/agent-protocol.ts";
 import { errorMessage } from "../../shared/util.ts";
 import type { SourceEntry } from "../sources/registry.ts";
 import type { ItemTerminalOutcome } from "../sources/types.ts";
@@ -63,6 +64,17 @@ function formatDelay(ms: number): string {
   const h = Math.floor(totalMin / 60);
   const m = totalMin % 60;
   return h === 0 ? `${m}m` : m === 0 ? `${h}h` : `${h}h ${m}m`;
+}
+
+/** How a thread comment names an error kind: "throttled", "server error (5xx)", … */
+export function errorKindLabel(kind: ModelErrorKind): string {
+  switch (kind) {
+    case "throttle": return "throttled";
+    case "5xx": return "server error (5xx)";
+    case "auth": return "authentication error";
+    case "context": return "context window exceeded";
+    default: return "error kind: other";
+  }
 }
 
 /** What the queue needs from the rest of the Store. */
@@ -112,6 +124,7 @@ export class QueueStore {
       attempt: (row.attempt as number) || 1,
       retryAt: row.retry_at ? new Date(row.retry_at as number).toISOString() : undefined,
       error: (row.error as string) || undefined,
+      errorKind: isModelErrorKind(row.error_kind) ? row.error_kind : undefined,
       persona: row.persona_id ? {
         id: row.persona_id as string,
         title: (row.persona_title as string) || (row.persona_id as string),
@@ -525,9 +538,14 @@ export class QueueStore {
    * closing comment (ui/src/lib/mobile.ts `inboxOutcome`). Works the same for
    * board tasks and Solitary/Scheduled WorkDefs: a task keeps its position,
    * and the retry is just its next WorkItem.
+   *
+   * The attempt records its error's kind (`errorKind`: the harness's, else
+   * `classifyModelError` of the text — docs/DESIGN.md "Model Failover"), and
+   * both comments name it.
    */
-  failWorkItemForSessionError(id: string, sessionError: string, now: number = Date.now()): {
-    ok: boolean; error?: string; retry?: { workItemId: string; attempt: number; maxAttempts: number; retryAt: string };
+  failWorkItemForSessionError(id: string, sessionError: string, now: number = Date.now(), errorKind?: ModelErrorKind): {
+    ok: boolean; error?: string; errorKind?: ModelErrorKind;
+    retry?: { workItemId: string; attempt: number; maxAttempts: number; retryAt: string };
   } {
     const item = this.getWorkItem(id);
     if (!item) return { ok: false, error: "WorkItem not found" };
@@ -539,13 +557,14 @@ export class QueueStore {
     const reason = sessionError.trim() || "The agent session errored";
     const author = item.memberId || "daemon";
     const retriesLeft = item.attempt < maxAttempts && getWorkDef(this.teamDir, item.ref.workDefId) !== null;
-    this.db.prepare("UPDATE work_items SET error = ? WHERE id = ?").run(reason, id);
+    const kind = errorKind ?? classifyModelError(reason);
+    this.db.prepare("UPDATE work_items SET error = ?, error_kind = ? WHERE id = ?").run(reason, kind, id);
 
     if (!retriesLeft) {
       const tries = item.attempt === 1 ? "1 attempt" : `${item.attempt} attempts`;
-      this.deps.addComment(item.ref, author, `[failed] ${reason} after ${tries}. The agent session errored; nothing was done on the final attempt.`);
+      this.deps.addComment(item.ref, author, `[failed] ${reason} (${errorKindLabel(kind)}) after ${tries}. The agent session errored; nothing was done on the final attempt.`);
       this.setWorkItemState(id, "FAILED");
-      return { ok: true };
+      return { ok: true, errorKind: kind };
     }
 
     const delayMs = retryBackoffMs(policy, item.attempt);
@@ -554,15 +573,44 @@ export class QueueStore {
     this.deps.addComment(
       item.ref,
       author,
-      `[retry] Attempt ${item.attempt}/${maxAttempts} failed: ${reason}. Retrying in ${formatDelay(delayMs)} (attempt ${next}/${maxAttempts}), once the team is ready.`,
+      `[retry] Attempt ${item.attempt}/${maxAttempts} failed: ${reason} (${errorKindLabel(kind)}). Retrying in ${formatDelay(delayMs)} (attempt ${next}/${maxAttempts}), once the team is ready.`,
     );
     this.setWorkItemState(id, "FAILED");
     this.markWorkItemRead(id, true);
     // Re-check: setWorkItemState → advance/admission never enqueues on FAILED, but stay safe.
-    if (this.getActiveWorkItem(item.ref.workDefId)) return { ok: true };
+    if (this.getActiveWorkItem(item.ref.workDefId)) return { ok: true, errorKind: kind };
     const fresh = this.enqueueFor(item.ref.workDefId, { attempt: next, retryAt });
-    if (!fresh) return { ok: true };
-    return { ok: true, retry: { workItemId: fresh.id, attempt: next, maxAttempts, retryAt: new Date(retryAt).toISOString() } };
+    if (!fresh) return { ok: true, errorKind: kind };
+    return { ok: true, errorKind: kind, retry: { workItemId: fresh.id, attempt: next, maxAttempts, retryAt: new Date(retryAt).toISOString() } };
+  }
+
+  /**
+   * Make retries held in backoff because of a model failure of one of `kinds`
+   * eligible now (docs/DESIGN.md "Model Failover", "Retry now"): a failover just
+   * switched the team to another model, so waiting out the backoff would only
+   * delay work the new model can do. Only `retry_at` moves (to `now`): the
+   * attempt number stays, so the failed attempt counted once when it failed and
+   * nothing is refunded or added — a released retry still runs as attempt n of
+   * `retry.maxRetries + 1`. The readiness gate (`isRetryDue`) still applies.
+   * Which retry is "because of" a kind is read off the attempt it follows: the
+   * latest earlier item of the same WorkDef. Returns the released item ids.
+   */
+  releaseRetriesFor(kinds: readonly ModelErrorKind[], now: number = Date.now()): string[] {
+    if (kinds.length === 0) return [];
+    const held = this.db.prepare(
+      "SELECT id, work_def_id, enqueued_at, rowid AS rid FROM work_items WHERE state = 'READY' AND attempt > 1 AND retry_at > ?",
+    ).all(now) as Array<{ id: string; work_def_id: string; enqueued_at: number; rid: number }>;
+    const prev = this.db.prepare(
+      "SELECT error_kind FROM work_items WHERE work_def_id = ? AND id != ? AND (enqueued_at < ? OR (enqueued_at = ? AND rowid < ?)) ORDER BY enqueued_at DESC, rowid DESC LIMIT 1",
+    );
+    const released: string[] = [];
+    for (const r of held) {
+      const p = prev.get(r.work_def_id, r.id, r.enqueued_at, r.enqueued_at, r.rid) as { error_kind: string | null } | undefined;
+      if (!p || !kinds.includes(p.error_kind as ModelErrorKind)) continue;
+      this.db.prepare("UPDATE work_items SET retry_at = ? WHERE id = ?").run(now, r.id);
+      released.push(r.id);
+    }
+    return released;
   }
 
   /** Cancel a READY WorkItem (human). */

@@ -36,7 +36,7 @@ import { applyFeatureTools, featurePromptNote } from "./features.js";
 import { PersonaToolScope, applyPersonaScope, checkSkillCommand, checkToolCall, reportScopeOnce } from "./persona-scope.js";
 import { PersonaModelSwitch, modelProblem } from "./persona-model.js";
 import { ModelListReporter, ModelPreferences, SetModelRealizer, availableModels } from "./model-choice.js";
-import { SET_MODEL_CAPABILITY } from "./shared/agent-protocol.js";
+import { MODEL_FAILOVER_CAPABILITY, SET_MODEL_CAPABILITY } from "./shared/agent-protocol.js";
 import { attachSessionStats, type SessionStatsReporter } from "./stats-report.js";
 import { summarizeRun, hasUsage } from "./runtime/usage.js";
 import { LEADER_WINDOW } from "./shared/types.js";
@@ -89,8 +89,9 @@ export async function setupLeader(
       name: "leader",
       directory: cwd,
       metadata: readTerminalMetadata(pi),
-      // It switches models on request (`set-model`, model-choice.ts).
-      capabilities: [SET_MODEL_CAPABILITY],
+      // It switches models on request (`set-model`, model-choice.ts), applying a
+      // failover substitute only over the failed models (`model-failover`).
+      capabilities: [SET_MODEL_CAPABILITY, MODEL_FAILOVER_CAPABILITY],
       models: availableModels(ctx.modelRegistry),
     });
     if ("modelPin" in res) modelPrefs.pin = res.modelPin ?? null;
@@ -331,7 +332,7 @@ export async function setupLeader(
   const reportedModel = new Set<string>();
   const applyModel = async () => {
     const persona = chat.personaScope;
-    const target = modelPrefs.resolve(persona ? persona.id ?? "" : null, persona);
+    const target = modelPrefs.resolve(persona ? persona.id ?? "" : null, persona, { harnessModel: modelSwitch.baseModel });
     const problem = await modelSwitch.applyTarget(target);
     if (problem) {
       reportScopeOnce(reportedModel, target?.key ?? "", [problem], (text) => {

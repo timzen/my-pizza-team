@@ -12,7 +12,7 @@ Settings live under the **config** (gear) icon, at `/config`:
   default harness; applies on save, no restart — see
   [Teammates](03-teammates.md#experimental-kiro-and-claude-code-teammates))
 - **Models** — the team's **default model** (with **Apply to all teammates now**),
-  the **model aliases** personas name, and (coming soon) the failover policy — see
+  the **model aliases** personas name, and the **failover** policy — see
   [Models](#models)
 - **Sources** — your source plugins: switch each on or off, edit its settings,
   **Preview** what it would pull, and **Save** (see
@@ -72,12 +72,52 @@ Everything here is saved with **Save Configuration**.
 - **Model Aliases** — the names personas use for a kind of model (`strong`, `fast`),
   each mapped to a model id per harness, and **Use persona models** (see
   [Model aliases](06-personas.md#model-aliases)).
-- **Failover** — coming soon: models to fall back on when the usual one is throttled
-  or failing.
+- **Failover** — models to fall back on when the usual one is throttled or failing
+  (see [Failover](#failover) below).
 
 In `config.json` the default is `"defaultModel": { "pi": "<provider>/<model>" }`.
 `mpt doctor` shows the default and the aliases, and warns when one names a model none
 of the running agents can use.
+
+### Failover
+
+When the team's model keeps being throttled or failing with server errors, MPT can
+switch the **whole team** to another model and switch back once the first one works
+again. It's off until you turn it on in the **Failover** card on Config → Models:
+
+- **Fail over automatically** — on or off. Turning it on needs a chain of at least two
+  models.
+- **Chain** — the models to fall back through, the **primary** (your usual model)
+  first. Each is a model id or a [model alias](06-personas.md#model-aliases). Use the
+  arrows to reorder and × to remove; the suggestions are the models your running
+  teammates report and your aliases.
+- **Fail over on** — which failures count: throttling (too many requests) and server
+  errors by default, optionally other model errors. Expired credentials and prompts
+  too big for the model never switch models: the
+  [readiness probe](glossary.md#readiness-probe) and the normal retries handle those.
+- **Failures that switch models … within (minutes)** — how many failures on the
+  current model, across all teammates, switch the team (default 2 within 10 minutes).
+- **Try the primary again after (minutes)** — how long the team stays on the fallback
+  before one work item is run on the primary again (default 30). If that item's model
+  calls work, everyone switches back; if they're throttled again, the wait starts
+  over.
+
+What happens when it switches: every teammate (and the assistant) running a failed
+model moves to the next model in the chain after its current run — a pinned model or
+a persona's model included; teammates on another model keep it. Work items waiting to
+retry after those errors are retried right away (each still counts as one attempt).
+If the fallback fails too, the team moves further down the chain; at the end of it,
+the team stays on the last model and the normal retries carry on.
+
+While a failover is in effect the **Team** tab shows a banner — which model the team
+is on instead of which, and when the primary is tried again — with **End failover
+now**, which switches everyone back at once (the card here has the same button). A
+teammate's model chip shows the **failover** mark while it runs the substitute. Each
+failed attempt's `[retry]` comment names the kind of error (throttled, server error,
+…).
+
+In `config.json`:
+`"failover": { "enabled": true, "on": ["throttle", "5xx"], "after": 2, "windowMinutes": 10, "chain": ["strong", "<provider>/<model>"], "revertAfterMinutes": 30 }`.
 
 ## Work items (feature toggles)
 

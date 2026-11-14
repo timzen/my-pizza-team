@@ -11,7 +11,7 @@
  * system live beside it — `normalizeDirectory` is in shared/directory.ts.
  */
 
-import { FEATURE_NAMES, type FeatureName, type PersonaSettings } from "./agent-protocol.ts";
+import { FEATURE_NAMES, type FeatureName, type ModelErrorKind, type PersonaSettings } from "./agent-protocol.ts";
 
 /** Standard API response envelope. */
 export interface ApiResponse<T = unknown> {
@@ -204,6 +204,56 @@ export interface TeamConfig {
    * every run keeps the harness's model). Unset/true = applied.
    */
   personaModels?: boolean;
+  /**
+   * The team-wide model failover policy (docs/DESIGN.md "Model Failover";
+   * daemon/failover.ts): when model calls on the chain's current model keep
+   * failing with a throttle/5xx, the whole team switches to the next entry, and
+   * goes back to the primary once a probe succeeds. Off by default. Read it
+   * through `resolveFailover`, never directly. Edited on Config → Models.
+   */
+  failover?: FailoverConfig;
+}
+
+/**
+ * `TeamConfig.failover`. Every field is optional; `resolveFailover` fills the
+ * defaults. `chain[0]` is the primary; entries are model ids or `modelAliases`
+ * names (resolved per harness).
+ */
+export interface FailoverConfig {
+  /** On/off (default off). */
+  enabled?: boolean;
+  /** Which error kinds count (default `["throttle", "5xx"]`; `auth` and `context` never do). */
+  on?: ModelErrorKind[];
+  /** Failures on the current model, across all agents, that trip it (default 2). */
+  after?: number;
+  /** ...within this many minutes (default 10). */
+  windowMinutes?: number;
+  /** The models to fall back through, primary first (model ids or aliases). */
+  chain?: string[];
+  /** Minutes until a work item is routed back to the primary to probe it (default 30). */
+  revertAfterMinutes?: number;
+}
+
+/** The error kinds a failover may trip on: never `auth` or `context` (readiness and normal failure handle those). */
+export const FAILOVER_TRIP_KINDS: readonly ModelErrorKind[] = ["throttle", "5xx", "other"];
+
+/** `FailoverConfig` with its defaults applied. */
+export type ResolvedFailover = Required<FailoverConfig>;
+
+/** The failover policy with defaults applied; nonsense values fall back to the defaults. */
+export function resolveFailover(config: Pick<TeamConfig, "failover">): ResolvedFailover {
+  const f = config.failover ?? {};
+  const int = (v: unknown, min: number, dflt: number) => (typeof v === "number" && Number.isInteger(v) && v >= min ? v : dflt);
+  const on = Array.isArray(f.on) ? f.on.filter((k) => FAILOVER_TRIP_KINDS.includes(k)) : null;
+  const chain = Array.isArray(f.chain) ? f.chain.filter((m) => typeof m === "string" && m.trim()).map((m) => m.trim()) : [];
+  return {
+    enabled: f.enabled === true,
+    on: on && on.length > 0 ? [...new Set(on)] : ["throttle", "5xx"],
+    after: int(f.after, 1, 2),
+    windowMinutes: int(f.windowMinutes, 1, 10),
+    chain,
+    revertAfterMinutes: int(f.revertAfterMinutes, 1, 30),
+  };
 }
 
 /** One `TeamConfig.sourcePersonas` entry. */
@@ -513,6 +563,8 @@ export interface WorkItem {
   retryAt?: string;
   /** Why this attempt's agent session errored (the model call's error message). */
   error?: string;
+  /** The kind of that error (docs/DESIGN.md "Model Failover"): the harness's, else the daemon's reading of `error`. */
+  errorKind?: ModelErrorKind;
   /**
    * The persona this run was given, snapshotted at claim (docs/DESIGN.md "The
    * in-flight persona"). Never rewritten: a later edit or delete of the persona

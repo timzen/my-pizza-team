@@ -8,6 +8,7 @@
  */
 
 import { validateDefaultModel, validateModelAliases } from "../../shared/model-aliases.ts";
+import { validateFailover } from "../../shared/failover.ts";
 import type { RouteContext } from "./types.ts";
 import { readBody, fail } from "./http.ts";
 import type { TeamConfig, WorkflowConfig } from "../../shared/types.ts";
@@ -134,6 +135,8 @@ export function registerSharedRoutes(ctx: RouteContext): void {
       externalSources: externalSourceViews(store),
       // One-line notices (0.34–0.36's persona migration left one), dismissed with DELETE /api/notices/:id.
       notices: store.getNotices(),
+      // The team-wide model failover (daemon/failover.ts), for the Team tab's banner.
+      failover: store.failover.view(),
     });
   });
 
@@ -199,6 +202,9 @@ export function registerSharedRoutes(ctx: RouteContext): void {
       if (body.personaModels != null && typeof body.personaModels !== "boolean") {
         return fail(c, 400, "personaModels must be a boolean");
       }
+      // The failover policy (shared/failover.ts): null clears it (off).
+      const failover = body.failover == null ? null : validateFailover(body.failover);
+      if (failover && "error" in failover) return fail(c, 400, failover.error);
       // Feature toggles: validated (and the turn-off guard checked) up front too.
       const featureSettings = resolveFeaturesUpdate(config, body, store);
       if ("error" in featureSettings) return fail(c, featureSettings.status, featureSettings.error);
@@ -275,6 +281,14 @@ export function registerSharedRoutes(ctx: RouteContext): void {
       else if (defaultModel && "value" in defaultModel) {
         if (Object.keys(defaultModel.value).length > 0) config.defaultModel = defaultModel.value;
         else delete config.defaultModel;
+      }
+      // The failover policy. Live: daemon/failover.ts reads it on every failure and
+      // claim; switching it off (or a chain that no longer reaches the model in
+      // use) ends an active failover. Absent keeps it; null clears it.
+      if (body.failover === null) delete config.failover;
+      else if (failover && "value" in failover) {
+        if (Object.keys(failover.value).length > 0) config.failover = failover.value;
+        else delete config.failover;
       }
       if (body.personaModels === false) config.personaModels = false;
       else if (body.personaModels === true || body.personaModels === null) delete config.personaModels;

@@ -381,15 +381,21 @@ export class MemberStore {
    * Ask an agent to switch its model: a `set-model` self-directive it realizes
    * between runs. An earlier set-model still pending for it is cancelled first
    * — only the latest ask matters, and a stale one would otherwise be realized
-   * after it. `unknown` for no such member; `unsupported` when its harness
+   * after it (with `sameSourceOnly`, only one of the same source). `unknown` for no such member; `unsupported` when its harness
    * didn't declare `set-model` (an older harness would never realize it).
    */
-  requestModelChange(memberId: string, params: SetModelParams): { directive: LeaderDirective } | { error: "unknown" | "unsupported" } {
+  requestModelChange(
+    memberId: string, params: SetModelParams, opts: { sameSourceOnly?: boolean } = {},
+  ): { directive: LeaderDirective } | { error: "unknown" | "unsupported" } {
     if (!this.getMember(memberId)) return { error: "unknown" };
     if (!this.hasCapability(memberId, SET_MODEL_CAPABILITY)) return { error: "unsupported" };
+    // `sameSourceOnly` (the failover's asks, daemon/failover.ts): each source is
+    // its own preference slot in the harness, so a failover substitute must not
+    // cancel a user's pick or a default still waiting to be realized.
     this.db.prepare(
-      "UPDATE leader_directives SET status = 'cancelled', error = 'superseded by a newer model change', updated_at = ? WHERE member_id = ? AND action = ? AND status = 'pending'",
-    ).run(Date.now(), memberId, SET_MODEL_ACTION);
+      "UPDATE leader_directives SET status = 'cancelled', error = 'superseded by a newer model change', updated_at = ? WHERE member_id = ? AND action = ? AND status = 'pending'" +
+        (opts.sameSourceOnly ? " AND json_extract(params, '$.source') = ?" : ""),
+    ).run(Date.now(), memberId, SET_MODEL_ACTION, ...(opts.sameSourceOnly ? [params.source] : []));
     return { directive: this.createLeaderDirective(SET_MODEL_ACTION, { memberId, params: { ...params } }) };
   }
 
