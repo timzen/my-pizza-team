@@ -10,8 +10,9 @@
  * you leave or change the filter, even with "unread only" on
  * (lib/mobile.ts `mergeInboxRows`).
  *
- * The model-failover notes (one per episode; components/inbox/FailoverNotes)
- * come first, as on the desktop.
+ * The model-failover and stalled-teammate notes (one per episode;
+ * components/inbox/FailoverNotes, StallNotes — whose teammate links open the
+ * phone's own teammate view) come first, as on the desktop.
  *
  * Its empty states are the desktop Inbox's (pages/InboxPage `InboxEmpty`):
  * Inbox zero, or nothing has finished yet — whose next step here is the chat,
@@ -27,10 +28,11 @@ import { hasThreadTab, workItemPath } from "@/lib/work-item-link";
 import type { Comment } from "@shared/types";
 import type { WorkItemView } from "@shared/protocol";
 import { since } from "@/lib/queue";
-import { inboxOutcome, mergeInboxRows, outcomeBody } from "@/lib/mobile";
+import { MOBILE_ROOT, inboxOutcome, mergeInboxRows, outcomeBody } from "@/lib/mobile";
 import { InboxEmpty } from "@/pages/InboxPage";
 import { useEverFinished } from "@/hooks/useEverFinished";
 import { FailoverNotes } from "@/components/inbox/FailoverNotes";
+import { StallNotes } from "@/components/inbox/StallNotes";
 import { CheckCircle2, ExternalLink, XCircle } from "lucide-react";
 
 type WorkItem = WorkItemView;
@@ -92,8 +94,9 @@ export function MobileInbox({ active, onChanged }: { active: boolean; onChanged:
         {rows.some((r) => !r.read) && <Button variant="ghost" size="sm" onClick={markAllRead}>Mark all read</Button>}
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="px-3 pt-2 empty:hidden">
+        <div className="space-y-2 px-3 pt-2 empty:hidden">
           <FailoverNotes unreadOnly={unreadOnly} onChanged={onChanged} settingsLink={false} />
+          <StallNotes unreadOnly={unreadOnly} onChanged={onChanged} teammatePath={(id) => `${MOBILE_ROOT}/teammates/${encodeURIComponent(id)}`} />
         </div>
         {data && rows.length === 0 && (!unreadOnly || everFinished !== null) && (
           <InboxEmpty

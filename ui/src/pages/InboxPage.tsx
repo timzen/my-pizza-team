@@ -8,8 +8,9 @@
  * an item marks it read. Paginated so a busy team's history stays fast.
  *
  * Above the finished work: the model-failover notes, one per failover episode
- * (components/inbox/FailoverNotes; docs/DESIGN.md "Model Failover"), filtered
- * by the same "Unread only".
+ * (components/inbox/FailoverNotes; docs/DESIGN.md "Model Failover"), and the
+ * stalled-teammate notes, one per stall episode (components/inbox/StallNotes;
+ * docs/DESIGN.md "Stalled Teammates"), filtered by the same "Unread only".
  *
  * Embedded in the Root page's "Inbox" tab (see RootPage). Polls /api/work-items.
  *
@@ -30,6 +31,7 @@ import { Button } from "@/components/ui/button";
 import { EmptyState, StartWorkActions } from "@/components/ui/empty-state";
 import { useEverFinished } from "@/hooks/useEverFinished";
 import { FailoverNotes } from "@/components/inbox/FailoverNotes";
+import { StallNotes } from "@/components/inbox/StallNotes";
 import { CheckCircle2, XCircle, Inbox as InboxIcon, CheckCheck } from "lucide-react";
 
 type WorkItem = WorkItemView;
@@ -98,6 +100,7 @@ export function InboxPage() {
       </div>
 
       <FailoverNotes unreadOnly={unreadOnly} onChanged={notifyInboxChanged} />
+      <StallNotes unreadOnly={unreadOnly} onChanged={notifyInboxChanged} />
 
       {data && items.length === 0 && (!unreadOnly || everFinished !== null) && (
         <InboxEmpty

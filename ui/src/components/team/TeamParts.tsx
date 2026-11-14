@@ -8,12 +8,16 @@
  * avatar for the rail, and a pending-spawn row. (Queue rows live on the Queue
  * tab — pages/QueuePage.)
  *
- * Status is the icon's shape — pairing, waiting, working, lost contact — not a
+ * Status is the icon's shape — pairing, waiting, working, stalled, lost contact — not a
  * colored dot (docs/DESIGN.md "Teammate Status: Shape, not Color"), and it's
- * always there as text too: the icon is an image named by `statusLabel`, and
+ * always there as text too: the icon is an image named by `statusText`, and
  * a row's link and an avatar are named/hinted by the whole summary
  * (lib/team.ts teammateSummary), so the hints the row's parts show on hover
- * also show when the keyboard reaches the row.
+ * also show when the keyboard reaches the row. A **stalled** teammate (alive,
+ * but no progress for longer than its threshold — docs/DESIGN.md "Stalled
+ * Teammates") shows a ⚠ in amber in place of the working loader, its tooltip
+ * saying for how long and on what (lib/stall.ts); the row gets no new
+ * controls — Interrupt is on the teammate page.
  *
  * Moved out of the old right-hand TeammateSidebar when the team joined the
  * assistant in the left SideDock (DESIGN.md "The Shell: a Dock and a Center").
@@ -27,7 +31,7 @@ import { IconButton } from "@/components/ui/icon-button";
 import { Tooltip } from "@/components/ui/tooltip";
 import { Trash2, RotateCcw, FolderOpen, Clock, X, Crown, User, Users, UserPlus, AlertTriangle, Bot, Loader, CloudOff, Gauge } from "lucide-react";
 import type { Side } from "@/lib/dock-layout";
-import { dirName, formatContext, formatCost, modelTitle, roleOf, statusLabel, teammateSummary, viewPath, type FailedSpawn, type SpawnRequest, type Teammate } from "@/lib/team";
+import { dirName, formatContext, formatCost, modelTitle, roleOf, statusText, teammateSummary, viewPath, type FailedSpawn, type SpawnRequest, type Teammate } from "@/lib/team";
 
 /**
  * The two team-level actions: set the steady team size, spawn one teammate in a
@@ -60,17 +64,23 @@ export function TeamButtons({
   );
 }
 
+/** The stalled mark's color (amber, readable on both themes; `cn` lets it replace the row's gray). */
+const STALLED_ICON = "text-amber-600 dark:text-amber-400";
+
 /**
  * What an agent is doing, as an icon: **person** pairing with you, **bot**
- * waiting for work, a turning **loader** working, **cloud-off** lost contact.
- * The leader keeps its crown while it's reachable.
+ * waiting for work, a turning **loader** working, a **warning triangle**
+ * stalled (the one status with a color of its own — amber, on top of its
+ * shape, because it asks you to look), **cloud-off** lost contact. The leader
+ * keeps its crown while it's reachable.
  */
 export function StatusIcon({ teammate, className }: { teammate: Teammate; className?: string }) {
-  const label = statusLabel(teammate.status);
+  const label = statusText(teammate);
   // An image with a name, not a decorative icon: the shape *is* the status.
   const common = { className, role: "img", "aria-label": label } as const;
   if (teammate.status === "offline") return <CloudOff {...common} />;
   if (roleOf(teammate) === "leader") return <Crown {...common} />;
+  if (teammate.stalled) return <AlertTriangle {...common} className={cn(className, STALLED_ICON)} />;
   if (teammate.status === "pairing") return <User {...common} />;
   if (teammate.status === "working") {
     // Slow spin (reduced-motion users get a still loader — the shape still says "working").
@@ -270,7 +280,7 @@ export function TeammateRow({
       } ${to ? "hover:border-primary/50" : ""} ${teammate.status === "offline" ? "opacity-60" : ""}`}
     >
       {/* The status, as tall as the row's lines, so a glance down the list reads it. */}
-      <Tooltip content={statusLabel(teammate.status)} describe={false}>
+      <Tooltip content={statusText(teammate)} describe={false}>
         <span className="shrink-0">
           <IconCircle className={ROW_CIRCLE}>
             <StatusIcon teammate={teammate} className={cn(ROW_ICON, "text-muted-foreground")} />

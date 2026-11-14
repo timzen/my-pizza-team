@@ -18,7 +18,7 @@ import { buildWorkDefPrompt, stateFraming } from "../prompt.ts";
 import { personaRefOf, personaSettingsOf } from "../personas/resolve.ts";
 import { DEFAULT_HARNESS, isExperimentalHarness, type ResolvedPersona, type TeamConfig, type TriageOutcome, type TriageProposal, type WorkDef, type WorkItemRef } from "../../shared/types.ts";
 import {
-  LEADER_ALREADY_CONNECTED, MIN_PROTOCOL_VERSION, PERSONA_SYSTEM_PROMPT_CAPABILITY, PROTOCOL_VERSION, SET_MODEL_CAPABILITY,
+  INTERRUPT_CAPABILITY, LEADER_ALREADY_CONNECTED, MIN_PROTOCOL_VERSION, PERSONA_SYSTEM_PROMPT_CAPABILITY, PROTOCOL_VERSION, SET_MODEL_CAPABILITY,
   isModelErrorKind, type AgentClaimResponse, type AgentListResponse, type ClaimPersona,
 } from "../../shared/protocol.ts";
 import { packageVersion } from "../../shared/paths.ts";
@@ -437,6 +437,9 @@ export function registerAgentRoutes(ctx: RouteContext): void {
           activity: report?.activity ?? null,
           lastProgressAt: report?.lastProgressAt ?? null,
           stalled: store.getMemberStall(m.id),
+          // Interrupt (POST /api/agents/:id/interrupt): can its harness, and the latest ask.
+          interruptSupported: store.memberHasCapability(m.id, INTERRUPT_CAPABILITY),
+          lastInterrupt: store.getLastInterrupt(m.id),
         };
       }),
     } satisfies AgentListResponse);

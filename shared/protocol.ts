@@ -13,7 +13,7 @@
 
 import type {
   Comment, FeaturesConfig, PollTimeoutAction, TaskPollRecord, Member, MemberSessionStats, Persona, PersonaKind, PersonaRef, PersonaUsage, ThreadEntry, Thought, ThoughtGroup,
-  TriageBadge, TriageOutcome, TriageProposalState, TriageSkipReason, WorkflowConfig, WorkItemState,
+  TriageBadge, TriageOutcome, TriageProposalState, TriageSkipReason, WorkDefParent, WorkflowConfig, WorkItemState,
 } from "./types.ts";
 import type {
   AgentActivity,
@@ -32,12 +32,12 @@ import type {
 } from "./agent-protocol.ts";
 
 export {
-  ACTIVITY_PREVIEW_MAX, cleanActivityPreview,
+  ACTIVITY_PREVIEW_MAX, INTERRUPT_ACTION, INTERRUPT_CAPABILITY, cleanActivityPreview,
   LEADER_ALREADY_CONNECTED, MODEL_ERROR_KINDS, MODEL_FAILOVER_CAPABILITY, PERSONA_SYSTEM_PROMPT_CAPABILITY, PROTOCOL_VERSION,
   SET_MODEL_ACTION, SET_MODEL_CAPABILITY, classifyModelError, isModelErrorKind,
 } from "./agent-protocol.ts";
 export type {
-  AgentActivity, AgentActivityReport, AgentActivityState,
+  AgentActivity, AgentActivityReport, AgentActivityState, InterruptParams,
   AvailableModel, ModelErrorKind, SetModelParams, SetModelSource,
   AgentCapability, AgentClaimResponse, ClaimPersona, AgentNextWorkResponse, AgentSetWorkItemStateResponse, AssistantDelivery, AssistantInboxItem,
   AssistantInboxResponse, AssistantOrigin, CreateLeaderDirectiveResponse, LeaderDirective, LeaderDirectivesResponse,
@@ -79,7 +79,7 @@ export interface StatusResponse extends AgentStatusResponse<WorkflowConfig> {
   paused: boolean;
   /** READY WorkItems — queued, not yet picked up (Pizza Team link badge). */
   queuedCount: number;
-  /** Unread COMPLETE/FAILED WorkItems plus unread failover notes — the Inbox's unread count (Pizza Team link badge). */
+  /** Unread COMPLETE/FAILED WorkItems plus unread failover and stall notes — the Inbox's unread count (Pizza Team link badge). */
   unreadInboxCount: number;
   workflow?: WorkflowConfig;
   /**
@@ -537,7 +537,60 @@ export interface AgentView {
   lastProgressAt?: number | null;
   /** Set while it is stalled: live, holding a claimed item, and no progress for longer than the threshold. */
   stalled?: AgentStall | null;
+  /** Can its harness realize `interrupt` (declared `INTERRUPT_CAPABILITY`)? False: the UI suggests Pair instead. */
+  interruptSupported?: boolean;
+  /** The latest interrupt asked of it (any status), or null. */
+  lastInterrupt?: InterruptView | null;
 }
+
+/** An `interrupt` directive's state (MemberStore `getLastInterrupt`), for the teammate page. */
+export interface InterruptView {
+  id: string;
+  status: "pending" | "done" | "failed" | "cancelled";
+  /** Why it failed (e.g. "no run in flight to interrupt"), else null. */
+  error: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// POST /api/agents/:id/interrupt — `{ reason? }`: 201 with the directive; 404
+// unknown; 409 `unsupported: true` when its harness can't (the UI suggests Pair).
+export interface InterruptResponse {
+  success: boolean;
+  directive: { id: string; action: string; status: string; params: Record<string, unknown>; createdAt: string };
+}
+
+/**
+ * One stall episode's Inbox note (daemon/stall-notes.ts): named by the
+ * teammate and when its progress stopped, so a stall is noted once however
+ * long it lasts. `ended` once progress resumed (or the item ended).
+ */
+export interface StallNoteView {
+  /** `stall-<memberId>-<since ms>`. */
+  id: string;
+  memberId: string;
+  memberName: string;
+  workItemId: string;
+  /** The work item's title and its WorkDef (the link to the work item's page), when known. */
+  workItemTitle: string | null;
+  workDefId: string | null;
+  /** The WorkDef's parent (a board task's story…), for the link (ui lib/work-item-link.ts). */
+  parent?: WorkDefParent;
+  /** When progress stopped. */
+  since: string;
+  /** When the stall was noticed (past the threshold). */
+  notedAt: string;
+  /** What it was doing (its harness's report), or null. */
+  activity: AgentActivity | null;
+  stallMinutes: number;
+  read: boolean;
+  /** Progress resumed, or the run ended: the stall is over. */
+  ended: boolean;
+  endedAt: string | null;
+}
+
+// GET /api/stalls/notes[?read=false] — the Inbox's stall notes, newest first.
+export interface StallNotesResponse { notes: StallNoteView[] }
 
 /**
  * A stalled teammate (shared/stall.ts `stallOf`): alive and working on a

@@ -45,6 +45,7 @@ import { registerStoryRoutes } from "./routes/stories.ts";
 import { registerTaskRoutes } from "./routes/tasks.ts";
 import { registerAgentRoutes } from "./routes/agents.ts";
 import { registerModelRoutes } from "./routes/models.ts";
+import { registerStallRoutes } from "./routes/stalls.ts";
 import { registerWorkRoutes } from "./routes/work.ts";
 import { registerWorkDefRoutes } from "./routes/work-defs.ts";
 import { registerScheduleRoutes } from "./routes/schedules.ts";
@@ -107,6 +108,7 @@ export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hon
   registerTaskRoutes(ctx);
   registerAgentRoutes(ctx);
   registerModelRoutes(ctx);
+  registerStallRoutes(ctx);
   registerWorkRoutes(ctx);
   registerWorkDefRoutes(ctx);
   registerSourceRoutes(ctx);

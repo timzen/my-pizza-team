@@ -68,6 +68,7 @@ src/
 ├── stats-report.ts       # attachSessionStats: the Team tab's stats, reported by teammate and leader alike
 ├── activity-report.ts    # attachActivity: the heartbeat's activity report (runtime/activity.ts), for the
 │                         #   daemon's stall check — teammate and leader alike
+│                         #   (Interrupt: runtime/interrupt.ts InterruptRealizer, wired in index.ts)
 ├── persona-mcp.ts        # The persona's requires.mcp checked: knownMcpServers (Pi's mcp.json files,
 │                         #   read-only, + getMcpServers), mcpRequirementProblem
 ├── permissions.ts        # Dynamic yoloMode toggling + ppt-autonomous authorizer chain link;
@@ -100,6 +101,8 @@ All state is owned by the **my-pizza-team daemon**. The extension is a pure clie
 │  4. agent_end event fires **for that prompt's own run**  │
 │     └── handleAgentComplete(lastAssistantMessage)        │
 │         ├── foreign run (prompt not started yet) → skip  │
+│         ├── interrupted by the user → skip (item kept;   │
+│         │   the nudge is its next run)                   │
 │         ├── item failed via the `fail` tool → skip       │
 │         ├── check waited (`wait_for_next_check`) → skip │
 │         ├── session errored (stopReason "error") →       │
@@ -163,6 +166,21 @@ input — bash's command, a file tool's path, never contents) and `lastProgressA
 teammate that holds a claimed item with no progress past `stallMinutes` as stalled
 (my-pizza-team docs/DESIGN.md "Stalled Teammates"). A tool that never returns is
 exactly what this sees: its heartbeat keeps flowing, its progress doesn't.
+
+**Interrupt (teammates).** The teammate registers with the `interrupt` capability, so
+the web UI's Interrupt (`POST /api/agents/:id/interrupt`) reaches it as an
+`interrupt` self-directive. `TeammateLoop.pollSessionDirectives` hands it to
+`onInterruptDirective`, which index.ts wires to `InterruptRealizer`
+(`src/runtime/interrupt.ts`): with a work item held, autonomous, and a run in flight,
+it reads the activity (the stuck tool's preview), calls `loop.markInterrupted(item)`
+so the aborted run's agent_end is *not* a completion (handleAgentComplete skips it
+once; the item stays claimed), and aborts with `ctx.abort()` — Pi's own Escape path:
+the bash tool kills its command's whole process group. On `agent_settled` (before the
+set-model realizer) it sends the nudge with `loop.sendWorkFollowUp` — a `followUp`
+marked as the item's own next run, so the item completes when that run ends — and
+reports the directive done. Otherwise it is failed with the reason (no item, paired,
+no run in flight). tests/interrupt.test.mjs runs it against Pi's real bash tool on a
+hung subprocess.
 
 **Triage answers (`propose_work`).** A teammate holding a triage item — a note's, or
 an external source's item in triage mode (my-pizza-team docs/DESIGN.md "External
@@ -516,7 +534,7 @@ switched-off kind (pass-through if the status read fails); `team_status` and
 | `/api/assistant/session` | POST | Report the Pi session file backing the chat (enables resume) |
 | `/api/assistant/messages` | POST | Mirror terminal-typed input as a user message (`origin: "tui"`) |
 | `/api/assistant/persona` | GET | Effective system prompt (daemon-vended: chat framing + selected persona or default) |
-| `/api/agents/:id/directives` | GET | Self-directives to realize in-process (`new-session`, `resume-session`, `set-model`); the leader's chat and every teammate poll it |
+| `/api/agents/:id/directives` | GET | Self-directives to realize in-process (`new-session`, `resume-session`, `set-model`, `interrupt`); the leader's chat and every teammate poll it |
 | `/api/agents/:id/directives/:id` | PUT | Mark a self-directive done/failed (`error`: why it failed) |
 | `/api/agents/:id/models` | POST | The available models changed (also sent at registration) |
 | `/api/agents/:id/session-stats` | POST | The leader's session stats too (model, context, cost) |

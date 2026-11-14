@@ -8,7 +8,9 @@ team, not the whole app. Four tabs along the bottom:
   cost), then the queue: at risk, waiting, working, with **Force-fail** /
   **Re-enqueue** / **Cancel**. Tap a teammate to watch it live, or **Pair** (see
   [Teammates](03-teammates.md#pairing-with-a-teammate)); its model shows in the
-  header, read-only (choose it from the full UI). The tab gets an amber dot
+  header, read-only (choose it from the full UI). A [stalled](glossary.md#stalled)
+  teammate's row shows an amber ⚠, and its page says for how long and on what
+  (interrupt it from the full UI). The tab gets an amber dot
   when something is at risk. While a model [failover](glossary.md#failover) is in
   effect, a one-line notice at the top says which model the team switched to, since
   when, and why (end it from the full UI).
@@ -19,7 +21,7 @@ team, not the whole app. Four tabs along the bottom:
   color, pin, archive, or delete it. **+ Note** starts a new one.
 - **Inbox** — finished work. Tap a row to read its summary right there (that marks it
   read); **Open full** goes to the task's page in the full UI. A model failover's
-  note (one per episode) comes first.
+  note and a stalled teammate's (one per episode each) come first.
 
 An empty tab says what goes there, as in the full UI: Team explains the assistant and offers
 **Start the assistant** (so does Chat, while no one is there to answer), and the Queue, Thoughts and Inbox offer **Ask the

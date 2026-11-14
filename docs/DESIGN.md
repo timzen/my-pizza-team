@@ -1368,7 +1368,7 @@ never stored. It is not a member status and not a work item state, and nothing i
 failed, retried or killed because of it. It clears by itself as soon as progress
 resumes. It appears in `GET /api/agents` (`stalled`), `/api/status` (`stalled`)
 and `mpt status`. The Team tab, the teammate page, the Inbox note and the
-Interrupt action build on it.
+Interrupt action build on it (below).
 
 *Why previews are short and redacted:* the preview is for recognizing the stuck
 call ("bash `node --test …`"), not for auditing it. The harness picks one
@@ -1377,6 +1377,41 @@ collapses it to one line, redacts obvious secrets (`*_TOKEN=…`, `--password �
 `Bearer …`) and cuts it to 120 characters (agent-protocol.ts
 `cleanActivityPreview`). The daemon runs the same cleanup again on receipt, so a
 harness that skips it can't store more.
+
+### What you see, and Interrupt
+
+*Seen where you already look, without cluttering it.* The Team tab row keeps its
+one status icon: stalled replaces the working spinner with an amber ⚠, and the
+tooltip says for how long and on what. It is the one status with a color of its
+own (the shape still carries it: see "Teammate Status: Shape, not Color"), because
+it asks for a look. The row gets no new buttons, since rows are for scanning. The
+teammate page, where you go to act, has the callout and the actions.
+
+*One note per episode.* Because the flag is computed on read, nothing fires when a
+teammate stalls. A 30-second check beside the reaper (`Store.checkStalls`) hands the
+stalls it sees to daemon/stall-notes.ts. An episode is named by the teammate and
+when its progress stopped (`stall-<memberId>-<since>`), so however many checks see
+it and however long it lasts, it is one Inbox note and one `[stalled]` comment on
+the work item's thread. An episode no longer seen is marked over. It isn't raised
+again: a stall that cleared by itself asks nothing more. One seen again after that
+(a restarted daemon hearing the same stuck call once heartbeats resume) is reopened
+quietly, with no second comment.
+
+*Interrupt is the agent's, not the daemon's.* The daemon could kill a process if it
+knew which one, but it doesn't (the agent may be on another host, in another
+harness), and killing it from outside would leave the agent's run waiting on a
+tool that vanished. So Interrupt is an agent-realized directive (`interrupt`,
+declared by the `interrupt` capability, like `set-model`). The harness aborts the
+run the way its own Escape does. For Pi that is `ctx.abort()`, whose bash tool
+kills the command's whole process group, so a test runner's workers go too. The
+aborted run's end is not the item's completion: the item stays claimed. Once the
+run has settled, the harness sends the agent a nudge as the item's next run: "Your
+last command (`…`) was interrupted by the user after 13h with no progress. It likely
+hung. Find out why (e.g. a test that never settles), re-run with a timeout, then
+continue your task." (runtime/interrupt.ts, harness-agnostic). An interrupt is
+never done twice: a second click while one is pending returns it, and the harness
+realizes each directive once. A harness that can't (an older one, `mpt agent`) gets
+409 `unsupported`, and the UI suggests Pair.
 
 ## Team Size: Declared, not Clicked
 
@@ -3466,12 +3501,13 @@ restart, so a paused teammate can always be released.
 
 A teammate's status is shown by **which icon it has**, not by a colored dot:
 **person** — pairing with you; **bot** — waiting for work; a slowly turning
-**loader** — working; **cloud-off** — lost contact (the leader keeps its crown
+**loader** — working; a **warning triangle** — stalled (working, but no progress
+for too long; "Stalled Teammates"); **cloud-off** — lost contact (the leader keeps its crown
 while reachable). A dot asked you to remember what green, blue, and red meant,
 said nothing to anyone who can't tell them apart, and sat next to a person icon
 that never changed. The shape *is* the meaning, and its tooltip says it in words.
 The words are there without a mouse too: the icon is an image named by its status
-(`statusLabel`), and the row's link and the rail's avatar are named by the whole row
+(`statusText`: `statusLabel`, or the stall's "Stalled 13h — bash: …"), and the row's link and the rail's avatar are named by the whole row
 in words (`teammateSummary`: name · status · model · work · persona · context ·
 cost), so a keyboard or screen-reader user gets what hovering shows
 (docs/ACCESSIBILITY.md).
@@ -3480,7 +3516,8 @@ In the Team tab the icon has a column of its own: a circle as tall as the row's
 lines (the collapsed rail's avatar circle, a little larger), with the row's text
 stacked to its right, so you scan the list for status down one edge instead of
 hunting for a small glyph at the start of the first line. It stays gray — the
-shape carries the meaning, and a bigger icon doesn't need a color to be found.
+shape carries the meaning, and a bigger icon doesn't need a color to be found —
+except the stalled triangle, which is amber as well, since it asks you to look.
 Spawn rows (pending, failed) use the same column for their clock and warning.
 
 Beside the name each row shows the **model** the teammate is running (its name;

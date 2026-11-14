@@ -9,6 +9,11 @@
  * working with (a chip linking to it), and its directory — over `AgentTerminal` (the CLI-ish
  * `TranscriptView` + composer, shared with the assistant's terminal mode).
  *
+ * While the teammate is **stalled** (docs/DESIGN.md "Stalled Teammates") a
+ * callout under the header (components/team/StallCallout) says for how long,
+ * on what, and since when, with **Interrupt** (abort the stuck command and
+ * nudge the agent; read-only on the phone view) and a pointer to Pair.
+ *
  * Watching is read-only: having this page open is what turns the teammate's
  * transcript mirror on (the SSE subscription registers a viewer), and nothing
  * reaches the teammate. **Pair** is the explicit step that does: it pauses
@@ -33,6 +38,7 @@ import { workItemPath } from "@/lib/work-item-link";
 import { Badge } from "@/components/ui/badge";
 import { SessionStats, StatusIcon } from "@/components/team/TeamParts";
 import { ModelChip } from "@/components/team/ModelChip";
+import { StallCallout } from "@/components/team/StallCallout";
 import { isMobilePath } from "@/lib/mobile";
 import { PersonaChip } from "@/components/personas/PersonaChip";
 import { statusLabel, type Teammate } from "@/lib/team";
@@ -53,7 +59,7 @@ export function TeammatePage() {
   const phone = isMobilePath(useLocation().pathname);
   const stream = useTranscriptStream(id);
   const { connected } = stream;
-  const { data: agents } = useApi<{ agents: Agent[] }>("/api/agents", [], { pollInterval: 5000 });
+  const { data: agents, refetch: refetchAgents } = useApi<{ agents: Agent[] }>("/api/agents", [], { pollInterval: 5000 });
   const { data: work } = useApi<{ items: WorkItem[] }>("/api/work-items?state=IN_PROGRESS,MORIBUND", [], { pollInterval: 5000 });
 
   const { data: pairing, refetch: refetchPairing } = useApi<PairingState>(
@@ -94,7 +100,7 @@ export function TeammatePage() {
       <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b border-border px-4 py-2">
         {agent && <StatusIcon teammate={agent} className="h-4 w-4 shrink-0 text-muted-foreground" />}
         <h1 className="font-semibold">{agent?.name ?? id}</h1>
-        {agent && <span className="text-xs text-muted-foreground">{statusLabel(agent.status)}</span>}
+        {agent && <span className={agent.stalled ? "text-xs font-medium text-amber-700 dark:text-amber-400" : "text-xs text-muted-foreground"}>{agent.stalled ? "Stalled" : statusLabel(agent.status)}</span>}
         {agent && <ModelChip agent={agent} readOnly={phone} />}
         {agent && <SessionStats teammate={agent} className="text-xs" />}
         {current && (
@@ -141,6 +147,7 @@ export function TeammatePage() {
           )}
         </div>
       </div>
+      {agent && <StallCallout agent={agent} readOnly={phone} onChanged={refetchAgents} />}
       <FormError className="shrink-0 px-4 py-1 text-xs">{error}</FormError>
       <div className="min-h-0 flex-1">
         <AgentTerminal

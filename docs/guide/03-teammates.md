@@ -210,9 +210,36 @@ minutes, MPT flags it **stalled**. Nothing finishing means no model turn and no
 tool call completes. `mpt status` prints a line for each stalled teammate, for
 example ``bright-muad-dib stalled 13h: bash `node --test …` ``.
 
+Where you see it:
+
+- **The Team tab.** The teammate's row shows an amber **⚠** in place of the working
+  spinner. Hover (or focus) it for how long and on what: "Stalled 13h — bash:
+  node --test …". The row gets no extra buttons. The phone's Team tab shows the same
+  mark.
+- **The teammate's page.** Under the header, a callout says how long it has been
+  stalled, the command it's running and since when, and when it last made progress.
+- **The Inbox.** One note per stall, however long it lasts, linking to the teammate
+  and to the work item (see [The Inbox](01-tasks-and-runs.md#the-inbox)). The work
+  item's thread gets one comment too, for example
+  ``[stalled] no progress for 30m: bash `node --test …` ``.
+
+What you can do, from the callout:
+
+- **Interrupt** (after a confirm) stops the stuck command, the way pressing Escape in
+  its terminal would, including anything the command started. The teammate keeps its
+  work item, and is told its command was interrupted after so long with no progress,
+  that it likely hung, and to find out why, re-run it with a timeout, and carry on.
+  The callout then says the interrupt was sent, or why it failed (for example, the
+  run had already ended). A teammate whose harness can't do this (an older extension,
+  or an `mpt agent` teammate) gets a note pointing you to **Pair** instead. On the
+  [phone](09-phone.md) the callout is read-only.
+- **Pair** (see [Pairing with a teammate](#pairing-with-a-teammate)) to talk it
+  through yourself.
+
 Stalled is only a flag. MPT never stops or fails the run itself, because a long
-build is legitimate. The flag goes away as soon as the teammate makes progress
-again. Change the threshold with `stallMinutes` in `config.json` (0 turns it off).
+build is legitimate: only you can tell a slow build from a hung one. The flag goes
+away as soon as the teammate makes progress again, and its Inbox note reads
+"(over)". Change the threshold with `stallMinutes` in `config.json` (0 turns it off).
 A workflow step can set its own `stallMinutes`, for example a longer one for a
 step known to run long builds.
 

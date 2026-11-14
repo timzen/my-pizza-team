@@ -220,6 +220,12 @@ time it moved further down the chain, and when it switched back. A new line mark
 note unread again; **Mark read** clears it (see
 [Models and failover](11-models.md#what-youll-see)).
 
+A [stalled](glossary.md#stalled) teammate gets **one note per stall** there too:
+who, on what command, since when, with links to the teammate's page (where you can
+**Interrupt** it or **Pair**) and to the work item. Once it makes progress again the
+note reads "(over)"; it isn't marked unread again for that (see
+[Stalled teammates](03-teammates.md#stalled-teammates)).
+
 ## Comments and the thread
 
 Comments are the channel between you and your teammates, and they live on the

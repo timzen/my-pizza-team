@@ -19,7 +19,10 @@
  * an explicit `now`, so it's tested on a fake clock (tests/stall.test.ts).
  */
 
-import { cleanActivityPreview, type AgentActivity, type AgentActivityReport } from "./agent-protocol.ts";
+import { cleanActivityPreview, formatStallDuration, type AgentActivity, type AgentActivityReport } from "./agent-protocol.ts";
+
+/** A stall's length for people (agent-protocol.ts, shared with the harness's interrupt nudge). */
+export { formatStallDuration };
 import type { AgentStall } from "./protocol.ts";
 import type { Member, TeamConfig } from "./types.ts";
 
@@ -106,16 +109,6 @@ export function readActivityReport(body: { activity?: unknown; lastProgressAt?: 
     }
   }
   return { activity, lastProgressAt: body.lastProgressAt };
-}
-
-/** A stall's length for people: `45m`, `13h`, `2h 5m`, `3d 4h`. */
-export function formatStallDuration(ms: number): string {
-  const minutes = Math.max(0, Math.floor(ms / 60_000));
-  if (minutes < 60) return `${minutes}m`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return minutes % 60 ? `${hours}h ${minutes % 60}m` : `${hours}h`;
-  const days = Math.floor(hours / 24);
-  return hours % 24 ? `${days}d ${hours % 24}h` : `${days}d`;
 }
 
 /** What a stalled agent is doing, in a few words: ``bash `node --test …` ``, `waiting on the model`. */

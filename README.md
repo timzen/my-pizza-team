@@ -900,7 +900,20 @@ on a claimed item with no progress for more than `stallMinutes` (default 30;
 /api/agents`, the list in `/api/status` `stalled`, and a line in `mpt status`.
 A harness that reports no activity (an older one) is measured by its session
 stats' age; one that reports neither is never flagged. Stalled is a flag, not a status: nothing is failed or killed, and it
-clears by itself when progress resumes. See
+clears by itself when progress resumes. In the web UI the teammate's Team tab row
+shows an amber ⚠ in place of the working spinner (its tooltip: "Stalled 13h — bash:
+node --test …"; no new buttons on the row), the phone's Team tab too, and its
+teammate page shows a callout: for how long, on what, and since when. Each stall
+episode also gets **one Inbox note** (linking the teammate and the work item; marked
+over once progress resumes — `GET /api/stalls/notes`, `POST
+/api/stalls/notes/:id/read`, counted in `unreadInboxCount`) and one ``[stalled] no
+progress for 30m: bash `…` `` comment on the work item's thread. From the callout
+you can **Interrupt** (`POST /api/agents/:id/interrupt`, an `interrupt` directive
+the Pi harness realizes): the stuck run is aborted the way Pi's Escape aborts it —
+the command's whole process tree is killed — the work item stays claimed, and the
+agent is told its command was interrupted after so long with no progress and to
+find out why, re-run it with a timeout, and carry on. A harness that can't
+interrupt (an older one, `mpt agent`) is pointed to **Pair** instead. See
 [docs/DESIGN.md](docs/DESIGN.md#stalled-teammates).
 
 Windows in the team's terminal that no registered teammate, the leader or a

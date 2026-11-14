@@ -41,7 +41,11 @@
 // Alongside the work poll, the loop polls its own session directives
 // (`new-session`: Reset in the web UI) and rolls the session on request — see
 // pollSessionDirectives. A `set-model` from the same poll is handed to
-// `onModelDirective` (model-choice.ts realizes it between runs).
+// `onModelDirective` (model-choice.ts realizes it between runs), and an
+// `interrupt` to `onInterruptDirective` (runtime/interrupt.ts: the run in
+// flight is aborted, its end is not a completion — `markInterrupted` — and the
+// nudge goes in as the item's next run — `sendWorkFollowUp`; my-pizza-team
+// docs/DESIGN.md "Stalled Teammates").
 //
 // The teammate never assumes workflow state names — the prompt tells it what to
 // do. This makes it compatible with any workflow configuration.
@@ -88,6 +92,12 @@ export class TeammateLoop {
    * a reply to your chat message — as the work item's completion.
    */
   private pendingRelease: PairingReleaseAction | null = null;
+  /**
+   * The item whose run in flight is being interrupted (`markInterrupted`): that
+   * run's agent_end is not its completion — the item stays claimed, and the
+   * interrupt's nudge is its next run.
+   */
+  private interruptedWorkItemId: string | null = null;
   /** The claim's persona, for the item it was claimed with (see `persona`). */
   private heldPersona: { workItemId: string; persona: ClaimPersona } | null = null;
   /** The claim's failover probe model, for the item it was claimed with (see `failoverProbe`). */
@@ -119,6 +129,15 @@ export class TeammateLoop {
    * set-model is failed like any action this loop can't realize.
    */
   public onModelDirective: ((directive: { id: string; params: Record<string, unknown> }) => void | Promise<void>) | null = null;
+
+  /**
+   * Take an `interrupt` directive (my-pizza-team docs/DESIGN.md "Stalled
+   * Teammates"). Wired by setupTeammate to runtime/interrupt.ts's
+   * InterruptRealizer, which aborts the run and reports the outcome itself.
+   * Unset (an older wiring), an interrupt is failed like any action this loop
+   * can't realize.
+   */
+  public onInterruptDirective: ((directive: { id: string; params: Record<string, unknown> }) => void | Promise<void>) | null = null;
 
   /**
    * Called on every successful claim with how the item finishes: `poll` (its
@@ -193,6 +212,27 @@ export class TeammateLoop {
    */
   get ownsCurrentRun(): boolean {
     return this.currentWorkItemId !== null && !this.awaitingWorkRun;
+  }
+
+  /**
+   * The run in flight on `workItemId` is being interrupted: its agent_end must
+   * not complete the item (handleAgentComplete skips it once). Ignored unless
+   * that is the item held.
+   */
+  markInterrupted(workItemId: string): void {
+    if (workItemId === this.currentWorkItemId) this.interruptedWorkItemId = workItemId;
+  }
+
+  /**
+   * Send the held item's next message as a run of its own — the interrupt's
+   * nudge. Like the work prompt it is a `followUp`, and agent_end events until
+   * its run starts are foreign (see the header note on run ownership), so the
+   * item completes when *this* run ends.
+   */
+  sendWorkFollowUp(text: string): void {
+    if (!this.currentWorkItemId) return;
+    this.awaitingWorkRun = true;
+    this.pi.sendUserMessage(text, { deliverAs: "followUp" });
   }
 
   get hasPendingRelease(): boolean {
@@ -385,6 +425,11 @@ export class TeammateLoop {
         await Promise.resolve(this.onModelDirective(directive)).catch(() => {});
         continue;
       }
+      // An interrupt aborts the run in flight and nudges the agent; the session stays.
+      if (directive.action === "interrupt" && this.onInterruptDirective) {
+        await Promise.resolve(this.onInterruptDirective(directive)).catch(() => {});
+        continue;
+      }
       // One we can't realize must leave the queue, or it is retried forever.
       if (directive.action !== "new-session") {
         await this.client.completeSelfDirective(directive.id, "failed").catch(() => {});
@@ -511,6 +556,15 @@ export class TeammateLoop {
 
     const workItemId = this.currentWorkItemId;
 
+    // ─── Interrupted by the user? Not a completion. ─────────────────
+    // The run was aborted on purpose (an `interrupt`): the item stays claimed,
+    // and the interrupt's nudge (sendWorkFollowUp) is its next run.
+    if (this.interruptedWorkItemId === workItemId) {
+      this.debugLog(`[ppt-debug] WorkItem ${workItemId}: run interrupted by the user — keeping the item, NOT completing.`);
+      this.interruptedWorkItemId = null;
+      return;
+    }
+
     // (Usage is reported for every run by the agent_end handler in index.ts —
     // see usage.ts — not here, so pairing and non-work runs are counted too.)
 
@@ -575,6 +629,7 @@ export class TeammateLoop {
     // session request, a retry's claim, a resume) — see the header note.
     this.heldPersona = null;
     this.heldProbe = null;
+    this.interruptedWorkItemId = null;
     void Promise.resolve(this.onPersonaChange?.(null)).catch(() => {});
     this.requestFreshSession?.();
     this.schedulePoll();

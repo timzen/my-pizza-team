@@ -119,6 +119,9 @@ number. Delete an item when it's done.
   `agent/supervisor.ts` sends no activity and no session stats, so its teammates
   are never flagged stalled (there is nothing to measure progress by). ACP's
   `session/update` tool calls could feed the same `runtime/activity.ts` tracker.
+- **Interrupt for `mpt agent` teammates (deferred):** the ACP supervisor doesn't
+  declare `interrupt`, so the teammate page points to Pair. ACP's `session/cancel`
+  could realize it with the same `runtime/interrupt.ts` realizer.
 
 ## Work Sources as plugins — package loading — built
 

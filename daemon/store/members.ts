@@ -16,7 +16,9 @@
  *     leader realizes them any more), with daemon-assigned spawn names, and
  *     whether this daemon can realize spawns at all (a spawn it can't is failed
  *     on creation);
- *   - agent self-directives (`new-session`, `resume-session`, `set-model`),
+ *   - agent self-directives (`new-session`, `resume-session`, `set-model`,
+ *     `interrupt` — `requestInterrupt`, `getLastInterrupt`; docs/DESIGN.md
+ *     "Stalled Teammates"),
  *     including a teammate reset (`resetMemberSession`), which the target agent
  *     realizes;
  *   - model switching (docs/DESIGN.md "Choosing a Model"): each agent's reported
@@ -50,7 +52,10 @@ import {
 } from "../spawner.ts";
 import { assistantStartability, type AssistantStartability } from "../leader-start.ts";
 import type { StoreDomainContext } from "./domain.ts";
-import { SET_MODEL_ACTION, SET_MODEL_CAPABILITY, type AvailableModel, type ModelChangeView, type SetModelParams } from "../../shared/protocol.ts";
+import {
+  INTERRUPT_ACTION, INTERRUPT_CAPABILITY, SET_MODEL_ACTION, SET_MODEL_CAPABILITY,
+  type AvailableModel, type InterruptParams, type InterruptView, type ModelChangeView, type SetModelParams,
+} from "../../shared/protocol.ts";
 import { readSetModelParams } from "../agent-models.ts";
 
 /** The settings-table key prefix of a member's model pin (`model-pin:<memberId>`). */
@@ -73,7 +78,7 @@ export const SPAWN_REGISTER_GRACE_MS = 60_000;
  * These need in-process Pi APIs (session replacement), which tmux keystrokes
  * cannot express. See docs/DESIGN.md "Assistant Chat Model".
  */
-export const SELF_HANDLED_ACTIONS = new Set(["new-session", "resume-session", SET_MODEL_ACTION]);
+export const SELF_HANDLED_ACTIONS = new Set(["new-session", "resume-session", SET_MODEL_ACTION, INTERRUPT_ACTION]);
 
 /**
  * Reserved singleton identity for the leader: the agent that realizes directives
@@ -432,6 +437,39 @@ export class MemberStore {
     return true;
   }
 
+  /**
+   * Ask an agent to interrupt the run it is stuck on: an `interrupt`
+   * self-directive it realizes at once (runtime/interrupt.ts; docs/DESIGN.md
+   * "Stalled Teammates"). An interrupt still pending for it is returned rather
+   * than doubled — one abort is enough. `unknown` for no such member;
+   * `unsupported` when its harness didn't declare `interrupt`.
+   */
+  requestInterrupt(memberId: string, params: InterruptParams = {}): { directive: LeaderDirective } | { error: "unknown" | "unsupported" } {
+    if (!this.getMember(memberId)) return { error: "unknown" };
+    if (!this.hasCapability(memberId, INTERRUPT_CAPABILITY)) return { error: "unsupported" };
+    const pending = this.db.prepare(
+      "SELECT * FROM leader_directives WHERE member_id = ? AND action = ? AND status = 'pending' ORDER BY created_at DESC LIMIT 1",
+    ).get(memberId, INTERRUPT_ACTION) as Record<string, unknown> | undefined;
+    if (pending) return { directive: this.rowToDirective(pending) };
+    const reason = typeof params.reason === "string" && params.reason.trim() ? { reason: params.reason.trim().slice(0, 500) } : {};
+    return { directive: this.createLeaderDirective(INTERRUPT_ACTION, { memberId, params: reason }) };
+  }
+
+  /** The latest interrupt ask for an agent (any status), or null — the teammate page's "Interrupt sent / failed". */
+  getLastInterrupt(memberId: string): InterruptView | null {
+    const row = this.db.prepare(
+      "SELECT * FROM leader_directives WHERE member_id = ? AND action = ? ORDER BY created_at DESC, rowid DESC LIMIT 1",
+    ).get(memberId, INTERRUPT_ACTION) as Record<string, unknown> | undefined;
+    if (!row) return null;
+    return {
+      id: row.id as string,
+      status: row.status as InterruptView["status"],
+      error: (row.error as string) || null,
+      createdAt: new Date(row.created_at as number).toISOString(),
+      updatedAt: new Date(row.updated_at as number).toISOString(),
+    };
+  }
+
   /** The latest set-model ask for an agent (any status), or null. */
   getLastModelChange(memberId: string): ModelChangeView | null {
     const row = this.db.prepare(
@@ -749,16 +787,20 @@ export class MemberStore {
 
   /**
    * Pending directives an agent must realize itself, oldest first. A `set-model`
-   * goes only to an agent whose harness declared it can (`set-model`): an older
-   * one would fail or ignore it.
+   * goes only to an agent whose harness declared it can (`set-model`), and an
+   * `interrupt` only to one that declared `interrupt`: an older one would fail
+   * or ignore it.
    */
   getMemberDirectives(memberId: string): LeaderDirective[] {
     const rows = this.db.prepare(
       "SELECT * FROM leader_directives WHERE member_id = ? AND status = 'pending' ORDER BY created_at ASC",
     ).all(memberId) as Array<Record<string, unknown>>;
     const canSetModel = this.hasCapability(memberId, SET_MODEL_CAPABILITY);
+    const canInterrupt = this.hasCapability(memberId, INTERRUPT_CAPABILITY);
     return rows.map((r) => this.rowToDirective(r))
-      .filter((d) => SELF_HANDLED_ACTIONS.has(d.action) && (d.action !== SET_MODEL_ACTION || canSetModel));
+      .filter((d) => SELF_HANDLED_ACTIONS.has(d.action)
+        && (d.action !== SET_MODEL_ACTION || canSetModel)
+        && (d.action !== INTERRUPT_ACTION || canInterrupt));
   }
 
   /**

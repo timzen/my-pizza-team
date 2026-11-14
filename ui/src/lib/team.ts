@@ -7,6 +7,7 @@
 
 import type { MemberSessionStats } from "@shared/types";
 import type { AgentView } from "@shared/protocol";
+import { stallStatusText } from "./stall.ts";
 
 export type Role = "leader" | "teammate";
 
@@ -82,6 +83,16 @@ export function statusLabel(status: string): string {
   }
 }
 
+/**
+ * What an agent's status icon says, in words: `statusLabel`, except while it is
+ * stalled (docs/DESIGN.md "Stalled Teammates") — then "Stalled 13h — bash:
+ * node --test …" (lib/stall.ts). The Team tab row's status tooltip, and the
+ * first word of its summary.
+ */
+export function statusText(t: Pick<Teammate, "status" | "stalled">, now: number = Date.now()): string {
+  return t.stalled ? stallStatusText(t.stalled, now) : statusLabel(t.status);
+}
+
 /** Compact token count: 950, 12.3k, 84k, 1.2M. */
 export function formatTokens(n: number): string {
   if (n < 1000) return String(Math.round(n));
@@ -118,12 +129,13 @@ export function modelTitle(m: { id: string; provider: string }): string {
 /**
  * Everything a teammate's row or avatar shows, in words, for its accessible
  * name and tooltip: "Worker-1 · Working · Claude Sonnet · ⚙️ Fix the build · as
- * Reviewer · 42% context · $1.25". The status always comes first as text —
+ * Reviewer · 42% context · $1.25" (a stalled one: "Stalled 13h — bash: …"
+ * in place of "Working"). The status always comes first as text —
  * the icon's shape only reinforces it (docs/DESIGN.md "Teammate Status:
  * Shape, not Color").
  */
 export function teammateSummary(t: Teammate): string {
-  const parts = [t.name, statusLabel(t.status)];
+  const parts = [t.name, statusText(t)];
   if (t.session?.model) parts.push(t.session.model.name);
   if (t.currentWork) parts.push(`⚙️ ${t.currentWork}`);
   if (t.persona) parts.push(`as ${t.persona.title}`);

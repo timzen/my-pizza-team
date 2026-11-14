@@ -33,12 +33,13 @@ import { PersonaToolScope, applyPersonaScope, checkSkillCommand, checkToolCall, 
 import { PersonaModelSwitch, modelProblem } from "./persona-model.js";
 import { ModelListReporter, ModelPreferences, SetModelRealizer, availableModels } from "./model-choice.js";
 import { mcpRequirementProblem, registeredMcpServers } from "./persona-mcp.js";
-import { MODEL_FAILOVER_CAPABILITY, PERSONA_SYSTEM_PROMPT_CAPABILITY, SET_MODEL_CAPABILITY } from "./shared/agent-protocol.js";
+import { INTERRUPT_CAPABILITY, MODEL_FAILOVER_CAPABILITY, PERSONA_SYSTEM_PROMPT_CAPABILITY, SET_MODEL_CAPABILITY } from "./shared/agent-protocol.js";
 import { classifyPiModelError } from "./model-error.js";
 import { summarizeRun, hasUsage } from "./runtime/usage.js";
 import { attachSessionStats } from "./stats-report.js";
 import { attachActivity } from "./activity-report.js";
 import { ActivityTracker } from "./runtime/activity.js";
+import { InterruptRealizer } from "./runtime/interrupt.js";
 
 /**
  * This extension's build version, read from its own package.json.
@@ -225,7 +226,8 @@ async function setupTeammate(
   // And it switches models on request (`set-model`, model-choice.ts).
   // And it applies a failover substitute only over the failed models, and runs a
   // revert probe on the primary (`model-failover`; docs/DESIGN.md "Model Failover").
-  const capabilities = [PERSONA_SYSTEM_PROMPT_CAPABILITY, SET_MODEL_CAPABILITY, MODEL_FAILOVER_CAPABILITY];
+  // And it interrupts a stuck run on request (`interrupt`, runtime/interrupt.ts).
+  const capabilities = [PERSONA_SYSTEM_PROMPT_CAPABILITY, SET_MODEL_CAPABILITY, MODEL_FAILOVER_CAPABILITY, INTERRUPT_CAPABILITY];
   // The agent's model preferences (model-choice.ts): the user's pin comes back
   // in every registration reply, so it holds from this session's start.
   const modelPrefs = new ModelPreferences();
@@ -381,7 +383,27 @@ async function setupTeammate(
     log: (text) => debug(`[ppt-debug set-model] ${text}`),
   });
   loop.onModelDirective = (directive) => modelRealizer.offer(directive);
+  // `interrupt` directives (runtime/interrupt.ts; docs/DESIGN.md "Stalled
+  // Teammates"): the run in flight is aborted at once the way Pi's Escape does
+  // (`ctx.abort()`: the bash tool kills its command's whole process group), the
+  // loop keeps the item (its aborted run is no completion), and once the run
+  // has settled the nudge goes in as the item's next run.
+  const interrupts = new InterruptRealizer({
+    workItemId: () => loop.currentTask,
+    isRunning: () => loop.isAgentRunning,
+    isAutonomous: () => loop.isAutonomous,
+    activity: () => activity.report(),
+    markInterrupted: (workItemId) => loop.markInterrupted(workItemId),
+    abort: () => ctx.abort(),
+    sendNudge: (text) => loop.sendWorkFollowUp(text),
+    complete: (id, status, error) => client.completeSelfDirective(id, status, error),
+    log: (text) => debug(`[ppt-debug interrupt] ${text}`),
+  });
+  loop.onInterruptDirective = (directive) => interrupts.offer(directive);
   pi.on("agent_settled", async () => {
+    // The nudge first: it is the held item's next run, and runs requested here
+    // start once every settled handler has finished.
+    await interrupts.runSettled();
     await modelRealizer.runSettled();
     modelList.check(ctx.modelRegistry);
   });
@@ -679,6 +701,7 @@ async function setupTeammate(
     clearInterval(widgetInterval);
     loop.stop();
     modelRealizer.stop();
+    interrupts.stop();
     pairing.stop();
     // Drop our lease; the last agent out restores the directory's config. A
     // fresh-session reset re-acquires in the new instance moments later.

@@ -4,7 +4,8 @@
  * left column of its own, a circle as tall as the row's lines, with the text
  * stacked to its right. The fast suite has no DOM, so these are source checks
  * of each row's structure, plus that what the redesign must not lose is still
- * there: the icon named by its status, gray (no status colors), the working
+ * there: the icon named by its status, gray (no status colors — but for a stalled
+ * teammate's amber ⚠, tests/stall-ui.test.ts), the working
  * spin's reduced-motion guard, the stretched link and the action buttons above it.
  * (The rendered rows are covered by the a11y scan and the UI smoke test.)
  */
@@ -37,7 +38,7 @@ test("TeammateRow: a flex row whose first column is the status in the row circle
   const lead = before(row, `<div className="min-w-0 flex-1">`);
   assert(lead.includes("<IconCircle className={ROW_CIRCLE}>"), "the status sits in the row-sized circle");
   assert(lead.includes(`<StatusIcon teammate={teammate} className={cn(ROW_ICON, "text-muted-foreground")} />`), "the icon is row-sized and gray");
-  assert(lead.includes("<Tooltip content={statusLabel(teammate.status)}"), "the status tooltip stays");
+  assert(lead.includes("<Tooltip content={statusText(teammate)}"), "the status tooltip stays (statusLabel, or the stall's text)");
   // Everything else — name, skew, model, harness, actions, work, persona, folder, stats — is in the text column.
   const text = row.slice(row.indexOf(`<div className="min-w-0 flex-1">`));
   for (const part of ["skewReason &&", "<Link to={to}", "<ModelName", "teammate.harness", "onReset(teammate)", "onDismiss(teammate.id)", "teammate.currentWork", "<PersonaChip", "<FolderOpen", "<SessionStats"]) {
@@ -59,7 +60,10 @@ test("TeammateRow: the stretched link and the controls above it survive", () => 
 
 test("StatusIcon: still an image named by its status, with the reduced-motion spin, and no colors of its own", () => {
   const icon = component("StatusIcon");
-  assert(icon.includes(`role: "img", "aria-label": label`), "named by statusLabel");
+  assert(icon.includes(`role: "img", "aria-label": label`), "named by statusText");
+  // The one exception, kept out of the component: a stalled teammate's ⚠ is
+  // amber (STALLED_ICON; tests/stall-ui.test.ts).
+  assert(icon.includes("className={cn(className, STALLED_ICON)}"), "the stalled mark's color is the named constant");
   assert(icon.includes("motion-safe:animate-[spin_2.5s_linear_infinite]"), "working spins only for motion-safe users");
   assertEquals(/text-(red|green|blue|amber|emerald|sky|yellow)-/.test(icon), false);
 });

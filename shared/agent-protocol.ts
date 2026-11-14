@@ -271,8 +271,20 @@ export const SET_MODEL_CAPABILITY = "set-model";
  */
 export const MODEL_FAILOVER_CAPABILITY = "model-failover";
 
+/**
+ * The capability a harness declares when it realizes the `interrupt` directive
+ * (`INTERRUPT_ACTION`) itself: it aborts the run in flight (its tool's process
+ * tree included), keeps the work item claimed, and sends the agent a nudge to
+ * find out why it hung (docs/DESIGN.md "Stalled Teammates", "Interrupt"). The
+ * daemon hands `interrupt` only to an agent that declared it; for any other
+ * `POST /api/agents/:id/interrupt` answers "not supported" and the UI suggests
+ * Pair. Additive both ways.
+ */
+export const INTERRUPT_CAPABILITY = "interrupt";
+
 /** Every capability a harness may declare at registration. */
-export type AgentCapability = typeof PERSONA_SYSTEM_PROMPT_CAPABILITY | typeof SET_MODEL_CAPABILITY | typeof MODEL_FAILOVER_CAPABILITY;
+export type AgentCapability =
+  | typeof PERSONA_SYSTEM_PROMPT_CAPABILITY | typeof SET_MODEL_CAPABILITY | typeof MODEL_FAILOVER_CAPABILITY | typeof INTERRUPT_CAPABILITY;
 
 /**
  * A model the harness can use right now (configured, with credentials), as it
@@ -450,6 +462,20 @@ export function cleanActivityPreview(text: string): string {
   return out.length > ACTIVITY_PREVIEW_MAX ? `${out.slice(0, ACTIVITY_PREVIEW_MAX - 1)}…` : out;
 }
 
+/**
+ * A stall's (or any no-progress stretch's) length for people: `45m`, `13h`,
+ * `2h 5m`, `3d 4h`. Here rather than in shared/stall.ts so the harness's
+ * interrupt nudge (runtime/interrupt.ts) words a duration the way the UI does.
+ */
+export function formatStallDuration(ms: number): string {
+  const minutes = Math.max(0, Math.floor(ms / 60_000));
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return minutes % 60 ? `${hours}h ${minutes % 60}m` : `${hours}h`;
+  const days = Math.floor(hours / 24);
+  return hours % 24 ? `${days}d ${hours % 24}h` : `${days}d`;
+}
+
 // ─── Web pairing (docs/DESIGN.md "Watching and Pairing with a Teammate") ─
 
 /** A release the teammate hasn't picked up yet: resume its work, or complete/fail it. */
@@ -569,6 +595,25 @@ export interface SetModelParams {
    * it would otherwise run is one of these (absent: always, the older meaning).
    */
   replaces?: string[];
+}
+
+/**
+ * The directive asking an agent to interrupt what it is stuck on (docs/DESIGN.md
+ * "Stalled Teammates", "Interrupt"): realized by the agent itself, at once — it
+ * aborts the run in flight the way its own Escape would (a tool's whole process
+ * tree is killed), keeps the claimed work item, and once the aborted run has
+ * settled sends the agent a follow-up asking it to find out why the command
+ * hung, re-run it with a timeout, and carry on. Marked `done` once the nudge is
+ * sent, or `failed` with the reason (no run in flight, not working on an item,
+ * paired). Handed only to an agent that declared `INTERRUPT_CAPABILITY`.
+ * Params: `InterruptParams`.
+ */
+export const INTERRUPT_ACTION = "interrupt";
+
+/** The `params` of an `interrupt` directive. */
+export interface InterruptParams {
+  /** Why, from the user; added to the nudge when given. */
+  reason?: string;
 }
 
 // ─── Model error kinds (docs/DESIGN.md "Model Failover") ─────────────

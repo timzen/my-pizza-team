@@ -213,8 +213,10 @@ built in; an external source (a tracker, a ticket queue) comes from a
 
 A teammate that is alive and working on a run, but hasn't finished anything (no model
 turn, no tool call) for longer than `stallMinutes` (default 30). It's a flag, not a
-status: nothing is stopped, and it clears when progress resumes. See
-[Stalled teammates](03-teammates.md#stalled-teammates).
+status: nothing is stopped, and it clears when progress resumes. The Team tab shows
+it as an amber ⚠, the teammate's page explains it, and the Inbox gets one note per
+stall. **Interrupt** stops the stuck command and asks the teammate to find out why it
+hung. See [Stalled teammates](03-teammates.md#stalled-teammates).
 
 ## Story
 

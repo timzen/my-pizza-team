@@ -58,10 +58,13 @@ import {
 } from "../shared/types.ts";
 import { normalizeDirectory } from "../shared/directory.ts";
 import { saveTeamConfig } from "../shared/team-config.ts";
-import type { AgentActivityReport, AgentStall, AvailableModel, ModelChangeView, ModelErrorKind, PluginLoadStatus, SetModelParams } from "../shared/protocol.ts";
+import type {
+  AgentActivityReport, AgentStall, AvailableModel, InterruptParams, InterruptView, ModelChangeView, ModelErrorKind, PluginLoadStatus, SetModelParams, StallNoteView,
+} from "../shared/protocol.ts";
 import { resolveStallMinutes, stallOf } from "../shared/stall.ts";
 import { FAILOVER_STATE_KEY, ModelFailover, type FailoverEvent } from "./failover.ts";
 import { FAILOVER_NOTES_KEY, FailoverNotes, failoverComment } from "./failover-notes.ts";
+import { STALL_NOTES_KEY, StallNotes, stallComment, type StallObservation } from "./stall-notes.ts";
 import type { TeamPersonaInput, TeamPersonaUpdate } from "./personas/library.ts";
 import { cachedTerminalStatus, type SpawnCapability } from "./spawner.ts";
 import type { TerminalBackend, TerminalStatus } from "./terminal/backend.ts";
@@ -208,6 +211,8 @@ export class Store {
   readonly failover: ModelFailover;
   /** The Inbox's failover notes, one per episode (daemon/failover-notes.ts). */
   readonly failoverNotes: FailoverNotes;
+  /** The Inbox's stall notes, one per stall episode (daemon/stall-notes.ts; `checkStalls`). */
+  readonly stallNotes: StallNotes;
   /**
    * The Work Sources (WorkDef kinds as plugins; docs/DESIGN.md "Work Sources:
    * WorkDef Kinds as Plugins"). The Store calls them at its hook points
@@ -364,6 +369,10 @@ export class Store {
     this.failoverNotes = new FailoverNotes({
       load: () => this.getSetting(FAILOVER_NOTES_KEY),
       save: (value) => this.setSetting(FAILOVER_NOTES_KEY, value),
+    });
+    this.stallNotes = new StallNotes({
+      load: () => this.getSetting(STALL_NOTES_KEY),
+      save: (value) => this.setSetting(STALL_NOTES_KEY, value),
     });
     this.failover = new ModelFailover({
       config,
@@ -1010,6 +1019,14 @@ export class Store {
   /** The latest set-model ask for an agent, or null. */
   getLastModelChange(memberId: string): ModelChangeView | null { return this.members.getLastModelChange(memberId); }
 
+  /** Ask an agent to interrupt its stuck run (an `interrupt` self-directive); see `MemberStore.requestInterrupt`. */
+  requestInterrupt(memberId: string, params: InterruptParams = {}): { directive: LeaderDirective } | { error: "unknown" | "unsupported" } {
+    return this.members.requestInterrupt(memberId, params);
+  }
+
+  /** The latest interrupt ask for an agent, or null. */
+  getLastInterrupt(memberId: string): InterruptView | null { return this.members.getLastInterrupt(memberId); }
+
   /** Did this agent's harness declare `capability` at registration? See `MemberStore.hasCapability`. */
   memberHasCapability(id: string, capability: string): boolean { return this.members.hasCapability(id, capability); }
 
@@ -1067,6 +1084,35 @@ export class Store {
   }
 
   /**
+   * Bring the Inbox's stall notes in step with who is stalled now
+   * (daemon/stall-notes.ts; docs/DESIGN.md "Stalled Teammates"): a note per new
+   * stall episode, and one `[stalled]` comment on its work item's thread
+   * (author "daemon"); an episode no longer seen is marked ended. Run every 30
+   * seconds with the reaper (`startTimers`); tests call it on a fake clock.
+   * Returns the notes it opened.
+   */
+  checkStalls(now: number = this.clock()): StallNoteView[] {
+    const observations: StallObservation[] = [];
+    for (const m of this.getMembers()) {
+      const stall = this.getMemberStall(m.id, now);
+      if (!stall) continue;
+      const item = this.getWorkItem(stall.workItemId);
+      const parent = item ? this.getWorkDef(item.ref.workDefId)?.parent : undefined;
+      observations.push({
+        memberId: m.id, memberName: m.name, stall,
+        workItemTitle: item?.title ?? null, workDefId: item?.ref.workDefId ?? null, ...(parent ? { parent } : {}),
+      });
+    }
+    const opened = this.stallNotes.sync(observations, now);
+    for (const note of opened) {
+      const o = observations.find((x) => x.memberId === note.memberId)!;
+      const item = this.getWorkItem(note.workItemId);
+      if (item) this.addCommentForRef(item.ref, "daemon", stallComment(o.stall, now));
+    }
+    return opened;
+  }
+
+  /**
    * The model an agent's session last reported, as a ref: `provider/id`, or the
    * id with no provider — the form `AvailableModel.ref` falls back to
    * (daemon/agent-models.ts). Null when it never reported one.
@@ -1113,6 +1159,8 @@ export class Store {
     // the same tick it goes offline).
     this.heartbeatCheckTimer = setInterval(() => {
       this.reapOfflineAgents();
+      // After the reaper: an agent it just made offline is no longer stalled.
+      this.checkStalls();
       // Keep the active chat's markdown snapshot fresh so a crash loses minutes,
       // not the whole conversation (docs/DESIGN.md "Assistant Chat Model").
       this.refreshAssistantSnapshot();
