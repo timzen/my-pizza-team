@@ -10,6 +10,9 @@
  * you leave or change the filter, even with "unread only" on
  * (lib/mobile.ts `mergeInboxRows`).
  *
+ * The model-failover notes (one per episode; components/inbox/FailoverNotes)
+ * come first, as on the desktop.
+ *
  * Its empty states are the desktop Inbox's (pages/InboxPage `InboxEmpty`):
  * Inbox zero, or nothing has finished yet — whose next step here is the chat,
  * the phone's one way to start work.
@@ -27,6 +30,7 @@ import { since } from "@/lib/queue";
 import { inboxOutcome, mergeInboxRows, outcomeBody } from "@/lib/mobile";
 import { InboxEmpty } from "@/pages/InboxPage";
 import { useEverFinished } from "@/hooks/useEverFinished";
+import { FailoverNotes } from "@/components/inbox/FailoverNotes";
 import { CheckCircle2, ExternalLink, XCircle } from "lucide-react";
 
 type WorkItem = WorkItemView;
@@ -88,6 +92,9 @@ export function MobileInbox({ active, onChanged }: { active: boolean; onChanged:
         {rows.some((r) => !r.read) && <Button variant="ghost" size="sm" onClick={markAllRead}>Mark all read</Button>}
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="px-3 pt-2 empty:hidden">
+          <FailoverNotes unreadOnly={unreadOnly} onChanged={onChanged} settingsLink={false} />
+        </div>
         {data && rows.length === 0 && (!unreadOnly || everFinished !== null) && (
           <InboxEmpty
             zero={unreadOnly && everFinished === true}

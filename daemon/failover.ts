@@ -45,6 +45,12 @@
  *     longer reaching the current entry. Every agent that was sent a
  *     substitute is sent `model: null` (source `failover`).
  *
+ * What it did is told through `deps.onEvent` (wired to daemon/failover-notes.ts
+ * by the Store): one event per trip, escalation, exhaustion and end — never one
+ * per agent — which become the episode's Inbox note, plus `retried` (a claim
+ * whose run moves to the substitute, once per thread and chain entry) and the
+ * probe of an `ended` revert, which become thread comments.
+ *
  * No timers: the probe is due lazily, when a claim comes; the clock is
  * injectable (`deps.now`) so tests run on a fake one.
  */
@@ -82,11 +88,13 @@ interface FailoverState {
   notified: string[];
   /** Failures counted toward the next trip. */
   failures: FailureRecord[];
+  /** `<workDefId>@<index>` of each thread told its retry moved to the substitute (once each). */
+  retried: string[];
 }
 
 /** No failover. */
 function idle(): FailoverState {
-  return { index: 0, since: null, trips: [], nextProbeAt: null, probe: null, exhausted: false, notified: [], failures: [] };
+  return { index: 0, since: null, trips: [], nextProbeAt: null, probe: null, exhausted: false, notified: [], failures: [], retried: [] };
 }
 
 /** What the failover needs from the Store (wired in its constructor). */
@@ -109,10 +117,32 @@ export interface FailoverDeps {
   workItemState(id: string): WorkItemState | null;
   /** Release retries held after a failure of one of `kinds` (QueueStore `releaseRetriesFor`). */
   releaseRetries(kinds: readonly ModelErrorKind[], now: number): string[];
+  /**
+   * For a retry (attempt > 1): its WorkDef and the error kind of the attempt it
+   * follows; null for a first attempt or one whose cause isn't known.
+   */
+  retryOf?(workItemId: string): { workDefId: string; kind: ModelErrorKind } | null;
+  /** Tell the team what happened (the Inbox note, thread comments). */
+  onEvent?(event: FailoverEvent): void;
   /** The clock (ms). */
   now(): number;
   log?(message: string): void;
 }
+
+/**
+ * What the failover did, for the people watching (daemon/failover-notes.ts).
+ * `episode` is when the failover first tripped (ms): it names the episode's
+ * one Inbox note. Model names are chain entries (ids or aliases) as configured.
+ */
+export type FailoverEvent =
+  /** The team switched `from` → `to`; `escalated` when it was already failed over. */
+  | { type: "tripped"; episode: number; at: number; from: string; to: string; kind: ModelErrorKind; failures: number; escalated: boolean }
+  /** The last chain entry is failing too: the team stays on it. */
+  | { type: "exhausted"; episode: number; at: number; model: string; kind: ModelErrorKind }
+  /** A claimed retry runs on `to` because its last attempt failed (`kind`) on the failed `from`. */
+  | { type: "retried"; workItemId: string; from: string; to: string; kind: ModelErrorKind }
+  /** Back on `primary`: the probe `probeWorkItemId` worked, or it was ended (`reason`). */
+  | { type: "ended"; episode: number; at: number; primary: string; reason: string; probeWorkItemId: string | null };
 
 /** A model failure as the errored-session route reports it. */
 export interface ModelFailure {
@@ -236,12 +266,17 @@ export class ModelFailover {
       const changed = !s.exhausted;
       s.exhausted = true;
       this.write();
-      if (changed) this.deps.log?.(`failover: ${p.chain[s.index]} is failing too and the chain is exhausted; staying on it`);
+      if (changed) {
+        this.deps.log?.(`failover: ${p.chain[s.index]} is failing too and the chain is exhausted; staying on it`);
+        if (s.index > 0) this.deps.onEvent?.({ type: "exhausted", episode: s.since ?? now, at: now, model: p.chain[s.index]!, kind: failure.kind });
+      }
       return { action: "exhausted" };
     }
     const from = p.chain[s.index]!;
     const to = p.chain[s.index + 1]!;
-    s.trips.push({ at: now, from, to, kind: failure.kind, failures: s.failures.length });
+    const failures = s.failures.length;
+    const escalated = s.index > 0;
+    s.trips.push({ at: now, from, to, kind: failure.kind, failures });
     s.index += 1;
     s.since ??= now;
     s.failures = [];
@@ -250,6 +285,7 @@ export class ModelFailover {
     this.write();
     this.deps.log?.(`failover: ${from} tripped (${failure.kind}); the team switches to ${to}`);
     this.notifyAll(`failover: ${from} is ${failure.kind === "throttle" ? "throttled" : "failing"}`);
+    this.deps.onEvent?.({ type: "tripped", episode: s.since, at: now, from, to, kind: failure.kind, failures, escalated });
     const released = this.deps.releaseRetries(this.tripKinds, now);
     return { action: "tripped", from, to, released };
   }
@@ -262,7 +298,7 @@ export class ModelFailover {
   recordSuccess(workItemId: string): boolean {
     if (!this.state.probe || this.state.probe.workItemId !== workItemId) return false;
     this.deps.log?.(`failover: probe ${workItemId} on ${this.policy.chain[0] ?? "the primary"} worked; failover ends`);
-    this.end();
+    this.finish("the probe worked", workItemId);
     return true;
   }
 
@@ -290,10 +326,31 @@ export class ModelFailover {
       this.deps.log?.(`failover: ${workItemId} probes the primary ${p.chain[0]}`);
       return { modelId: personaModelId, probe: { modelId: resolveChainEntry(this.deps.config, p.chain[0]!, harness) } };
     }
+    this.noteRetry(memberId, workItemId, personaModelId, harness);
     if (personaModelId && this.failedModels(harness).includes(personaModelId)) {
       return { modelId: this.currentModel(harness) };
     }
     return { modelId: personaModelId };
+  }
+
+  /**
+   * A claimed retry whose last attempt failed with a trip kind, on an agent
+   * whose model (as far as the daemon can tell: pin ?? persona ?? team default
+   * ?? the session's) is a failed entry or the substitute, runs on the
+   * substitute: say so on its thread, once per thread and chain entry.
+   */
+  private noteRetry(memberId: string, workItemId: string, personaModelId: string | null, harness: string): void {
+    const cause = this.deps.retryOf?.(workItemId);
+    if (!cause || !this.tripKinds.includes(cause.kind)) return;
+    const s = this.state;
+    const key = `${cause.workDefId}@${s.index}`;
+    if (s.retried.includes(key)) return;
+    const seen = this.deps.getModelPin(memberId) ?? personaModelId ?? teamDefaultModel(this.deps.config, harness) ?? this.deps.currentModel(memberId);
+    if (seen !== null && seen !== this.currentModel(harness) && !this.failedModels(harness).includes(seen)) return;
+    s.retried.push(key);
+    this.write();
+    const p = this.policy;
+    this.deps.onEvent?.({ type: "retried", workItemId, from: p.chain[s.index - 1]!, to: p.chain[s.index]!, kind: cause.kind });
   }
 
   /** An agent (re)registered: while active, send it the substitute (its fresh session has none). */
@@ -309,17 +366,27 @@ export class ModelFailover {
    * `model: null`. False when none was active.
    */
   end(reason = "failover ended"): boolean {
+    return this.finish(reason, null);
+  }
+
+  // --- Internals ---
+
+  /** `end`, naming the probe whose success ended it (for the `ended` event). */
+  private finish(reason: string, probeWorkItemId: string | null): boolean {
     const wasActive = this.state.index > 0;
-    const notified = this.state.notified;
+    const { notified, since } = this.state;
+    const primary = this.policy.chain[0] ?? "the primary";
     this.state = idle();
     this.write();
     for (const id of notified) {
       if (this.deps.getMember(id)) this.deps.sendFailoverModel(id, { model: null, source: "failover", reason });
     }
+    if (wasActive) {
+      const now = this.deps.now();
+      this.deps.onEvent?.({ type: "ended", episode: since ?? now, at: now, primary, reason, probeWorkItemId });
+    }
     return wasActive;
   }
-
-  // --- Internals ---
 
   /** The failed entries (chain[0 .. current-1]) as `harness` names them. */
   private failedModels(harness: string): string[] {
@@ -375,7 +442,7 @@ export class ModelFailover {
       const raw = this.deps.load();
       if (!raw) return idle();
       const parsed = JSON.parse(raw) as Partial<FailoverState>;
-      return { ...idle(), ...parsed, notified: parsed.notified ?? [], failures: parsed.failures ?? [], trips: parsed.trips ?? [] };
+      return { ...idle(), ...parsed, notified: parsed.notified ?? [], failures: parsed.failures ?? [], trips: parsed.trips ?? [], retried: parsed.retried ?? [] };
     } catch {
       return idle();
     }

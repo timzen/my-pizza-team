@@ -4,8 +4,8 @@
  * What used to be the right-hand TeammateSidebar, now a tab beside the
  * assistant in the left SideDock (DESIGN.md "The Shell: a Dock and a Center"):
  *
- *  - a team-wide model failover, while one is in effect (FailoverBanner): which
- *    model the team runs instead, and End failover now.
+ *  - a team-wide model failover, while one is in effect (FailoverBanner): one
+ *    line — from → to, since when, why — linking to Config → Models, and End now.
  *  - unmanaged windows — tabs in the team's terminal container that no
  *    teammate, leader or starting spawn accounts for (UnmanagedWindows); shown
  *    only when there are any, each with a Close button.

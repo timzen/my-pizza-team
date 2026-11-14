@@ -613,6 +613,23 @@ export class QueueStore {
     return released;
   }
 
+  /**
+   * For a retry (attempt > 1): its WorkDef and the error kind recorded on the
+   * attempt it follows (the latest earlier item of the same WorkDef, as
+   * `releaseRetriesFor` reads it). Null for a first attempt, or when the
+   * earlier attempt recorded no kind. The failover's "retried on" comment
+   * (daemon/failover.ts) uses it.
+   */
+  retryCause(id: string): { workDefId: string; kind: ModelErrorKind } | null {
+    const row = this.db.prepare("SELECT work_def_id, attempt, enqueued_at, rowid AS rid FROM work_items WHERE id = ?").get(id) as
+      { work_def_id: string; attempt: number; enqueued_at: number; rid: number } | undefined;
+    if (!row || row.attempt <= 1) return null;
+    const prev = this.db.prepare(
+      "SELECT error_kind FROM work_items WHERE work_def_id = ? AND id != ? AND (enqueued_at < ? OR (enqueued_at = ? AND rowid < ?)) ORDER BY enqueued_at DESC, rowid DESC LIMIT 1",
+    ).get(row.work_def_id, id, row.enqueued_at, row.enqueued_at, row.rid) as { error_kind: string | null } | undefined;
+    return prev?.error_kind ? { workDefId: row.work_def_id, kind: prev.error_kind as ModelErrorKind } : null;
+  }
+
   /** Cancel a READY WorkItem (human). */
   cancelWorkItem(id: string): boolean {
     const item = this.getWorkItem(id);

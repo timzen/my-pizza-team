@@ -80,4 +80,5 @@ bottom of the Help panel, and under this guide's contents.
 - [Configuration](08-configuration.md) — settings
 - [On your phone](09-phone.md) — a quick look from your phone
 - [Tips](10-tips.md) — good habits, getting around, and keyboard use
+- [Models and failover](11-models.md) — which model each agent runs, and switching when one is throttled
 - [Glossary](glossary.md) — the words the UI and the docs use

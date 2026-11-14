@@ -12,10 +12,12 @@
  * never by anything vendor-specific. The effective model is the one the
  * session reports running; a pending `set-model` is shown as a switch in
  * progress, a done `failover` one as a substitution, and the user's pin with a
- * 📌. `failoverSummary` is the one line for a team-wide failover.
+ * 📌. `failoverSummary` is Config → Models' account of a team-wide failover;
+ * `failoverBanner` is the Team tab's (and the phone's) one line about it.
  */
 
 import type { AgentModelResponse, AvailableModel, FailoverView, ModelChangeView } from "@shared/protocol";
+import { failoverLine } from "../../../shared/failover.ts";
 
 /** The session's model (`MemberSessionStats.model`). */
 export type SessionModel = { id: string; name: string; provider: string };
@@ -60,6 +62,30 @@ export function failoverSummary(f: FailoverView, now = Date.now()): string {
   const tail = f.probe ? `Trying ${f.from} again on one work item now.`
     : next === null ? "" : next === 0 ? `${f.from} is tried again with the next work item.` : `${f.from} is tried again in ${next} min.`;
   return `${parts.join(" ")}.${tail ? ` ${tail}` : ""}`;
+}
+
+/** A clock time as the UI shows one: local HH:MM. */
+function clockTime(iso: string): string {
+  return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+/** What the Team tab's failover banner shows; null renders nothing. */
+export interface FailoverBannerView {
+  /** "Failover: <from> → <to> since <time> (<kind>)" (shared/failover.ts `failoverLine`). */
+  text: string;
+  /** The longer account (`failoverSummary`: when the primary is tried again), for the tooltip. */
+  detail: string;
+}
+
+/**
+ * The Team tab's banner while a failover is active (and the phone's one-line
+ * notice: its `text`), or null when none is — no failover, or no answer yet.
+ * `formatTime` is for tests; the UI shows local clock time.
+ */
+export function failoverBanner(f: FailoverView | null | undefined, now = Date.now(), formatTime: (iso: string) => string = clockTime): FailoverBannerView | null {
+  const text = failoverLine(f, formatTime);
+  if (!f || text === null) return null;
+  return { text, detail: failoverSummary(f, now) };
 }
 
 /** Everything the model chip shows, in words. */

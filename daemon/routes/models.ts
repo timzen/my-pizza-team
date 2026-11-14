@@ -19,7 +19,9 @@
  *
  *   - Failover (daemon/failover.ts; docs/DESIGN.md "Model Failover"):
  *     `GET /api/failover` — the team-wide failover state (also in /api/status);
- *     `POST /api/failover/end` — "End failover now".
+ *     `POST /api/failover/end` — "End failover now";
+ *     `GET /api/failover/notes[?read=false]` and `POST /api/failover/notes/:id/read[?read=false]`
+ *     — the Inbox's one note per failover episode (daemon/failover-notes.ts).
  *
  * An agent whose harness didn't declare `set-model` (an older one, `mpt agent`)
  * gets a 409 with `unsupported: true` — the UI's "not supported by this
@@ -33,7 +35,7 @@ import { readBody, fail } from "./http.ts";
 import { isPoolTeammate } from "../store.ts";
 import { parseAvailableModels, parseModelRef, setModelParams } from "../agent-models.ts";
 import { applyDefaultModel } from "../default-model.ts";
-import { SET_MODEL_CAPABILITY, type AgentModelResponse, type ApplyDefaultModelResponse, type EndFailoverResponse, type FailoverView } from "../../shared/protocol.ts";
+import { SET_MODEL_CAPABILITY, type AgentModelResponse, type ApplyDefaultModelResponse, type EndFailoverResponse, type FailoverNotesResponse, type FailoverView } from "../../shared/protocol.ts";
 
 /** The 409 reply's wording for a harness that can't switch models. */
 export const MODEL_SWITCHING_UNSUPPORTED = "Model switching is not supported by this harness (upgrade it, or change the model in its own session)";
@@ -48,6 +50,18 @@ export function registerModelRoutes(ctx: RouteContext): void {
   app.post("/api/failover/end", (c) => {
     store.failover.end("failover ended by hand (End failover now)");
     return c.json({ success: true, failover: store.failover.view() } satisfies EndFailoverResponse);
+  });
+
+  // The Inbox's failover notes, newest first (`?read=false`: only the unread).
+  app.get("/api/failover/notes", (c) => {
+    const unreadOnly = c.req.query("read") === "false";
+    return c.json({ notes: store.failoverNotes.list(unreadOnly) } satisfies FailoverNotesResponse);
+  });
+
+  // Mark a note read (or, with `?read=false`, unread), as the Inbox does a WorkItem.
+  app.post("/api/failover/notes/:id/read", (c) => {
+    if (!store.failoverNotes.markRead(c.req.param("id"), c.req.query("read") !== "false")) return fail(c, 404, "Note not found");
+    return c.json({ success: true });
   });
 
   app.post("/api/agents/:id/models", async (c) => {

@@ -74,7 +74,9 @@ can trigger a [failover](#failover). See [Failover](08-configuration.md#failover
 The team switching to the next model of a chain you configure, because calls to the
 current one keep being throttled or failing — the whole team at once, since throttling
 is usually per account. After a while one work item (the **probe**) is tried on the
-usual model; if it works, the team switches back. Off unless you turn it on. See
+usual model; if it works, the team switches back. Off unless you turn it on. While it's
+in effect the Team tab shows a banner with **End now**, and the Inbox has one note for
+the episode. See [Models and failover](11-models.md) and
 [Failover](08-configuration.md#failover).
 
 ## Full page
@@ -93,7 +95,8 @@ experimental. See
 ## Inbox
 
 The home page tab of finished [runs](#run), unread by default — your review queue.
-See [The Inbox](01-tasks-and-runs.md#the-inbox).
+A model [failover](#failover) adds one note per episode at the top. See
+[The Inbox](01-tasks-and-runs.md#the-inbox).
 
 ## Leader
 
@@ -148,6 +151,12 @@ a pending story or schedule is paused and can be activated again. See
 A markdown file that describes how to do a job (implementer, reviewer, triage…). It's
 put at the top of the prompt. Workflow steps, triage, the assistant, tasks and sources
 each pick one. See [Personas](06-personas.md).
+
+## Pin
+
+Short for a [model pin](#model-pin): a model you chose for one teammate or the
+assistant, which wins over its persona's model and the team default. Shown as 📌 on
+its model chip. See [Models and failover](11-models.md#which-model-an-agent-runs).
 
 ## Plugin package
 

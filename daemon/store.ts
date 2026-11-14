@@ -59,7 +59,8 @@ import {
 import { normalizeDirectory } from "../shared/directory.ts";
 import { saveTeamConfig } from "../shared/team-config.ts";
 import type { AvailableModel, ModelChangeView, ModelErrorKind, PluginLoadStatus, SetModelParams } from "../shared/protocol.ts";
-import { FAILOVER_STATE_KEY, ModelFailover } from "./failover.ts";
+import { FAILOVER_STATE_KEY, ModelFailover, type FailoverEvent } from "./failover.ts";
+import { FAILOVER_NOTES_KEY, FailoverNotes, failoverComment } from "./failover-notes.ts";
 import type { TeamPersonaInput, TeamPersonaUpdate } from "./personas/library.ts";
 import { cachedTerminalStatus, type SpawnCapability } from "./spawner.ts";
 import type { TerminalBackend, TerminalStatus } from "./terminal/backend.ts";
@@ -202,6 +203,8 @@ export class Store {
   clock: () => number = () => Date.now();
   /** The team-wide model failover (docs/DESIGN.md "Model Failover"). */
   readonly failover: ModelFailover;
+  /** The Inbox's failover notes, one per episode (daemon/failover-notes.ts). */
+  readonly failoverNotes: FailoverNotes;
   /**
    * The Work Sources (WorkDef kinds as plugins; docs/DESIGN.md "Work Sources:
    * WorkDef Kinds as Plugins"). The Store calls them at its hook points
@@ -354,6 +357,10 @@ export class Store {
       getActiveWorkItem: (id) => this.queue.getActiveWorkItem(id),
       setWorkItemStateRow: (id, state) => this.queue.setWorkItemStateRow(id, state),
     });
+    this.failoverNotes = new FailoverNotes({
+      load: () => this.getSetting(FAILOVER_NOTES_KEY),
+      save: (value) => this.setSetting(FAILOVER_NOTES_KEY, value),
+    });
     this.failover = new ModelFailover({
       config,
       load: () => this.getSetting(FAILOVER_STATE_KEY),
@@ -366,6 +373,8 @@ export class Store {
       sendFailoverModel: (id, params) => "directive" in this.requestModelChange(id, params, { sameSourceOnly: true }),
       workItemState: (id) => this.getWorkItem(id)?.state ?? null,
       releaseRetries: (kinds, now) => this.releaseRetriesFor(kinds, now),
+      retryOf: (id) => this.queue.retryCause(id),
+      onEvent: (event) => this.onFailoverEvent(event),
       now: () => this.clock(),
       log: (message) => console.log(`[failover] ${message}`),
     });
@@ -2006,6 +2015,22 @@ export class Store {
 
   /** Delete a ref attachment. Returns false if it doesn't exist. */
   deleteAttachmentForRef(ref: WorkItemRef, storedName: string): boolean { return this.threads.deleteAttachmentForRef(ref, storedName); }
+
+  // --- Failover visibility (daemon/failover-notes.ts) ---
+
+  /**
+   * What the failover did, told to the people watching: an episode event adds
+   * a line to its one Inbox note; a retry moved to the substitute, and the
+   * probe that ended it, get a comment on their thread (author "daemon", as
+   * the session-error retry's comments are the daemon's too).
+   */
+  private onFailoverEvent(event: FailoverEvent): void {
+    this.failoverNotes.record(event);
+    const comment = failoverComment(event);
+    if (!comment) return;
+    const item = this.getWorkItem(comment.workItemId);
+    if (item) this.addCommentForRef(item.ref, "daemon", comment.body);
+  }
 
   // --- Notices (one-line, dismissable; carried by /api/status) ---
 

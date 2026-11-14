@@ -13,7 +13,7 @@ Settings live under the **config** (gear) icon, at `/config`:
   [Teammates](03-teammates.md#experimental-kiro-and-claude-code-teammates))
 - **Models** — the team's **default model** (with **Apply to all teammates now**),
   the **model aliases** personas name, and the **failover** policy — see
-  [Models](#models)
+  [Models](#models) and [Models and failover](11-models.md)
 - **Sources** — your source plugins: switch each on or off, edit its settings,
   **Preview** what it would pull, and **Save** (see
   [Setting up a source from the UI](07-sources.md#setting-up-a-source-from-the-ui))
@@ -109,12 +109,14 @@ retry after those errors are retried right away (each still counts as one attemp
 If the fallback fails too, the team moves further down the chain; at the end of it,
 the team stays on the last model and the normal retries carry on.
 
-While a failover is in effect the **Team** tab shows a banner — which model the team
-is on instead of which, and when the primary is tried again — with **End failover
-now**, which switches everyone back at once (the card here has the same button). A
-teammate's model chip shows the **failover** mark while it runs the substitute. Each
-failed attempt's `[retry]` comment names the kind of error (throttled, server error,
-…).
+While a failover is in effect the **Team** tab shows a one-line banner —
+"Failover: *primary* → *fallback* since *time* (*kind*)" — with **End now**, which
+switches everyone back at once (the card here has **End failover now**, the same
+thing). A teammate's model chip shows the **failover** mark while it runs the
+substitute. A work item retried on the fallback gets a `[failover] retried on …`
+comment, the Inbox gets one note per failover episode, and `mpt status` prints a
+`Failover:` line — see [What you'll see](11-models.md#what-youll-see). Each failed
+attempt's `[retry]` comment names the kind of error (throttled, server error, …).
 
 In `config.json`:
 `"failover": { "enabled": true, "on": ["throttle", "5xx"], "after": 2, "windowMinutes": 10, "chain": ["strong", "<provider>/<model>"], "revertAfterMinutes": 30 }`.

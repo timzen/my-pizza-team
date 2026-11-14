@@ -12,9 +12,14 @@
  * A future work-item command should gate on `featuresFromStatus` up front and
  * exit non-zero with `featureDisabledMessage`, with `daemonErrorMessage` as the
  * backstop for the daemon's 403.
+ *
+ * `mpt status` also prints a line while a team-wide model failover is in
+ * effect (`/api/status` `failover`; shared/failover.ts `failoverLine`, the
+ * same words as the Team tab's banner).
  */
 
 import { FEATURE_NAMES, featureDisabledMessage, featuresFromStatus, type FeatureName } from "../shared/agent-protocol.ts";
+import { failoverLine, type FailoverLineInput } from "../shared/failover.ts";
 
 export { featureDisabledMessage };
 
@@ -25,6 +30,13 @@ export interface StatusSummaryInput {
   members: { total: number; working: number; idle: number };
   /** Absent from daemons that predate the toggles: all on. */
   features?: Partial<Record<FeatureName, boolean>>;
+  /** The team-wide model failover; absent from daemons that predate it. */
+  failover?: FailoverLineInput;
+}
+
+/** A clock time for the status line: the terminal's local HH:MM. */
+function localTime(iso: string): string {
+  return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
 /**
@@ -32,7 +44,7 @@ export interface StatusSummaryInput {
  * kind's count is left out — it would be a number for something the team doesn't
  * use — and a final line names what's off and where to turn it back on.
  */
-export function statusSummaryLines(data: StatusSummaryInput): string[] {
+export function statusSummaryLines(data: StatusSummaryInput, formatTime: (iso: string) => string = localTime): string[] {
   const features = featuresFromStatus(data);
   const lines: string[] = [];
   if (features.stories) {
@@ -42,6 +54,8 @@ export function statusSummaryLines(data: StatusSummaryInput): string[] {
   lines.push(`Members: ${data.members.total} (${data.members.working} working, ${data.members.idle} idle)`);
   const off = FEATURE_NAMES.filter((f) => !features[f]);
   if (off.length > 0) lines.push(`Turned off: ${off.join(", ")} (Config → General → Work items)`);
+  const failover = failoverLine(data.failover, formatTime);
+  if (failover) lines.push(`${failover} — Config → Models`);
   return lines;
 }
 

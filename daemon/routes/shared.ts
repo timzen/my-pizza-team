@@ -122,7 +122,8 @@ export function registerSharedRoutes(ctx: RouteContext): void {
       // picked up, and finished ones not yet reviewed in the Inbox. Plain
       // COUNT(*)s so polling them costs nothing — the UI never fetches the lists.
       queuedCount: store.countWorkItems({ states: ["READY"] }),
-      unreadInboxCount: store.countWorkItems({ states: ["COMPLETE", "FAILED"], read: false }),
+      // Failover episode notes (daemon/failover-notes.ts) are Inbox entries too.
+      unreadInboxCount: store.countWorkItems({ states: ["COMPLETE", "FAILED"], read: false }) + store.failoverNotes.unreadCount(),
       defaultWorkflow: config.defaultWorkflow,
       workflows: store.getWorkflows(),
       workflow: store.getWorkflows()[config.defaultWorkflow],

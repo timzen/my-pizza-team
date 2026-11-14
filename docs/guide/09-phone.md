@@ -9,14 +9,17 @@ team, not the whole app. Four tabs along the bottom:
   **Re-enqueue** / **Cancel**. Tap a teammate to watch it live, or **Pair** (see
   [Teammates](03-teammates.md#pairing-with-a-teammate)); its model shows in the
   header, read-only (choose it from the full UI). The tab gets an amber dot
-  when something is at risk.
+  when something is at risk. While a model [failover](glossary.md#failover) is in
+  effect, a one-line notice at the top says which model the team switched to, since
+  when, and why (end it from the full UI).
 - **Chat** — the assistant chat, with history. On a phone **Enter starts a new
   line**; tap ➤ to send. The tab shows how many replies you haven't read.
 - **Thoughts** — your notes as a list, in their folders, with search. Tap one to read
   it (checklists are tappable), ✏️ to write (it saves as you type), and change its
   color, pin, archive, or delete it. **+ Note** starts a new one.
 - **Inbox** — finished work. Tap a row to read its summary right there (that marks it
-  read); **Open full** goes to the task's page in the full UI.
+  read); **Open full** goes to the task's page in the full UI. A model failover's
+  note (one per episode) comes first.
 
 An empty tab says what goes there, as in the full UI: Team explains the assistant and offers
 **Start the assistant** (so does Chat, while no one is there to answer), and the Queue, Thoughts and Inbox offer **Ask the

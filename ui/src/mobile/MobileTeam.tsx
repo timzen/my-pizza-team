@@ -9,6 +9,9 @@
  *  - **Queue** — the Queue tab's list (pages/QueuePage `QueueList`), with its
  *    stall banner and recovery buttons, fed from the shell's data.
  *
+ * While a team-wide model failover is in effect, a one-line notice says so at
+ * the top (components/team/FailoverBanner `compact`; ending it is the desktop's).
+ *
  * A new team sees the **Welcome checklist** at the top (components/onboarding/
  * WelcomeCard, without its Spawn button); its "Watch it run" moves focus to the
  * Queue heading below.
@@ -23,6 +26,7 @@ import type { TeamData } from "@/hooks/useTeamData";
 import type { QueueData } from "@/hooks/useQueue";
 import { TeammateRow } from "@/components/team/TeamParts";
 import { TeamEmpty } from "@/components/team/TeamEmpty";
+import { FailoverBanner } from "@/components/team/FailoverBanner";
 import { QueueList } from "@/pages/QueuePage";
 import { MOBILE_QUEUE_HEADING_ID, WelcomeCard } from "@/components/onboarding/WelcomeCard";
 import { TeammatePage } from "@/pages/TeammatePage";
@@ -53,6 +57,7 @@ export function MobileTeam({ team, queue, paused }: { team: TeamData; queue: Que
 
   return (
     <div className="h-full space-y-6 overflow-y-auto p-3">
+      <FailoverBanner compact />
       <WelcomeCard phone />
       <section className="space-y-2">
         <h2 className="text-sm font-semibold">

@@ -65,10 +65,11 @@ doesn't need the assistant for that; otherwise it's greyed out and says why, wit
 It also warns when the [readiness probe](08-configuration.md#readiness-probe)
 is failing — a new teammate would start but get no work until it passes.
 
-While a model [failover](glossary.md#failover) is in effect, a banner at the top of the
-tab says which model the team is running instead of which, and when the usual one is
-tried again; **End failover now** switches everyone back at once (see
-[Failover](08-configuration.md#failover)).
+While a model [failover](glossary.md#failover) is in effect, a small banner at the top of
+the tab says so in one line — "Failover: *primary* → *fallback* since *time* (*kind*)";
+hover it for when the usual model is tried again. It links to Config → Models, and
+**End now** switches everyone back at once. The rows don't change (see
+[Models and failover](11-models.md#what-youll-see)).
 
 ### Unmanaged windows
 

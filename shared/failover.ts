@@ -80,3 +80,30 @@ export function validateFailover(raw: unknown): { value: FailoverConfig } | { er
   }
   return { value: out };
 }
+
+/** What `failoverLine` reads of a `FailoverView` (GET /api/failover, `/api/status`). */
+export interface FailoverLineInput {
+  active: boolean;
+  from: string | null;
+  to: string | null;
+  since: string | null;
+  trips: Array<{ kind: ModelErrorKind }>;
+  exhausted?: boolean;
+}
+
+/**
+ * The one line that says a failover is in effect — "Failover: <from> → <to>
+ * since <time> (<kind>)", the kind being the latest switch's — or null when
+ * none is. The Team tab's banner, the phone's Team tab and `mpt status` all say
+ * it this way; `formatTime` renders the ISO time for its reader (a local
+ * clock time in the UI and the CLI, anything fixed in tests).
+ */
+export function failoverLine(f: FailoverLineInput | null | undefined, formatTime: (iso: string) => string): string | null {
+  if (!f?.active || !f.to) return null;
+  const kind = f.trips.at(-1)?.kind;
+  let line = `Failover: ${f.from ?? "the primary"} → ${f.to}`;
+  if (f.since) line += ` since ${formatTime(f.since)}`;
+  if (kind) line += ` (${kind})`;
+  if (f.exhausted) line += ` — ${f.to} is failing too (end of the chain)`;
+  return line;
+}

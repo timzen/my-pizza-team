@@ -2679,7 +2679,21 @@ back once the first one works again (daemon/failover.ts). Off by default:
 - **One state, team-wide.** Throttling is usually per account, not per agent,
   so the failover is one state for the team (persisted in `settings`, so it
   survives a restart), not per agent: switching one agent off a throttled
-  account while its neighbours keep hammering it helps nobody.
+  account while its neighbours keep hammering it helps nobody. A quota or a
+  capacity limit is shared by everyone calling through it, so the evidence is
+  too: two teammates' throttles are one signal about one pool, which is why
+  failures are counted across agents and one trip moves everyone. Per-agent
+  failover would also make each agent rediscover the same outage, paying a
+  failed attempt apiece.
+- **A chain that crosses pools.** The chain is only as good as its entries'
+  independence: a fallback served from the same capacity pool, quota or
+  provider as the primary is throttled by the same cause, and failing over to
+  it just spends the trip threshold again. So the guide recommends a chain
+  whose entries sit in *different* pools or with different providers (another
+  region, another account, another vendor's model of the same class), and
+  aliases let a chain name a class (`strong`) rather than one id. MPT can't
+  check this — model ids are opaque and it knows no provider — so it is
+  advice, not a rule.
 - **Trip.** `after` failures of an `on` kind on the chain's *current* entry
   within `windowMinutes`, across all agents, move the team to the next entry.
   Chain entries are model ids or `modelAliases` names, resolved per harness. A
@@ -2718,10 +2732,24 @@ back once the first one works again (daemon/failover.ts). Off by default:
 - **Ending by hand.** **End failover now** (the Team tab's banner, Config →
   Models; `POST /api/failover/end`) ends it at once. Switching the policy off,
   or a chain that no longer reaches the model in use, ends it too.
-- **Visible.** `GET /api/failover` (and `failover` in `/api/status`): active,
-  from → to, since, the trips, the next probe. The Team tab shows a banner while
-  it's active; the teammate chip's failover mark shows only on an agent
-  actually running the substitute.
+- **What you see.** `GET /api/failover` (and `failover` in `/api/status`):
+  active, from → to, since, the trips, the next probe. Because the failover is
+  one team-wide state, it is told **once, where the team is**, never per agent:
+  - the Team tab's small banner ("Failover: <from> → <to> since <time>
+    (<kind>)", linking to Config → Models, with **End now**), the same line on
+    the phone's Team tab and in `mpt status` (shared/failover.ts
+    `failoverLine`) — not a mark on every row, which would say the same thing
+    N times and bury the rows' own status (the teammate chip's failover mark
+    stays on the teammate's page, shown only on an agent actually running the
+    substitute);
+  - **one Inbox note per episode** (daemon/failover-notes.ts), with a line per
+    trip, escalation, exhaustion and end: the episode is the news, and a note
+    per agent or per failure would flood the Inbox exactly when the team is
+    struggling. A new line marks it unread again, so a revert is noticed too;
+  - on a work item's thread, **one** `[failover] retried on <to> after <kind>
+    on <from>` comment per thread and chain entry — the thread says why this
+    run's model differs from the last attempt's, without repeating on every
+    retry — and on the probe that reverts it, a comment saying so.
 
 ## One Agent to Talk To
 

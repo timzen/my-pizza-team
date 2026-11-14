@@ -194,6 +194,8 @@ count is left out and a `Turned off: …` line names what's off. The CLI has no
 commands that create or edit stories, tasks, or schedules (that's the web UI and
 the assistant); a daemon refusal it does meet is shown as "Stories are disabled —
 enable them in Config (features.stories)".
+While a [model failover](docs/DESIGN.md#model-failover) is in effect it also prints
+`Failover: <from> → <to> since <time> (<kind>) — Config → Models`.
 
 ### Which Node runs mpt
 
@@ -427,8 +429,13 @@ most of it is editable on the **Config** page. Minimal:
   // entry (a model id or an alias above); retries waiting on those errors run at
   // once. `revertAfterMinutes` later one work item is tried on the primary
   // (chain[0]): if it works the team switches back, if not the timer re-arms.
-  // "auth" and "context" errors never switch models. The Team tab shows a banner
-  // (with "End failover now") while it's active; GET /api/failover has the state.
+  // "auth" and "context" errors never switch models. Pick a chain that crosses
+  // capacity pools / providers, or its entries are throttled together. While it's
+  // active: a one-line banner on the Team tab ("Failover: <from> → <to> since
+  // <time> (<kind>)", with "End now") and the phone's Team tab, a "[failover]
+  // retried on …" comment on each thread retried on the fallback (and one on the
+  // probe that reverts it), one Inbox note per episode, and a line in
+  // `mpt status`. GET /api/failover has the state.
   "failover": {
     "enabled": false, "on": ["throttle", "5xx"], "after": 2, "windowMinutes": 10,
     "chain": ["strong", "<provider>/<other model>"], "revertAfterMinutes": 30
@@ -865,8 +872,15 @@ that registers with `capabilities: ["model-failover"]` (the Pi teammate and
 assistant do) substitutes only where its model is a failed one, and runs a claim's
 `failoverProbe` (the revert probe) on the primary; an older set-model harness is
 sent the substitute only when its model failed. `GET /api/failover` reports the
-state (also in `/api/status`), `POST /api/failover/end` ends it. See
-[docs/DESIGN.md](docs/DESIGN.md#model-failover).
+state (also in `/api/status`), `POST /api/failover/end` ends it. What people see:
+the Team tab's banner (and the phone's one-line notice), a `[failover] retried on
+<to> after <kind> on <from>` comment once per thread retried on the fallback, a
+comment on the probe that reverts it, **one Inbox note per episode** (a line per
+trip, escalation, exhaustion and end — `GET /api/failover/notes`, `POST
+/api/failover/notes/:id/read`; unread notes count in `unreadInboxCount`), and a
+`Failover:` line in `mpt status`. See
+[docs/DESIGN.md](docs/DESIGN.md#model-failover) and the guide's
+[Models and failover](docs/guide/11-models.md).
 
 Windows in the team's terminal that no registered teammate, the leader or a
 starting spawn accounts for (such as panes a terminal's session restore relaunched)

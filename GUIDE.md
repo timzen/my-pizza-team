@@ -14,6 +14,7 @@ same pages are the in-app **Help** page.
 - [Configuration](docs/guide/08-configuration.md) — the Config tabs, Work items, readiness probe
 - [On your phone](docs/guide/09-phone.md) — the phone view
 - [Tips](docs/guide/10-tips.md) — good habits, getting around, keyboard and screen readers
+- [Models and failover](docs/guide/11-models.md) — picking models, pins, the default, aliases, the failover policy and what you'll see
 - [Glossary](docs/guide/glossary.md) — WorkDef, WorkItem, MORIBUND, and the other terms
 
 Writing a plugin (a Work Source or a persona package)? That's developer

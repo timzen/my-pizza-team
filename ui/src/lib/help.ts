@@ -41,6 +41,7 @@ export const HELP_TOPICS = [
   "configuration",
   "phone",
   "tips",
+  "models",
   "glossary",
 ] as const;
 
@@ -136,6 +137,7 @@ const CONFIG_HELP: Record<string, PageHelp> = {
   sources: { topic: "sources", anchor: "setting-up-a-source-from-the-ui", page: "Sources settings" },
   workflows: { topic: "stories-and-workflows", anchor: "workflows", page: "Workflows" },
   personas: { topic: "personas", anchor: "the-library", page: "Personas" },
+  models: { topic: "models", page: "Models settings" },
   triage: { topic: "thoughts-and-triage", anchor: "auto-triage-notes-that-become-work", page: "Triage settings" },
   theme: { topic: "configuration", page: "Theme" },
 };

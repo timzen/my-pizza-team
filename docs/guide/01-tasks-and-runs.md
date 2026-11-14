@@ -214,6 +214,12 @@ If a teammate's model call kept failing (say, Bedrock was unavailable) the item 
 error, and the thread ends with a red **[failed] … after N attempts** comment.
 Earlier failed attempts appear already read — only the final outcome is news.
 
+A model [failover](glossary.md#failover) shows up here as **one note per episode** at
+the top of the Inbox, not one per teammate: a line when the team switched models, each
+time it moved further down the chain, and when it switched back. A new line marks the
+note unread again; **Mark read** clears it (see
+[Models and failover](11-models.md#what-youll-see)).
+
 ## Comments and the thread
 
 Comments are the channel between you and your teammates, and they live on the

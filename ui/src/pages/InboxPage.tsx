@@ -7,6 +7,10 @@
  * so they're excluded. Defaults to unread; a toggle shows everything. Reviewing
  * an item marks it read. Paginated so a busy team's history stays fast.
  *
+ * Above the finished work: the model-failover notes, one per failover episode
+ * (components/inbox/FailoverNotes; docs/DESIGN.md "Model Failover"), filtered
+ * by the same "Unread only".
+ *
  * Embedded in the Root page's "Inbox" tab (see RootPage). Polls /api/work-items.
  *
  * Two different empties (docs/DESIGN.md "An Empty Screen Teaches"): **Inbox
@@ -25,6 +29,7 @@ import type { WorkItemView } from "@shared/protocol";
 import { Button } from "@/components/ui/button";
 import { EmptyState, StartWorkActions } from "@/components/ui/empty-state";
 import { useEverFinished } from "@/hooks/useEverFinished";
+import { FailoverNotes } from "@/components/inbox/FailoverNotes";
 import { CheckCircle2, XCircle, Inbox as InboxIcon, CheckCheck } from "lucide-react";
 
 type WorkItem = WorkItemView;
@@ -91,6 +96,8 @@ export function InboxPage() {
           <Button variant="ghost" size="sm" onClick={markAllRead}>Mark all read</Button>
         )}
       </div>
+
+      <FailoverNotes unreadOnly={unreadOnly} onChanged={notifyInboxChanged} />
 
       {data && items.length === 0 && (!unreadOnly || everFinished !== null) && (
         <InboxEmpty

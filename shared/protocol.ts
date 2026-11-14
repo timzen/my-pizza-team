@@ -76,7 +76,7 @@ export interface StatusResponse extends AgentStatusResponse<WorkflowConfig> {
   paused: boolean;
   /** READY WorkItems — queued, not yet picked up (Pizza Team link badge). */
   queuedCount: number;
-  /** Unread COMPLETE/FAILED WorkItems — the Inbox's unread count (Pizza Team link badge). */
+  /** Unread COMPLETE/FAILED WorkItems plus unread failover notes — the Inbox's unread count (Pizza Team link badge). */
   unreadInboxCount: number;
   workflow?: WorkflowConfig;
   /**
@@ -1116,6 +1116,24 @@ export interface FailoverView {
 
 // POST /api/failover/end — end it now ("End failover now").
 export interface EndFailoverResponse { success: boolean; failover: FailoverView; error?: string }
+
+/**
+ * One failover episode's Inbox note (daemon/failover-notes.ts): a line per
+ * trip, escalation, exhaustion and end, newest last. A new line marks it unread.
+ */
+export interface FailoverNoteView {
+  /** `failover-<ms when it first tripped>`. */
+  id: string;
+  startedAt: string;
+  updatedAt: string;
+  lines: Array<{ at: string; text: string }>;
+  read: boolean;
+  /** The episode is over (reverted or ended). */
+  ended: boolean;
+}
+
+// GET /api/failover/notes[?read=false] — the Inbox's failover notes, newest first.
+export interface FailoverNotesResponse { notes: FailoverNoteView[] }
 
 // ─── Directory suggestions (docs/DESIGN.md "Favorite Directories") ───
 
