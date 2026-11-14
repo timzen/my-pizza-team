@@ -403,13 +403,20 @@ most of it is editable on the **Config** page. Minimal:
   // ignored and dropped on the next save.
   "assistant": { "persona": "builtin:assistant" },
 
-  // ─── Persona models ────────────────────────────────────────────
+  // ─── Models (Config → Models) ──────────────────────────────────
+  // The team default model, per harness (Pi: <provider>/<model>, as /model shows
+  // it). An agent (teammate or assistant) that registers with no model pin is
+  // asked to switch to it (a set-model, source "default"); a pin or a persona's
+  // model wins over it. Running agents get a changed default from Config →
+  // Models → "Apply to all teammates now" (offered after the save). Unset = each
+  // harness's own default model. `mpt doctor` warns when no live agent can use it.
+  "defaultModel": { "pi": "<provider>/<model>" },
   // A persona names a model alias (frontmatter `model: strong`); this maps each
-  // alias to a model id per harness (Pi: <provider>/<model>, as /model shows it).
-  // Resolved for the claiming teammate's harness at every claim; an alias with no
-  // mapping sets no model and comments on the run's thread. A top-level block (not
-  // under "harnesses", whose entries replace the start templates). Also Config →
-  // Teammates → Persona Models. "personaModels": false ignores persona models.
+  // alias to a model id per harness. Resolved for the claiming teammate's harness
+  // at every claim; an alias with no mapping sets no model and comments on the
+  // run's thread. Both are top-level blocks (not under "harnesses", whose entries
+  // replace the start templates). Also Config → Models → Model Aliases.
+  // "personaModels": false ignores persona models.
   "modelAliases": { "pi": { "strong": "<provider>/<model>", "fast": "<provider>/<model>" } },
   "personaModels": true,
 
@@ -657,7 +664,7 @@ patterns), `skills`, a `model` alias, and `requires.mcp` — which the daemon pa
 the teammate's harness with the persona (enforcement depends on the harness — the
 Pi harness enforces `tools` and `skills` and applies `model`; see docs/guide/06-personas.md).
 A `model` alias is mapped to a real model per harness by the team config's
-`modelAliases` (Config → Teammates → Persona Models); the claim carries both the
+`modelAliases` (Config → Models → Model Aliases); the claim carries both the
 alias and the model id resolved for the claiming harness, and `mpt doctor` lists
 aliases personas use that have no mapping (and in-use personas' `requires.mcp`
 servers Pi's config lacks). Saving a persona lints it (an unclosed code fence or a
@@ -826,7 +833,13 @@ persona's model, and `model: null` clears it. Any other harness gets 409
 is the **model chip** in its page's header (`/teammates/:id`: 📌 for a pin, a
 failover mark, a menu with its models, **Clear pin** and **Apply … to all
 teammates**; read-only on the phone), and the assistant's is the **Model** picker
-on Config → General → Assistant, beside its persona. See
+on Config → General → Assistant, beside its persona. The **team default model**
+(`defaultModel`, per harness; Config → Models) is sent as a `set-model` with source
+`default` to every agent that registers without a pin, and `POST
+/api/agents/model/default` ("Apply to all teammates now") sends the saved default
+to every live unpinned agent (null where its harness has none). `mpt doctor`
+reports the default and the aliases, and warns when one names a model no live agent
+of that harness reports. See
 [docs/DESIGN.md](docs/DESIGN.md#choosing-a-model).
 
 Windows in the team's terminal that no registered teammate, the leader or a

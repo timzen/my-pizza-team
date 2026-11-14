@@ -9,6 +9,9 @@
  *   directories (which save immediately via /api/directories/favorites).
  * - **Teammates** (`/config/teammates`) — name nouns, one-teammate-per-directory,
  *   experimental harnesses.
+ * - **Models** (`/config/models`) — the team default model per harness (with
+ *   "Apply to all teammates now", offered after a save that changed it), the
+ *   persona model aliases, and the failover policy (components/config/ModelsTab).
  * - **Sources** (`/config/sources`, a source's settings at
  *   `/config/sources/:id`) — Work Source plugins: on/off (incl. "Turn off and
  *   archive"), a settings form from each one's `configSchema`, Preview, and
@@ -28,7 +31,7 @@
  * Workflows and Personas at max-w-5xl (left-aligned, never centered).
  *
  * The global Save button only shows on the tabs that edit the config.json draft
- * (General, Teammates, Triage); Sources, Workflows and Personas keep their own save flows.
+ * (General, Teammates, Models, Triage); Sources, Workflows and Personas keep their own save flows.
  * General's Assistant card also picks the assistant's persona, which applies at
  * once (`PUT /api/assistant/persona` ends the current chat), like the chips in
  * the chat itself.
@@ -36,7 +39,7 @@
  * routes share this element), so edits on several tabs save together.
  *
  * Each tab's cards live in components/config/ (GeneralTab, TeammatesTab,
- * TriageSettings, ThemeTab); the draft's shape and PUT body in
+ * ModelsTab, TriageSettings, ThemeTab); the draft's shape and PUT body in
  * lib/config-draft.ts.
  */
 
@@ -46,12 +49,13 @@ import { useApi, apiPut } from "@/hooks/useApi";
 import { useAnnounce } from "@/hooks/useAnnounce";
 import { notifyFeaturesChanged, useFeatures } from "@/hooks/useFeatures";
 import type { Features } from "@/lib/features";
-import { configBody, type ConfigData } from "@/lib/config-draft";
+import { configBody, sameDefaultModels, type ConfigData } from "@/lib/config-draft";
 import { configTabFromPath, tabSavesConfig, visibleConfigTabs } from "@/lib/config-tabs";
 import { sourceIdFromConfigPath } from "@/lib/source-settings";
 import { SourcesTab } from "@/components/sources/SourcesTab";
 import { GeneralTab } from "@/components/config/GeneralTab";
 import { TeammatesTab } from "@/components/config/TeammatesTab";
+import { ModelsTab } from "@/components/config/ModelsTab";
 import { TriageSettings } from "@/components/config/TriageSettings";
 import { ThemeTab } from "@/components/config/ThemeTab";
 import { RouteTabs } from "@/components/RouteTabs";
@@ -79,6 +83,8 @@ export function ConfigPage() {
   const [toast, setToast] = useState<{ msg: string; error?: boolean } | null>(null);
   // A refused feature toggle (409 "Can't turn off …") is also shown in its section.
   const [featureError, setFeatureError] = useState<string | null>(null);
+  // A save changed the team default model: Config → Models offers to apply it to running teammates.
+  const [offerApplyDefault, setOfferApplyDefault] = useState(false);
 
   // Seed the editable draft from the fetched config. Adjusting state during
   // render (guarded by a "last seeded" marker) is React's recommended pattern
@@ -112,6 +118,7 @@ export function ConfigPage() {
       );
       if (res.success) {
         showToast("✓ Configuration saved");
+        if (!sameDefaultModels(config.defaultModel, data?.defaultModel)) setOfferApplyDefault(true);
         refetch();
         notifyFeaturesChanged();
       } else {
@@ -158,6 +165,16 @@ export function ConfigPage() {
     content = <div className="text-muted-foreground">{loading ? "Loading..." : "Cannot load config."}</div>;
   } else if (activeTab === "teammates") {
     content = <TeammatesTab config={config} setConfig={setConfig} />;
+  } else if (activeTab === "models") {
+    content = (
+      <ModelsTab
+        config={config}
+        setConfig={setConfig}
+        saved={data}
+        offerApply={offerApplyDefault}
+        onOfferDone={() => setOfferApplyDefault(false)}
+      />
+    );
   } else if (activeTab === "triage") {
     content = <TriageSettings config={config} setConfig={setConfig} />;
   } else {

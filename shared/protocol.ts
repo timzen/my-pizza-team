@@ -1045,6 +1045,18 @@ export interface SetTeamModelResponse {
   unsupported: string[];
   error?: string;
 }
+// POST /api/agents/model/default — send every live unpinned agent the team
+// default model (TeamConfig.defaultModel; daemon/default-model.ts).
+export interface ApplyDefaultModelResponse {
+  success: boolean;
+  /** One set-model (source `default`) per agent sent one; `model` null = the default was cleared. */
+  directives: Array<{ memberId: string; directiveId: string; model: string | null }>;
+  /** Live agents left alone: a user pinned their model (or a pick of theirs is pending). */
+  pinned: string[];
+  /** Live agents whose harness can't switch models. */
+  unsupported: string[];
+  error?: string;
+}
 export interface UpdateLeaderDirectiveResponse { success: boolean; error?: string }
 
 // ─── Directory suggestions (docs/DESIGN.md "Favorite Directories") ───

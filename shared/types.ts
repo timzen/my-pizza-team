@@ -180,12 +180,23 @@ export interface TeamConfig {
    */
   sourcePersonas?: Record<string, SourcePersonaSetting>;
   /**
+   * The team default model, per harness: `{ "<harness>": "<model id>" }`, e.g.
+   * `{ "pi": "<provider>/<model>" }`. Keyed by harness like `modelAliases` (and
+   * kept beside it, for the same reason: not inside `harnesses`). An agent that
+   * registers with no user pin is sent it as a `set-model` (source `default`);
+   * a pin or a persona's model wins over it (docs/DESIGN.md "Choosing a
+   * Model"; shared/model-aliases.ts `teamDefaultModel`). Unset = each harness's
+   * own default. Edited on Config → Models; applies to agents registering
+   * after a save, and to running ones via "Apply to all teammates now".
+   */
+  defaultModel?: Record<string, string>;
+  /**
    * Persona model aliases, per harness: `{ "<harness>": { "<alias>": "<model id>" } }`,
    * e.g. `{ "pi": { "strong": "<provider>/<model>" } }`. A persona's frontmatter
    * `model` names an alias; the daemon resolves it for the claiming harness and
    * sends the model id in the claim (shared/model-aliases.ts; docs/DESIGN.md
    * "Persona settings"). Unset = no aliases: a persona's `model` sets nothing.
-   * Edited on Config → Teammates; live (read at every claim).
+   * Edited on Config → Models; live (read at every claim).
    */
   modelAliases?: Record<string, Record<string, string>>;
   /**

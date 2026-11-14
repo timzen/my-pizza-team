@@ -19,7 +19,14 @@
  * The daemon resolves the alias for the *claiming* harness at claim time
  * (`resolvePersonaModel`) and sends both in the claim's `persona` (`model` +
  * `modelId`); a harness that can switch models applies `modelId` for that
- * work item (docs/DESIGN.md "Persona settings"). Pure: no I/O.
+ * work item (docs/DESIGN.md "Persona settings").
+ *
+ * The team default model lives beside the aliases, keyed by harness the same
+ * way (`TeamConfig.defaultModel`, `"defaultModel": { "pi": "<provider>/<model>" }`):
+ * `teamDefaultModel` reads it for one harness, `validateDefaultModel` checks a
+ * save. The daemon sends it to unpinned agents as a `set-model` with source
+ * `default` (daemon/default-model.ts; docs/DESIGN.md "Choosing a Model").
+ * Pure: no I/O.
  */
 
 import type { TeamConfig } from "./types.ts";
@@ -97,6 +104,36 @@ export function validateModelAliases(raw: unknown): { value: ModelAliases } | { 
       clean[alias] = id.trim();
     }
     if (Object.keys(clean).length > 0) out[harness] = clean;
+  }
+  return { value: out };
+}
+
+/** `TeamConfig.defaultModel`: harness name → that harness's default model id. */
+export type DefaultModels = Record<string, string>;
+
+/** The team default model for `harness`, or null when none is set (the harness's own default). */
+export function teamDefaultModel(config: Pick<TeamConfig, "defaultModel">, harness: string): string | null {
+  const id = config.defaultModel?.[harness];
+  return typeof id === "string" && id.trim() ? id.trim() : null;
+}
+
+/**
+ * Check a `defaultModel` value from a save request: a map of harness →
+ * model id. Ids are trimmed; an empty one drops that harness (no default).
+ * Returns the cleaned map or the first error.
+ */
+export function validateDefaultModel(raw: unknown): { value: DefaultModels } | { error: string } {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return { error: "defaultModel must be an object: { \"<harness>\": \"<model id>\" }" };
+  }
+  const out: DefaultModels = {};
+  for (const [harness, id] of Object.entries(raw as Record<string, unknown>)) {
+    if (!harness.trim()) return { error: "defaultModel: a harness name can't be empty" };
+    if (id === null || id === "") continue;
+    if (typeof id !== "string") return { error: `defaultModel.${harness} must be a model id (a string)` };
+    // The daemon's bound on a model string (daemon/agent-models.ts MAX_MODEL_REF_LENGTH).
+    if (id.trim().length > 200) return { error: `defaultModel.${harness} must be at most 200 characters` };
+    if (id.trim()) out[harness] = id.trim();
   }
   return { value: out };
 }

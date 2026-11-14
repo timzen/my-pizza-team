@@ -118,7 +118,7 @@ Click the chip (or Tab to it and press Enter) for the models its harness can use
   switches — after its current run, never in the middle of one — then shows the new
   model with its pin. If the teammate can't use it, the reason appears under the chip
   and nothing changes.
-- **Clear pin** goes back to its persona's model (or the default).
+- **Clear pin** goes back to its persona's model (or the [team default](glossary.md#team-default-model)).
 - **Apply … to all teammates** pins the same model on every live teammate.
 
 A teammate whose harness can't switch models shows the chip without the menu; its

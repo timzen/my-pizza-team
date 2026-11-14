@@ -110,6 +110,10 @@ export const FIELD_HELP = {
     text: "While work runs in a directory, other work for it waits, so two teammates never edit one checkout.",
     learnMore: { topic: "teammates", anchor: "one-teammate-per-directory" },
   },
+  defaultModel: {
+    text: "The model each harness's teammates and the assistant use unless pinned or set by their persona. Empty keeps the harness's own.",
+    learnMore: { topic: "configuration", anchor: "models" },
+  },
   personaModels: {
     text: "Lets a persona's model alias switch the teammate's model. Off keeps every run on the harness's model.",
     learnMore: { topic: "personas", anchor: "model-aliases" },

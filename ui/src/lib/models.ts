@@ -4,6 +4,9 @@
  * model picker read an agent's model state (GET /api/agents/:id/model,
  * `AgentModelResponse`) through these.
  *
+ * Config → Models' default-model picker offers the union of the live agents'
+ * models per harness (`modelChoicesByHarness`).
+ *
  * Model ids are opaque: a model is matched by its `AvailableModel.ref` (what
  * the harness accepts back) or, for the session's model, by `provider/id` —
  * never by anything vendor-specific. The effective model is the one the
@@ -109,4 +112,24 @@ export function currentRef(state: AgentModelResponse | null | undefined): string
   const cur = state?.current;
   if (!cur) return null;
   return state?.models?.find((m) => m.id === cur.id && m.provider === cur.provider)?.ref ?? sessionModelRef(cur);
+}
+
+/**
+ * The models the live agents report, grouped by harness: each harness's union
+ * of `AvailableModel`s (by ref, first name seen), sorted by name. Offline agents
+ * and those that never reported are skipped. What Config → Models' default
+ * model picker offers (beside free text).
+ */
+export function modelChoicesByHarness(
+  agents: ReadonlyArray<{ status: string; harness?: string; models?: AvailableModel[] | null }> | null | undefined,
+): Map<string, AvailableModel[]> {
+  const byHarness = new Map<string, Map<string, AvailableModel>>();
+  for (const a of agents ?? []) {
+    if (a.status === "offline" || !a.models) continue;
+    const h = a.harness || "pi";
+    const refs = byHarness.get(h) ?? new Map<string, AvailableModel>();
+    for (const m of a.models) if (!refs.has(m.ref)) refs.set(m.ref, m);
+    byHarness.set(h, refs);
+  }
+  return new Map([...byHarness].map(([h, refs]) => [h, [...refs.values()].sort((x, y) => x.name.localeCompare(y.name) || x.ref.localeCompare(y.ref))]));
 }

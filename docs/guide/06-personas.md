@@ -83,7 +83,7 @@ Built-in personas set none; a package persona's are read-only like the rest of i
 
 A persona never names a real model — those differ between harnesses and machines —
 but an **alias**: `model: "strong"`. Your team maps each alias to a model, per
-harness, on **Config → Teammates → Persona Models** (or in `config.json`):
+harness, on **Config → Models → Model Aliases** (or in `config.json`):
 
 ```json
 "modelAliases": { "pi": { "strong": "<provider>/<model>", "fast": "<provider>/<model>" } }

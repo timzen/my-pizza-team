@@ -68,7 +68,7 @@ const ROUTES: Route[] = [
     "/work/board", "/work/tasks", "/work/schedule", "/work/pending", "/work/archived",
     "/task/add-user-auth/add-user-auth-1", "/story/add-user-auth",
     "/work-defs/audit-project-dependencies", "/work-defs/nightly-test-run",
-    "/config", "/config/teammates", "/config/sources", "/config/workflows", "/config/workflows/default",
+    "/config", "/config/teammates", "/config/models", "/config/sources", "/config/workflows", "/config/workflows/default",
     "/config/personas", "/config/triage", "/config/theme",
     "/help", "/help/tasks-and-runs", "/help/glossary", "/usage",
   ].map((p) => ({ name: p, path: p })),

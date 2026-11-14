@@ -2633,6 +2633,24 @@ switch its model, and only between runs.
   pins every live teammate (naming those that can't); `GET /api/agents/:id/model`
   — supported, models, pin, the live model, the latest ask — and `GET
   /api/agents` carries `modelSwitching`, `models` and `modelPin` per agent.
+- **The team default is an ask too** (`defaultModel`, per harness, beside
+  `modelAliases` for the same reason: not inside `harnesses`, whose entries
+  replace the start templates). The daemon doesn't write it into a start
+  command: when an agent registers with no pin (and no set-model already
+  pending), it is sent a `set-model` with source `default` — teammates and the
+  assistant alike (daemon/default-model.ts) — and again when a user clears a pin,
+  since a pinned agent was never sent it. The daemon can't know which model a
+  fresh session runs (registration clears the session stats), so it always
+  asks; the harness's switch is idempotent. *Why not on the start command:* the
+  templates are harness-specific and user-editable, and an ask goes through the
+  same check-and-report path as every other model change, so a default the
+  harness can't use fails visibly instead of crashing the start. A changed
+  default reaches running agents only when asked — Config → Models' **Apply to
+  all teammates now** (`POST /api/agents/model/default`), offered after the
+  save — which sends every live unpinned agent its harness's default (or `null`,
+  dropping an earlier one). Pinned agents (or ones with a user pick pending) are
+  left alone: the pin wins anyway. `mpt doctor` cross-checks the default and the
+  alias targets against the live agents' reported models.
 
 ## One Agent to Talk To
 

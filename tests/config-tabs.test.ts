@@ -11,9 +11,9 @@ import {
 } from "../ui/src/lib/config-tabs.ts";
 
 test("CONFIG_TABS: order and deep-linkable routes", () => {
-  assertEquals(CONFIG_TABS.map((t) => t.label), ["General", "Teammates", "Sources", "Workflows", "Personas", "Triage", "Theme"]);
+  assertEquals(CONFIG_TABS.map((t) => t.label), ["General", "Teammates", "Models", "Sources", "Workflows", "Personas", "Triage", "Theme"]);
   assertEquals(CONFIG_TABS.map((t) => t.path), [
-    "/config", "/config/teammates", "/config/sources", "/config/workflows", "/config/personas", "/config/triage", "/config/theme",
+    "/config", "/config/teammates", "/config/models", "/config/sources", "/config/workflows", "/config/personas", "/config/triage", "/config/theme",
   ]);
 });
 
@@ -31,14 +31,14 @@ test("configTabFromPath: each tab's route, detail routes, and unknown → genera
 
 test("visibleConfigTabs: Workflows hidden while Stories are off (and until toggles load)", () => {
   const tabs = (f: Parameters<typeof visibleConfigTabs>[0]) => visibleConfigTabs(f).map((t) => t.tab);
-  assertEquals(tabs({ stories: true, tasks: true, schedules: true }), ["general", "teammates", "sources", "workflows", "personas", "triage", "theme"]);
-  assertEquals(tabs({ stories: false, tasks: true, schedules: true }), ["general", "teammates", "sources", "personas", "triage", "theme"]);
-  assertEquals(tabs(null), ["general", "teammates", "sources", "personas", "triage", "theme"]);
+  assertEquals(tabs({ stories: true, tasks: true, schedules: true }), ["general", "teammates", "models", "sources", "workflows", "personas", "triage", "theme"]);
+  assertEquals(tabs({ stories: false, tasks: true, schedules: true }), ["general", "teammates", "models", "sources", "personas", "triage", "theme"]);
+  assertEquals(tabs(null), ["general", "teammates", "models", "sources", "personas", "triage", "theme"]);
 });
 
 test("tabSavesConfig: only the config.json tabs show the global Save", () => {
   const saving = CONFIG_TABS.filter((t) => tabSavesConfig(t.tab)).map((t) => t.tab);
-  assertEquals(saving, ["general", "teammates", "triage"]);
+  assertEquals(saving, ["general", "teammates", "models", "triage"]);
 });
 
 test("workflowPath: encodes the name", () => {

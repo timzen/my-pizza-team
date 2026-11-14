@@ -24,6 +24,7 @@ import {
 import { packageVersion } from "../../shared/paths.ts";
 import { resolvePersonaModel } from "../../shared/model-aliases.ts";
 import { parseAvailableModels } from "../agent-models.ts";
+import { offerDefaultModelAfterUnpin, offerDefaultModelOnRegister } from "../default-model.ts";
 import { dismissParams, focusMember } from "../spawner.ts";
 
 /** The longest wait `reason` accepted: a one-line status, not a report (that goes in a comment). */
@@ -111,6 +112,9 @@ export function registerAgentRoutes(ctx: RouteContext): void {
       // Additive too: absent (or not a list) = not reported (daemon/agent-models.ts).
       models: parseAvailableModels(body.models),
     });
+    // The team default model for its harness, as a set-model it realizes once it
+    // polls (unpinned agents only; daemon/default-model.ts).
+    offerDefaultModelOnRegister(store, config, body.id);
 
     return c.json({
       success: true,
@@ -522,8 +526,12 @@ export function registerAgentRoutes(ctx: RouteContext): void {
   app.put("/api/agents/:id/directives/:directiveId", async (c) => {
     const body = await readBody(c) as { status?: string; error?: unknown };
     const error = typeof body.error === "string" && body.error.trim() ? body.error.trim().slice(0, 1000) : undefined;
-    const ok = store.completeMemberDirective(c.req.param("directiveId"), body.status || "done", error);
+    const directive = store.getLeaderDirective(c.req.param("directiveId"));
+    const status = body.status || "done";
+    const ok = store.completeMemberDirective(c.req.param("directiveId"), status, error);
     if (!ok) return fail(c, 404, "Directive not found");
+    // A cleared pin falls back to the team default, never sent while pinned.
+    if (directive) offerDefaultModelAfterUnpin(store, config, directive, status);
     return c.json({ success: true });
   });
 

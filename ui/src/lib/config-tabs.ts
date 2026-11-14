@@ -4,7 +4,7 @@
  * "Save Configuration" button.
  *
  * Config is the home for team-wide settings and libraries: General, Teammates,
- * Sources (Work Source plugins: on/off, settings form, Preview — list +
+ * Models (the team default model, the persona model aliases, failover), Sources (Work Source plugins: on/off, settings form, Preview — list +
  * `/config/sources/:id`), Workflows (list + `/config/workflows/:name` detail), Personas
  * (the persona library — list + `/config/personas/:id`), Triage (auto-triage
  * settings + the triage persona), and Theme.
@@ -15,7 +15,7 @@
 import { filterByFeatures, type FeatureName, type Features } from "./features.ts";
 
 /** One Config tab. */
-export type ConfigTab = "general" | "teammates" | "sources" | "workflows" | "personas" | "triage" | "theme";
+export type ConfigTab = "general" | "teammates" | "models" | "sources" | "workflows" | "personas" | "triage" | "theme";
 
 /** A tab's route, label, gating feature, and whether it edits the daemon config draft. */
 export interface ConfigTabDef {
@@ -36,6 +36,7 @@ export interface ConfigTabDef {
 export const CONFIG_TABS: readonly ConfigTabDef[] = [
   { tab: "general", path: "/config", label: "General", savesConfig: true },
   { tab: "teammates", path: "/config/teammates", label: "Teammates", savesConfig: true },
+  { tab: "models", path: "/config/models", label: "Models", savesConfig: true },
   { tab: "sources", path: "/config/sources", label: "Sources", savesConfig: false },
   { tab: "workflows", path: "/config/workflows", label: "Workflows", feature: "stories", savesConfig: false },
   { tab: "personas", path: "/config/personas", label: "Personas", savesConfig: false },

@@ -11,6 +11,9 @@ Settings live under the **config** (gear) icon, at `/config`:
   and **Experimental Harnesses** (opt in to Kiro / Claude Code teammates and pick the
   default harness; applies on save, no restart — see
   [Teammates](03-teammates.md#experimental-kiro-and-claude-code-teammates))
+- **Models** — the team's **default model** (with **Apply to all teammates now**),
+  the **model aliases** personas name, and (coming soon) the failover policy — see
+  [Models](#models)
 - **Sources** — your source plugins: switch each on or off, edit its settings,
   **Preview** what it would pull, and **Save** (see
   [Setting up a source from the UI](07-sources.md#setting-up-a-source-from-the-ui))
@@ -23,10 +26,10 @@ Settings live under the **config** (gear) icon, at `/config`:
   run follows (edit it on Personas)
 - **Theme** — palette (a client-side preference; light/dark is the navbar toggle)
 
-Each tab has its own address (`/config/teammates`, `/config/sources`,
+Each tab has its own address (`/config/teammates`, `/config/models`, `/config/sources`,
 `/config/workflows`, `/config/personas`, `/config/triage`, `/config/theme`). **Save
-Configuration** appears on General, Teammates, and Triage — it saves the edits from
-all three at once. Sources has its own Save per plugin (and source personas apply at
+Configuration** appears on General, Teammates, Models, and Triage — it saves the edits from
+all four at once. Sources has its own Save per plugin (and source personas apply at
 once), Workflows and Personas save as you go, the assistant's persona and model apply at once,
 and Theme applies immediately.
 
@@ -48,6 +51,33 @@ once — no Save:
 
 A teammate's model is chosen on its own page — see
 [Choosing its model](03-teammates.md#choosing-its-model).
+
+## Models
+
+**Config → Models** (`/config/models`) is where you decide which models the team runs.
+Everything here is saved with **Save Configuration**.
+
+- **Default Model** — the model the team uses, one field per harness (Pi always; others
+  once they're running or set). Type a model id or pick one of the suggestions — the
+  models your running teammates and assistant say they can use. Empty means the
+  harness's own default. A teammate or the assistant that starts after you save
+  switches to it, unless you pinned its model (a [model pin](glossary.md#model-pin))
+  or its persona names a model, which win over the default.
+- **Apply to all teammates now** — sends the saved default to every running teammate
+  and the assistant that has no pinned model; each switches after its current run.
+  When a save changes the default, the card offers this right away (**Apply now** /
+  **Not now**). Pinned agents are left as they are, and one whose harness can't switch
+  models is counted as "not supported". With unsaved edits the button waits for you
+  to save first.
+- **Model Aliases** — the names personas use for a kind of model (`strong`, `fast`),
+  each mapped to a model id per harness, and **Use persona models** (see
+  [Model aliases](06-personas.md#model-aliases)).
+- **Failover** — coming soon: models to fall back on when the usual one is throttled
+  or failing.
+
+In `config.json` the default is `"defaultModel": { "pi": "<provider>/<model>" }`.
+`mpt doctor` shows the default and the aliases, and warns when one names a model none
+of the running agents can use.
 
 ## Work items (feature toggles)
 

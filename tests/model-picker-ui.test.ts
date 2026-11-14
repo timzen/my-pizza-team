@@ -12,7 +12,7 @@ import { test } from "node:test";
 import fs from "node:fs";
 import path from "node:path";
 import { assert, assertEquals, assertStringIncludes } from "./_assert.ts";
-import { applyToAllModel, changeOutcome, currentRef, failoverActive, modelChipView, modelLabel, sessionModelRef } from "../ui/src/lib/models.ts";
+import { applyToAllModel, changeOutcome, currentRef, failoverActive, modelChipView, modelChoicesByHarness, modelLabel, sessionModelRef } from "../ui/src/lib/models.ts";
 import type { AgentModelResponse, ModelChangeView } from "../shared/protocol.ts";
 
 const MODELS = [
@@ -101,4 +101,17 @@ test("placement: the chip is on the teammate page and the Assistant card, not th
   const chip = read("ui/src/components/team/ModelChip.tsx");
   assert(chip.includes("aria-label={`${chipName(view, pending)}: change ${agent.name}'s model`}"), "the trigger is named, visible text first");
   assert(chip.includes("<FormError"), "a failed switch is shown and announced");
+});
+
+test("modelChoicesByHarness: the live agents' models per harness, deduped by ref, sorted by name", () => {
+  const byHarness = modelChoicesByHarness([
+    { status: "idle", harness: "pi", models: [MODELS[1]!, MODELS[0]!] },
+    { status: "working", models: [MODELS[0]!, { ref: "acme/mid", id: "mid", name: "Acme Mid", provider: "acme" }] }, // no harness = pi
+    { status: "offline", harness: "pi", models: [{ ref: "gone/x", id: "x", name: "Gone", provider: "gone" }] },
+    { status: "idle", harness: "kiro", models: null },
+    { status: "idle", harness: "claude", models: [{ ref: "c", id: "c", name: "C", provider: "" }] },
+  ]);
+  assertEquals([...byHarness.keys()], ["pi", "claude"]);
+  assertEquals(byHarness.get("pi")!.map((m) => m.ref), ["acme/fast", "acme/mid", "acme/strong"]);
+  assertEquals(modelChoicesByHarness(null).size, 0);
 });

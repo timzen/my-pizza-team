@@ -13,7 +13,9 @@
  *     model, the latest ask); `POST /api/agents/:id/model` `{ model | null }`
  *     pins a model on one agent — the assistant too, by the leader's id — or
  *     clears the pin; `POST /api/agents/model` `{ model, scope: "teammates" }`
- *     pins it on every live teammate.
+ *     pins it on every live teammate; `POST /api/agents/model/default` sends
+ *     every live unpinned agent the team default model (`TeamConfig.defaultModel`,
+ *     daemon/default-model.ts) — Config → Models' "Apply to all teammates now".
  *
  * An agent whose harness didn't declare `set-model` (an older one, `mpt agent`)
  * gets a 409 with `unsupported: true` — the UI's "not supported by this
@@ -26,13 +28,14 @@ import type { RouteContext } from "./types.ts";
 import { readBody, fail } from "./http.ts";
 import { isPoolTeammate } from "../store.ts";
 import { parseAvailableModels, parseModelRef, setModelParams } from "../agent-models.ts";
-import { SET_MODEL_CAPABILITY, type AgentModelResponse } from "../../shared/protocol.ts";
+import { applyDefaultModel } from "../default-model.ts";
+import { SET_MODEL_CAPABILITY, type AgentModelResponse, type ApplyDefaultModelResponse } from "../../shared/protocol.ts";
 
 /** The 409 reply's wording for a harness that can't switch models. */
 export const MODEL_SWITCHING_UNSUPPORTED = "Model switching is not supported by this harness (upgrade it, or change the model in its own session)";
 
 export function registerModelRoutes(ctx: RouteContext): void {
-  const { app, store } = ctx;
+  const { app, store, config } = ctx;
 
   app.post("/api/agents/:id/models", async (c) => {
     const id = c.req.param("id");
@@ -69,6 +72,11 @@ export function registerModelRoutes(ctx: RouteContext): void {
         : fail(c, 409, MODEL_SWITCHING_UNSUPPORTED, { unsupported: true });
     }
     return c.json({ success: true, directive: res.directive }, 201);
+  });
+
+  // Registered before the `:id` routes on purpose (a literal path, never an agent id).
+  app.post("/api/agents/model/default", (c) => {
+    return c.json({ success: true, ...applyDefaultModel(store, config) } satisfies ApplyDefaultModelResponse);
   });
 
   app.post("/api/agents/model", async (c) => {

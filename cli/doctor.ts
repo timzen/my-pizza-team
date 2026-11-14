@@ -58,7 +58,7 @@ import {
 } from "../shared/runtime-config.ts";
 import { cliEntryScript } from "../shared/paths.ts";
 import { readTeamConfigFile } from "../shared/team-config.ts";
-import { personaModelsEnabled, resolvePersonaModel } from "../shared/model-aliases.ts";
+import { personaModelsEnabled, resolvePersonaModel, type DefaultModels, type ModelAliases } from "../shared/model-aliases.ts";
 import { loadAgentEnv } from "../shared/env-file.ts";
 import type { ServiceProgram } from "./service.ts";
 import type { PluginLoadStatus, SourcesResponse } from "../shared/protocol.ts";
@@ -161,6 +161,12 @@ export interface DoctorFacts {
    */
   personaModels?: PersonaModelFacts | null;
   /**
+   * The team default model and model aliases (config.json), and — when the
+   * daemon answered — which models its live agents report they can use
+   * (`teamModelFacts`). Absent/null = no config.json, or it's unreadable.
+   */
+  teamModels?: TeamModelFacts | null;
+  /**
    * The MCP servers in-use personas declare (`requires.mcp`) and whether Pi's
    * config has them (`personaMcpFacts`). Absent/null = not known (daemon down,
    * or teammates don't run on Pi).
@@ -207,6 +213,20 @@ export interface PersonaModelFacts {
   inUse: number;
   /** Each alias in use with no mapping for `harness`, and the personas naming it. */
   unmapped: Array<{ alias: string; personas: string[] }>;
+}
+
+/** The team-model facts `mpt doctor` reports (Config → Models; shared/model-aliases.ts). */
+export interface TeamModelFacts {
+  /** `defaultModel`: harness → the team default model id. */
+  defaults: DefaultModels;
+  /** `modelAliases`: harness → alias → model id. */
+  aliases: ModelAliases;
+  /**
+   * Per harness, the models its live agents report they can use (the union of
+   * their `AvailableModel.ref`s) — only harnesses where some live agent reported
+   * any. Null when the daemon wasn't reachable (nothing to compare against).
+   */
+  available: Record<string, string[]> | null;
 }
 
 /** The Node facts (shared/runtime-config.ts), gathered so the checks stay pure. */
@@ -497,6 +517,7 @@ export function evaluate(f: DoctorFacts): Check[] {
 
   if (f.agentEnv) checks.push(agentEnvCheck(f.agentEnv));
 
+  if (f.teamModels) checks.push(...teamModelChecks(f.teamModels));
   if (f.daemonRunning && f.personaModels) checks.push(...personaModelChecks(f.personaModels));
   if (f.daemonRunning && f.personaMcp) checks.push(...personaMcpChecks(f.personaMcp));
 
@@ -540,6 +561,65 @@ export function agentEnvCheck(env: NonNullable<DoctorFacts["agentEnv"]>): Check 
 }
 
 /**
+ * The team-model facts: config.json's `defaultModel` and `modelAliases`, and
+ * the available models of the daemon's live agents (`GET /api/agents`), grouped
+ * by harness (null = the daemon didn't answer). Pure.
+ */
+export function teamModelFacts(
+  config: { defaultModel?: DefaultModels; modelAliases?: ModelAliases },
+  agents: Array<{ status?: string; harness?: string; models?: Array<{ ref: string }> | null }> | null,
+): TeamModelFacts {
+  let available: Record<string, string[]> | null = null;
+  if (agents) {
+    const byHarness = new Map<string, Set<string>>();
+    for (const a of agents) {
+      if (a.status === "offline" || !Array.isArray(a.models)) continue;
+      const h = a.harness || DEFAULT_HARNESS;
+      const set = byHarness.get(h) ?? new Set<string>();
+      for (const m of a.models) if (m && typeof m.ref === "string") set.add(m.ref);
+      byHarness.set(h, set);
+    }
+    available = Object.fromEntries([...byHarness].map(([h, set]) => [h, [...set].sort()]));
+  }
+  return { defaults: { ...(config.defaultModel ?? {}) }, aliases: { ...(config.modelAliases ?? {}) }, available };
+}
+
+/**
+ * The team-model checks: the default model and the aliases, one ok line each
+ * (the default's "not set" is fine — each harness keeps its own); then, when
+ * the daemon's live agents reported their models, a warning per configured
+ * model no live agent of that harness can use (a switch to it would fail).
+ */
+export function teamModelChecks(f: TeamModelFacts): Check[] {
+  const checks: Check[] = [];
+  const defaults = Object.entries(f.defaults).sort(([a], [b]) => a.localeCompare(b));
+  checks.push(defaults.length > 0
+    ? { name: "Default model", status: "ok", detail: defaults.map(([h, id]) => `${h}: ${id}`).join("; ") }
+    : { name: "Default model", status: "ok", detail: "not set — each harness uses its own default (optional)", fix: "set one on Config → Models" });
+  const aliasLines = Object.entries(f.aliases).sort(([a], [b]) => a.localeCompare(b))
+    .map(([h, map]) => `${h}: ${Object.entries(map).sort(([a], [b]) => a.localeCompare(b)).map(([alias, id]) => `${alias} → ${id}`).join(", ")}`);
+  if (aliasLines.length > 0) checks.push({ name: "Model aliases", status: "ok", detail: aliasLines.join("; ") });
+  if (!f.available) return checks;
+  // Each configured model, with what configures it, checked against its harness's live agents.
+  const configured: Array<{ harness: string; id: string; what: string }> = [
+    ...defaults.map(([harness, id]) => ({ harness, id, what: `the team default for ${harness}` })),
+    ...Object.entries(f.aliases).flatMap(([harness, map]) =>
+      Object.entries(map).map(([alias, id]) => ({ harness, id, what: `alias "${alias}" for ${harness}` }))),
+  ];
+  for (const c of configured) {
+    const list = f.available[c.harness];
+    if (!list || list.includes(c.id)) continue; // no live agent reported (nothing to compare), or it's there
+    checks.push({
+      name: `Model "${c.id}"`,
+      status: "warn",
+      detail: `${c.what}, but no live ${c.harness} agent lists it as available — switching to it would fail`,
+      fix: "pick one the agents report on Config → Models, or set up that model's credentials for the harness",
+    });
+  }
+  return checks;
+}
+
+/**
  * The persona `model` aliases (shared/model-aliases.ts) the team's default
  * harness can't resolve — or which are in use while `personaModels` is off.
  * Collected so the check stays pure; `personas` is the daemon's library
@@ -576,7 +656,7 @@ export function personaModelChecks(f: PersonaModelFacts): Check[] {
     name: `Persona model "${u.alias}"`,
     status: "warn" as const,
     detail: `no mapping for the ${f.harness} harness — used by ${u.personas.join(", ")}; their runs keep the default model`,
-    fix: `add it on Config → Teammates (Persona Models), or set "modelAliases": { "${f.harness}": { "${u.alias}": "<model id>" } } in config.json`,
+    fix: `add it on Config → Models (Model Aliases), or set "modelAliases": { "${f.harness}": { "${u.alias}": "<model id>" } } in config.json`,
   }));
 }
 
@@ -912,6 +992,7 @@ export async function gather(opts: GatherOptions): Promise<DoctorFacts> {
   let daemonTerminal: string | null = null;
   let agentsOnOtherTerminal: DoctorFacts["agentsOnOtherTerminal"] = null;
   let daemonTerminalStatus: TerminalStatus | null = null;
+  let liveAgents: Array<{ status?: string; harness?: string; models?: Array<{ ref: string }> | null }> | null = null;
   try {
     const health = await fetch(`${opts.daemonUrl}/health`, { signal: AbortSignal.timeout(1500) });
     if (health.ok) {
@@ -933,7 +1014,8 @@ export async function gather(opts: GatherOptions): Promise<DoctorFacts> {
     const res = await fetch(`${opts.daemonUrl}/api/agents`, { signal: AbortSignal.timeout(1500) });
     daemonRunning = res.ok;
     if (res.ok) {
-      const body = await res.json() as { agents?: Array<{ name: string; status: string }> };
+      const body = await res.json() as { agents?: Array<{ name: string; status: string; harness?: string; models?: Array<{ ref: string }> | null }> };
+      liveAgents = body.agents ?? [];
       leaderConnected = (body.agents ?? []).some((a) =>
         a.status !== "offline" && a.name.toLowerCase().includes("leader")
       );
@@ -956,6 +1038,12 @@ export async function gather(opts: GatherOptions): Promise<DoctorFacts> {
       if (res.ok) personaModels = personaModelFacts((await res.json() as { personas?: Array<{ id: string; model?: string }> }).personas ?? [], config);
     } catch { /* unreachable daemon or unreadable config.json: the check is skipped */ }
   }
+
+  let teamModels: TeamModelFacts | null = null;
+  try {
+    const raw = readTeamConfigFile(opts.teamDir);
+    if (raw) teamModels = teamModelFacts(raw, daemonRunning ? liveAgents : null);
+  } catch { /* unreadable config.json: covered by the team-dir checks */ }
 
   let personaMcp: PersonaMcpFacts | null = null;
   if (daemonRunning) {
@@ -1000,6 +1088,7 @@ export async function gather(opts: GatherOptions): Promise<DoctorFacts> {
     plugins,
     agentEnv: agentEnvFacts(opts.teamDir),
     personaModels,
+    teamModels,
     personaMcp,
   };
 }

@@ -3,14 +3,15 @@
  * (ui/src/lib/config-draft.ts): the PUT body drops read-only fields and only
  * carries `features` when a toggle changed, name nouns are normalized, and the
  * Default Harness picker lists built-ins then valid custom harnesses, and the
- * Persona Models editor's rows and edits.
+ * Model Aliases editor's rows and edits, and the Default Model card's edits,
+ * saved-vs-draft comparison and harness rows.
  */
 
 import { test } from "node:test";
 import { assertEquals } from "./_assert.ts";
 import {
-  BUILT_IN_HARNESSES, configBody, harnessOptions, isValidModelAlias, modelAliasRows, normalizeNoun, setModelAlias,
-  terminalSwitchWarning, type ConfigData,
+  BUILT_IN_HARNESSES, configBody, defaultModelHarnesses, harnessOptions, isValidModelAlias, modelAliasRows, normalizeNoun,
+  sameDefaultModels, setDefaultModel, setModelAlias, terminalSwitchWarning, type ConfigData,
 } from "../ui/src/lib/config-draft.ts";
 
 const base: ConfigData = {
@@ -92,4 +93,24 @@ test("persona models: rows are sorted, edits add/replace/remove, and nothing lef
   assertEquals(setModelAlias({ pi: { strong: "x" } }, "pi", "strong", null), null, "null clears the block on save");
   assertEquals(aliases.kiro, { strong: "k" }, "the draft itself is untouched");
   assertEquals([isValidModelAlias("strong"), isValidModelAlias("v1.2_x-y"), isValidModelAlias("two words"), isValidModelAlias("-x")], [true, true, false, false]);
+});
+
+test("setDefaultModel: sets per harness, a blank or null removes it, none left is null", () => {
+  assertEquals(setDefaultModel(undefined, "pi", "acme/x"), { pi: "acme/x" });
+  assertEquals(setDefaultModel({ pi: "acme/x" }, "kiro", "k"), { pi: "acme/x", kiro: "k" });
+  assertEquals(setDefaultModel({ pi: "acme/x", kiro: "k" }, "kiro", "  "), { pi: "acme/x" });
+  assertEquals(setDefaultModel({ pi: "acme/x" }, "pi", null), null);
+});
+
+test("sameDefaultModels: blank and absent alike, whitespace and order ignored", () => {
+  assertEquals(sameDefaultModels(undefined, null), true);
+  assertEquals(sameDefaultModels({ pi: "" }, undefined), true);
+  assertEquals(sameDefaultModels({ pi: "a ", kiro: "k" }, { kiro: "k", pi: "a" }), true);
+  assertEquals(sameDefaultModels({ pi: "a" }, { pi: "b" }), false);
+  assertEquals(sameDefaultModels({ pi: "a" }, null), false);
+});
+
+test("defaultModelHarnesses: Pi first, then configured and live harnesses once", () => {
+  assertEquals(defaultModelHarnesses(undefined, []), ["pi"]);
+  assertEquals(defaultModelHarnesses({ kiro: "k", pi: "a" }, ["claude", "kiro"]), ["pi", "kiro", "claude"]);
 });

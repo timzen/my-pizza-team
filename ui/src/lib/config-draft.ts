@@ -1,11 +1,11 @@
 /**
  * lib/config-draft.ts — The Config page's config.json draft: its shape as the UI
  * edits it, the PUT body built from it, and the small pure rules the tabs apply
- * to it (name-noun normalization, the harness picker's options, the persona
- * model alias rows).
+ * to it (name-noun normalization, the harness picker's options, the team
+ * default model and the persona model alias rows).
  *
  * The draft lives in ConfigPage, above the tabs (components/config/*), so edits
- * on General, Teammates and Triage save together. Kept pure (no React) so the
+ * on General, Teammates, Models and Triage save together. Kept pure (no React) so the
  * rules are unit-tested (tests/config-draft.test.ts).
  */
 
@@ -46,6 +46,8 @@ export interface ConfigData {
   harnesses?: Record<string, { teammate: string; leader?: string }>;
   /** The assistant block; only `persona`, edited via PUT /api/assistant/persona, not this draft. */
   assistant?: { persona?: string };
+  /** The team default model: harness → model id (shared/model-aliases.ts). `null` clears it on save. */
+  defaultModel?: Record<string, string> | null;
   /** Persona model aliases: harness → alias → model id (shared/model-aliases.ts). `null` clears them on save. */
   modelAliases?: Record<string, Record<string, string>> | null;
   /** `false` ignores personas' `model` settings. Unset = on. */
@@ -172,4 +174,37 @@ export function setModelAlias(
   }
   for (const h of Object.keys(next)) if (Object.keys(next[h] ?? {}).length === 0) delete next[h];
   return Object.keys(next).length > 0 ? next : null;
+}
+
+/**
+ * `defaults` with `harness`'s team default model set to `modelId` (trimmed),
+ * or removed when it's null or blank. No defaults at all is `null`, which
+ * clears the block on save.
+ */
+export function setDefaultModel(
+  defaults: ConfigData["defaultModel"], harness: string, modelId: string | null,
+): Record<string, string> | null {
+  const next: Record<string, string> = { ...(defaults ?? {}) };
+  const id = modelId?.trim() ?? "";
+  if (id) next[harness] = modelId!; // kept as typed while editing; the daemon trims on save
+  else delete next[harness];
+  return Object.keys(next).length > 0 ? next : null;
+}
+
+/** Do two `defaultModel` values name the same models (blank/absent alike)? What "Apply to all teammates now" needs saved first. */
+export function sameDefaultModels(a: ConfigData["defaultModel"], b: ConfigData["defaultModel"]): boolean {
+  const clean = (m: ConfigData["defaultModel"]) =>
+    Object.entries(m ?? {}).map(([h, id]) => [h, id.trim()] as const).filter(([, id]) => id).sort(([x], [y]) => x.localeCompare(y));
+  return JSON.stringify(clean(a)) === JSON.stringify(clean(b));
+}
+
+/**
+ * The harnesses the Default Model card shows a row for: Pi always, then every
+ * harness with a default set or a live agent reporting models, in that order
+ * and without repeats.
+ */
+export function defaultModelHarnesses(defaults: ConfigData["defaultModel"], live: Iterable<string>): string[] {
+  const out = ["pi"];
+  for (const h of [...Object.keys(defaults ?? {}), ...live]) if (!out.includes(h)) out.push(h);
+  return out;
 }

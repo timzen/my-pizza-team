@@ -7,7 +7,7 @@
  * feature toggles (validated by daemon/features.ts).
  */
 
-import { validateModelAliases } from "../../shared/model-aliases.ts";
+import { validateDefaultModel, validateModelAliases } from "../../shared/model-aliases.ts";
 import type { RouteContext } from "./types.ts";
 import { readBody, fail } from "./http.ts";
 import type { TeamConfig, WorkflowConfig } from "../../shared/types.ts";
@@ -193,6 +193,9 @@ export function registerSharedRoutes(ctx: RouteContext): void {
       // Persona model aliases (shared/model-aliases.ts): null clears them.
       const modelAliases = body.modelAliases == null ? null : validateModelAliases(body.modelAliases);
       if (modelAliases && "error" in modelAliases) return fail(c, 400, modelAliases.error);
+      // The team default model, per harness (shared/model-aliases.ts): null clears it.
+      const defaultModel = body.defaultModel == null ? null : validateDefaultModel(body.defaultModel);
+      if (defaultModel && "error" in defaultModel) return fail(c, 400, defaultModel.error);
       if (body.personaModels != null && typeof body.personaModels !== "boolean") {
         return fail(c, 400, "personaModels must be a boolean");
       }
@@ -264,6 +267,14 @@ export function registerSharedRoutes(ctx: RouteContext): void {
       else if (modelAliases && "value" in modelAliases) {
         if (Object.keys(modelAliases.value).length > 0) config.modelAliases = modelAliases.value;
         else delete config.modelAliases;
+      }
+      // The team default model. Read at each registration (daemon/default-model.ts);
+      // agents already running get it from "Apply to all teammates now"
+      // (POST /api/agents/model/default). Absent keeps it; null (or empty) clears it.
+      if (body.defaultModel === null) delete config.defaultModel;
+      else if (defaultModel && "value" in defaultModel) {
+        if (Object.keys(defaultModel.value).length > 0) config.defaultModel = defaultModel.value;
+        else delete config.defaultModel;
       }
       if (body.personaModels === false) config.personaModels = false;
       else if (body.personaModels === true || body.personaModels === null) delete config.personaModels;

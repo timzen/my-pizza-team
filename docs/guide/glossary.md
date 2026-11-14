@@ -197,6 +197,14 @@ A window (tmux) or tab (herdr) in the team's terminal that isn't a registered
 the Team tab, and closed only when you click its **Close**. See
 [Unmanaged windows](03-teammates.md#unmanaged-windows).
 
+## Team default model
+
+The model the team's teammates and assistant use unless you pinned theirs (a
+[model pin](#model-pin)) or their persona names one. Set per harness on
+**Config → Models**; agents that start afterwards switch to it, and **Apply to all
+teammates now** moves the running ones. See
+[Models](08-configuration.md#models).
+
 ## Teammate
 
 One of the AI agents in the team's pool that do the work. See
