@@ -216,7 +216,8 @@ turn, no tool call) for longer than `stallMinutes` (default 30). It's a flag, no
 status: nothing is stopped, and it clears when progress resumes. The Team tab shows
 it as an amber ⚠, the teammate's page explains it, and the Inbox gets one note per
 stall. **Interrupt** stops the stuck command and asks the teammate to find out why it
-hung. See [Stalled teammates](03-teammates.md#stalled-teammates).
+hung. To prevent it, a Pi teammate's shell commands get a default timeout
+(`commandTimeoutMinutes`, default 60). See [Stalled teammates](03-teammates.md#stalled-teammates).
 
 ## Story
 

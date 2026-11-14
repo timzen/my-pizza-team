@@ -53,6 +53,8 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { DaemonClient } from "./runtime/client.js";
 import type { AgentActivityReport, ClaimPersona, ModelErrorKind, PairingReleaseAction } from "./shared/agent-protocol.js";
+// By its `.ts` name (like model-error.ts), so the tests load this module standalone.
+import { DEFAULT_COMMAND_TIMEOUT_MINUTES, isCommandTimeoutMinutes } from "./shared/agent-protocol.ts";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
@@ -102,6 +104,13 @@ export class TeammateLoop {
   private heldPersona: { workItemId: string; persona: ClaimPersona } | null = null;
   /** The claim's failover probe model, for the item it was claimed with (see `failoverProbe`). */
   private heldProbe: { workItemId: string; modelId: string } | null = null;
+  /** The claim's default command timeout, for the item it was claimed with (see `commandTimeoutMinutes`). */
+  private heldCommandTimeout: { workItemId: string; minutes: number } | null = null;
+  /**
+   * The team's default command timeout in minutes, from the registration reply
+   * (index.ts sets it); the default when the daemon sent none (an older one).
+   */
+  public teamCommandTimeoutMinutes: number = DEFAULT_COMMAND_TIMEOUT_MINUTES;
 
   public onTaskComplete: ((workItemId: string, result: string) => void) | null = null;
 
@@ -257,6 +266,16 @@ export class TeammateLoop {
   get failoverProbe(): string | null {
     const held = this.heldProbe;
     return held && held.workItemId === this.currentWorkItemId ? held.modelId : null;
+  }
+
+  /**
+   * The default timeout, in minutes, for this agent's bash calls that set none
+   * (command-timeout.ts; my-pizza-team docs/DESIGN.md "Stalled Teammates"): the
+   * claim's state-resolved value for the item in hand, else the team's. 0 = off.
+   */
+  get commandTimeoutMinutes(): number {
+    const held = this.heldCommandTimeout;
+    return held && held.workItemId === this.currentWorkItemId ? held.minutes : this.teamCommandTimeoutMinutes;
   }
 
   /**
@@ -475,6 +494,9 @@ export class TeammateLoop {
         this.heldPersona = claim.persona ? { workItemId: response.workItem.id, persona: claim.persona } : null;
         // A failover revert probe runs this item on the primary (absent: no probe).
         this.heldProbe = claim.failoverProbe?.modelId ? { workItemId: response.workItem.id, modelId: claim.failoverProbe.modelId } : null;
+        // Its default command timeout (absent from an older daemon: the team's).
+        this.heldCommandTimeout = isCommandTimeoutMinutes(claim.commandTimeoutMinutes)
+          ? { workItemId: response.workItem.id, minutes: claim.commandTimeoutMinutes } : null;
         await Promise.resolve(this.onPersonaChange?.(this.persona)).catch(() => {});
         this.onClaimCompletion?.(claim.completion === "poll" ? "poll" : "once");
         this.client.heartbeat("working", response.workItem.id, this.activityReport?.()).catch(() => {});

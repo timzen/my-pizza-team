@@ -19,7 +19,7 @@ import { personaRefOf, personaSettingsOf } from "../personas/resolve.ts";
 import { DEFAULT_HARNESS, isExperimentalHarness, type ResolvedPersona, type TeamConfig, type TriageOutcome, type TriageProposal, type WorkDef, type WorkItemRef } from "../../shared/types.ts";
 import {
   INTERRUPT_CAPABILITY, LEADER_ALREADY_CONNECTED, MIN_PROTOCOL_VERSION, PERSONA_SYSTEM_PROMPT_CAPABILITY, PROTOCOL_VERSION, SET_MODEL_CAPABILITY,
-  isModelErrorKind, type AgentClaimResponse, type AgentListResponse, type ClaimPersona,
+  isModelErrorKind, resolveCommandTimeoutMinutes, type AgentClaimResponse, type AgentListResponse, type AgentRegisterResponse, type ClaimPersona,
 } from "../../shared/protocol.ts";
 import { packageVersion } from "../../shared/paths.ts";
 import { resolvePersonaModel } from "../../shared/model-aliases.ts";
@@ -127,7 +127,10 @@ export function registerAgentRoutes(ctx: RouteContext): void {
       // The user's model pin, applied from the start of this session by a harness
       // that can switch models (docs/DESIGN.md "Choosing a Model").
       modelPin: store.getModelPin(body.id),
-    });
+      // The team's default command timeout, for commands outside a claimed item
+      // (a claim sends its state's; docs/DESIGN.md "Stalled Teammates").
+      commandTimeoutMinutes: resolveCommandTimeoutMinutes(config.commandTimeoutMinutes),
+    } satisfies AgentRegisterResponse);
   });
 
   app.post("/api/agents/heartbeat", async (c) => {
@@ -249,9 +252,12 @@ export function registerAgentRoutes(ctx: RouteContext): void {
     // that runs on the primary. Additive: `failoverProbe` is absent otherwise.
     const chosen = store.failover.claimModel(body.agentId, item.id, claimPersona?.modelId ?? null);
     if (claimPersona && claimPersona.modelId != null) claimPersona.modelId = chosen.modelId;
+    // The default timeout for the run's shell commands that set none
+    // (docs/DESIGN.md "Stalled Teammates"). Additive: an older harness ignores it.
+    const commandTimeoutMinutes = store.commandTimeoutMinutesFor(item.ref.workDefId);
 
     return c.json({
-      success: true, workItem: { id: item.id }, prompt, completion, persona: claimPersona,
+      success: true, workItem: { id: item.id }, prompt, completion, persona: claimPersona, commandTimeoutMinutes,
       ...(chosen.probe ? { failoverProbe: chosen.probe } : {}),
     } satisfies AgentClaimResponse);
   });

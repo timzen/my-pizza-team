@@ -11,7 +11,8 @@
  * Solitary/Scheduled WorkDef's own `persona`) → Story (board work only) →
  * working directory instruction → Goal → Acceptance Criteria →
  * Additional Context → lead comments → (a poll state's earlier checks) →
- * completion guidance. (The former
+ * completion guidance (with `LONG_COMMAND_GUIDANCE`, the one line on running
+ * long commands with a timeout). (The former
  * "Reference Context" section went with the context library; the persona
  * migration inlined its text into Additional Context — docs/DESIGN.md "Personas".)
  *
@@ -34,7 +35,7 @@
  */
 
 import type { WorkDef } from "../shared/types.ts";
-import { DEFAULT_TRIAGE_INSTRUCTIONS } from "./personas/builtins.ts";
+import { DEFAULT_TRIAGE_INSTRUCTIONS, LONG_COMMAND_GUIDANCE } from "./personas/builtins.ts";
 
 /**
  * Demote instruction-file headings so they nest *below* the prompt's own
@@ -222,6 +223,7 @@ export function buildWorkDefPrompt(input: WorkDefPromptInput): string {
 
   // 6. Completion guidance — teammates never move work; finishing IS the signal.
   out += `## Completing This Work\n\n`;
+  out += `${LONG_COMMAND_GUIDANCE}\n\n`;
   out += `Do only this work. When you finish, end with a concise summary of what you accomplished`;
   out += state ? ` — the task then advances automatically. ` : `. `;
   out += `Do not pick up other work. If you cannot make progress, post a comment explaining what you need `;
@@ -259,7 +261,7 @@ function renderPollCompletion(checks: number): string {
   out += `(e.g. "CR-123 has 2 unresolved comments; revision posted") and, in \`details\`, what you did this check — `;
   out += `both go on the thread for the next check — then stop. The daemon runs the next check later; don't sleep or poll yourself.\n`;
   out += `- **Fail**: it can't be done. Post a comment explaining what you need and mark this work item failed.\n\n`;
-  out += `Do only this work. Do not pick up other work.\n`;
+  out += `${LONG_COMMAND_GUIDANCE} Do only this work. Do not pick up other work.\n`;
   return out;
 }
 

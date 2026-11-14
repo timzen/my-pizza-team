@@ -243,6 +243,15 @@ away as soon as the teammate makes progress again, and its Inbox note reads
 A workflow step can set its own `stallMinutes`, for example a longer one for a
 step known to run long builds.
 
+To keep it from happening in the first place, every teammate is told to run tests,
+builds and other long commands with a timeout, and never to start a watch or serve
+mode the task didn't ask for. A Pi teammate's shell command that sets no timeout of
+its own also gets a default one: `commandTimeoutMinutes` in `config.json` (default
+60; 0 turns it off), or a workflow step's own `commandTimeoutMinutes`. A timeout the
+teammate chose is never shortened. If a command hits the default, the teammate is
+told it was MPT's default and that it can re-run the command with a longer timeout
+if it really needs one.
+
 ## Pausing distribution
 
 The **pause button** (⏸) in the navbar stops the daemon from handing out new runs;

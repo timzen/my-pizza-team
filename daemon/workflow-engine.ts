@@ -21,6 +21,7 @@ import {
 } from "../shared/types.ts";
 import { parseDuration } from "../shared/duration.ts";
 import { pollConfigError } from "../shared/poll-config.ts";
+import { isCommandTimeoutMinutes } from "../shared/agent-protocol.ts";
 
 /** Names of a workflow's active states, in order. */
 export function activeStateNames(wf: WorkflowConfig): string[] {
@@ -82,6 +83,9 @@ export function validateWorkflow(wf: WorkflowConfig): string | null {
     if (s.stallMinutes !== undefined && !isStallMinutes(s.stallMinutes)) {
       return `State "${s.name}": stallMinutes must be a number of minutes, 0 or more (0 = never flagged)`;
     }
+    if (s.commandTimeoutMinutes !== undefined && !isCommandTimeoutMinutes(s.commandTimeoutMinutes)) {
+      return `State "${s.name}": commandTimeoutMinutes must be a number of minutes, 0 or more (0 = no default timeout)`;
+    }
   }
   return null;
 }
@@ -101,11 +105,21 @@ export function stateStallMinutes(wf: WorkflowConfig, status: string): number | 
   return s.stallMinutes;
 }
 
+/**
+ * The `commandTimeoutMinutes` of `status` when it is a teammate state that sets
+ * one, else null (the team's applies) — docs/DESIGN.md "Stalled Teammates".
+ */
+export function stateCommandTimeoutMinutes(wf: WorkflowConfig, status: string): number | null {
+  const s = wf.states.find((st) => st.name === status);
+  if (!s || s.type !== "teammate" || !isCommandTimeoutMinutes(s.commandTimeoutMinutes)) return null;
+  return s.commandTimeoutMinutes;
+}
+
 /** The completion fields of a workflow state (docs/DESIGN.md "Polling States"). */
 const COMPLETION_FIELDS = ["completion", "pollEvery", "pollTimeout", "onTimeout"] as const;
 
-/** Every teammate-only field a manual state may wrongly set: the completion fields plus `stallMinutes`. */
-const TEAMMATE_ONLY_FIELDS = [...COMPLETION_FIELDS, "stallMinutes"] as const;
+/** Every teammate-only field a manual state may wrongly set: the completion fields plus `stallMinutes` and `commandTimeoutMinutes`. */
+const TEAMMATE_ONLY_FIELDS = [...COMPLETION_FIELDS, "stallMinutes", "commandTimeoutMinutes"] as const;
 
 /**
  * Why a teammate state's completion fields are refused, or null — the shared

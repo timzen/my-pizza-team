@@ -69,6 +69,8 @@ src/
 ├── activity-report.ts    # attachActivity: the heartbeat's activity report (runtime/activity.ts), for the
 │                         #   daemon's stall check — teammate and leader alike
 │                         #   (Interrupt: runtime/interrupt.ts InterruptRealizer, wired in index.ts)
+├── command-timeout.ts    # CommandTimeoutDefault: a bash call with no timeout gets commandTimeoutMinutes
+│                         #   (tool_call); a defaulted timeout's error says so (tool_result) — teammate only
 ├── persona-mcp.ts        # The persona's requires.mcp checked: knownMcpServers (Pi's mcp.json files,
 │                         #   read-only, + getMcpServers), mcpRequirementProblem
 ├── permissions.ts        # Dynamic yoloMode toggling + ppt-autonomous authorizer chain link;
@@ -181,6 +183,18 @@ marked as the item's own next run, so the item completes when that run ends — 
 reports the directive done. Otherwise it is failed with the reason (no item, paired,
 no run in flight). tests/interrupt.test.mjs runs it against Pi's real bash tool on a
 hung subprocess.
+
+**Default command timeout (teammates).** Pi's bash tool takes an optional `timeout`
+(seconds) and has no default, so `CommandTimeoutDefault` (src/command-timeout.ts,
+attached in index.ts) fills it in `tool_call` for a bash call that sets none — nested
+calls from codemode too — with `loop.commandTimeoutMinutes`: the claim's
+`commandTimeoutMinutes` for the item in hand (`TeammateLoop.heldCommandTimeout`), else
+the team's from the registration reply (`teamCommandTimeoutMinutes`), else 60; 0 = off.
+An explicit `timeout` is never changed. When a defaulted call times out, `tool_result`
+appends a note to Pi's "Command timed out after N seconds": it was MPT's default, and
+to re-run with an explicit, larger `timeout` if the command needs more
+(my-pizza-team docs/DESIGN.md "Stalled Teammates"). tests/command-timeout.test.mjs
+checks it against Pi's real bash tool.
 
 **Triage answers (`propose_work`).** A teammate holding a triage item — a note's, or
 an external source's item in triage mode (my-pizza-team docs/DESIGN.md "External

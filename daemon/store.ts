@@ -62,6 +62,7 @@ import type {
   AgentActivityReport, AgentStall, AvailableModel, InterruptParams, InterruptView, ModelChangeView, ModelErrorKind, PluginLoadStatus, SetModelParams, StallNoteView,
 } from "../shared/protocol.ts";
 import { resolveStallMinutes, stallOf } from "../shared/stall.ts";
+import { resolveCommandTimeoutMinutes } from "../shared/protocol.ts";
 import { FAILOVER_STATE_KEY, ModelFailover, type FailoverEvent } from "./failover.ts";
 import { FAILOVER_NOTES_KEY, FailoverNotes, failoverComment } from "./failover-notes.ts";
 import { STALL_NOTES_KEY, StallNotes, stallComment, type StallObservation } from "./stall-notes.ts";
@@ -894,6 +895,16 @@ export class Store {
    */
   completionFor(workDefId: string): WorkflowStateCompletion {
     return this.storySource.pollSettingsFor(workDefId) ? "poll" : "once";
+  }
+
+  /**
+   * The default timeout, in minutes, for the shell commands of a WorkItem's run
+   * that set none: its workflow state's `commandTimeoutMinutes` (board tasks),
+   * else the team's, else the default (60); 0 = off. Reported on claim, for a
+   * harness that can apply it (docs/DESIGN.md "Stalled Teammates").
+   */
+  commandTimeoutMinutesFor(workDefId: string): number {
+    return resolveCommandTimeoutMinutes(this.config.commandTimeoutMinutes, this.storySource.commandTimeoutMinutesFor(workDefId));
   }
 
   /**

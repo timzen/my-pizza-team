@@ -32,7 +32,8 @@ import type {
 } from "./agent-protocol.ts";
 
 export {
-  ACTIVITY_PREVIEW_MAX, INTERRUPT_ACTION, INTERRUPT_CAPABILITY, cleanActivityPreview,
+  ACTIVITY_PREVIEW_MAX, DEFAULT_COMMAND_TIMEOUT_MINUTES, INTERRUPT_ACTION, INTERRUPT_CAPABILITY, cleanActivityPreview,
+  isCommandTimeoutMinutes, resolveCommandTimeoutMinutes,
   LEADER_ALREADY_CONNECTED, MODEL_ERROR_KINDS, MODEL_FAILOVER_CAPABILITY, PERSONA_SYSTEM_PROMPT_CAPABILITY, PROTOCOL_VERSION,
   SET_MODEL_ACTION, SET_MODEL_CAPABILITY, classifyModelError, isModelErrorKind,
 } from "./agent-protocol.ts";

@@ -112,9 +112,13 @@ number. Delete an item when it's done.
 
 ## Stalled teammates (docs/DESIGN.md "Stalled Teammates")
 
-- **A state's `stallMinutes` in the workflow editor (deferred):** the daemon honors a
-  teammate state's `stallMinutes` (validated, warned about on a manual state), but
-  Config → Workflows has no field for it yet; it's set by editing the workflow file.
+- **A state's `stallMinutes` / `commandTimeoutMinutes` in the workflow editor (deferred):**
+  the daemon honors both on a teammate state (validated, warned about on a manual
+  state), but Config → Workflows has no field for them yet; they're set by editing the
+  workflow file.
+- **Default command timeout for `mpt agent` teammates (deferred):** the claim carries
+  `commandTimeoutMinutes`, but only the Pi harness applies it; an ACP agent's own
+  shell tool gets the prompt's guidance line only.
 - **Activity from `mpt agent` (Kiro, Claude Code) teammates (deferred):**
   `agent/supervisor.ts` sends no activity and no session stats, so its teammates
   are never flagged stalled (there is nothing to measure progress by). ACP's

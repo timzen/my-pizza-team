@@ -92,7 +92,7 @@ export function loadTeamConfig(teamDir: string): TeamConfig {
  */
 const KEY_ORDER = [
   "port", "tmuxSession", "terminal", "herdrSession", "defaultWorkflow", "autosave", "maxTeammates", "minTeammates",
-  "agentTimeoutSeconds", "stallMinutes", "apiToken", "teammates", "readinessProbe", "agentEnvFile", "harnesses",
+  "agentTimeoutSeconds", "stallMinutes", "commandTimeoutMinutes", "apiToken", "teammates", "readinessProbe", "agentEnvFile", "harnesses",
   "defaultHarness", "experimental", "triage", "retry", "exclusiveDirectories", "features",
   "assistant", "sourcePersonas", "defaultModel", "modelAliases", "personaModels", "failover", "favoriteDirectories", "packages", "dev",
 ];

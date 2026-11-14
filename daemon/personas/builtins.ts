@@ -64,6 +64,15 @@ proposals.`;
  */
 export const DEFAULT_TEAMMATE_PERSONA = `You are a teammate working on the task below. Do the work it describes, following the conventions of the project you are working in.`;
 
+/**
+ * The one line of command hygiene every teammate work prompt carries (daemon/prompt.ts,
+ * in its completion section, so it reaches every teammate whatever its persona or
+ * harness). The incident behind it: a hung `node --test` slept for 13 hours behind a
+ * fresh heartbeat (docs/DESIGN.md "Stalled Teammates"). Harness-neutral on purpose;
+ * the Pi harness also applies a default timeout to bash calls that set none.
+ */
+export const LONG_COMMAND_GUIDANCE = "Run tests, builds and other potentially long commands with a timeout, and never start watch/serve modes that don't exit unless the task asks for it.";
+
 /** A built-in's definition (its id, frontmatter, and body). */
 interface BuiltinDef { id: BuiltinPersonaId; title: string; description: string; kinds: PersonaKind[]; content: string }
 

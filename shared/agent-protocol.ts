@@ -201,6 +201,12 @@ export interface AgentRegisterResponse<W = unknown> {
    * daemon, which means none.
    */
   modelPin?: string | null;
+  /**
+   * The team's `commandTimeoutMinutes` (0 = off), for commands run outside a
+   * claimed item (a claim carries its own, state-resolved value). Additive:
+   * absent from an older daemon, which means the default.
+   */
+  commandTimeoutMinutes?: number;
 }
 
 /** GET /api/agents/next-work?agentId=X */
@@ -238,6 +244,14 @@ export interface AgentClaimResponse {
    * that declared `MODEL_FAILOVER_CAPABILITY`. Additive: absent means no probe.
    */
   failoverProbe?: { modelId: string };
+  /**
+   * The default timeout, in minutes, for this run's shell commands that set
+   * none (`resolveCommandTimeoutMinutes`: the state's, else the team's
+   * `commandTimeoutMinutes`; 0 = off). A harness that can, applies it; it never
+   * shortens a timeout the agent chose (docs/DESIGN.md "Stalled Teammates").
+   * Additive: absent from an older daemon, which means the default.
+   */
+  commandTimeoutMinutes?: number;
 }
 
 /**
@@ -474,6 +488,35 @@ export function formatStallDuration(ms: number): string {
   if (hours < 24) return minutes % 60 ? `${hours}h ${minutes % 60}m` : `${hours}h`;
   const days = Math.floor(hours / 24);
   return hours % 24 ? `${days}d ${hours % 24}h` : `${days}d`;
+}
+
+// ─── Default command timeout (docs/DESIGN.md "Stalled Teammates") ──
+//
+// Prevention next to detection: a teammate's shell command that sets no
+// timeout of its own gets the team's default, so a hung test ends in an error
+// the agent can act on instead of a 13-hour sleep. The daemon resolves the
+// minutes (a workflow state's `commandTimeoutMinutes`, else the team's, else
+// this default) and sends them in the claim and the registration reply; the
+// harness applies them only to commands the model gave no timeout. Additive:
+// an older daemon sends neither, and the harness uses the default.
+
+/** The team's `commandTimeoutMinutes` when config.json sets none. 0 = off. */
+export const DEFAULT_COMMAND_TIMEOUT_MINUTES = 60;
+
+/** A usable `commandTimeoutMinutes`: a finite number, 0 or more (0 = off). */
+export function isCommandTimeoutMinutes(v: unknown): v is number {
+  return typeof v === "number" && Number.isFinite(v) && v >= 0;
+}
+
+/**
+ * The default command timeout, in minutes, for a run: its workflow state's
+ * value when it sets one, else the team's, else
+ * `DEFAULT_COMMAND_TIMEOUT_MINUTES`. A value that isn't a number of minutes
+ * (0 or more) is skipped. 0 = no default timeout.
+ */
+export function resolveCommandTimeoutMinutes(team: unknown, state: unknown = undefined): number {
+  if (isCommandTimeoutMinutes(state)) return state;
+  return isCommandTimeoutMinutes(team) ? team : DEFAULT_COMMAND_TIMEOUT_MINUTES;
 }
 
 // ─── Web pairing (docs/DESIGN.md "Watching and Pairing with a Teammate") ─

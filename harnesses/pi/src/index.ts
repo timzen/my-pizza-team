@@ -33,11 +33,12 @@ import { PersonaToolScope, applyPersonaScope, checkSkillCommand, checkToolCall, 
 import { PersonaModelSwitch, modelProblem } from "./persona-model.js";
 import { ModelListReporter, ModelPreferences, SetModelRealizer, availableModels } from "./model-choice.js";
 import { mcpRequirementProblem, registeredMcpServers } from "./persona-mcp.js";
-import { INTERRUPT_CAPABILITY, MODEL_FAILOVER_CAPABILITY, PERSONA_SYSTEM_PROMPT_CAPABILITY, SET_MODEL_CAPABILITY } from "./shared/agent-protocol.js";
+import { INTERRUPT_CAPABILITY, MODEL_FAILOVER_CAPABILITY, PERSONA_SYSTEM_PROMPT_CAPABILITY, SET_MODEL_CAPABILITY, isCommandTimeoutMinutes } from "./shared/agent-protocol.js";
 import { classifyPiModelError } from "./model-error.js";
 import { summarizeRun, hasUsage } from "./runtime/usage.js";
 import { attachSessionStats } from "./stats-report.js";
 import { attachActivity } from "./activity-report.js";
+import { CommandTimeoutDefault, attachCommandTimeout } from "./command-timeout.js";
 import { ActivityTracker } from "./runtime/activity.js";
 import { InterruptRealizer } from "./runtime/interrupt.js";
 
@@ -241,6 +242,8 @@ async function setupTeammate(
   // Register with the daemon. The agent's working directory (its pi cwd) is the
   // only work-selection signal — the daemon biases matching by directory.
   const initialModels = availableModels(ctx.modelRegistry);
+  // The team's default command timeout (absent from an older daemon: the default).
+  let teamCommandTimeout: number | undefined;
   try {
     const res = await client.register({
       name: memberId,
@@ -250,6 +253,7 @@ async function setupTeammate(
       models: initialModels,
     });
     modelPrefs.pin = res.modelPin ?? null;
+    teamCommandTimeout = res.commandTimeoutMinutes;
   } catch {
     if (ctx.hasUI) {
       ctx.ui.notify(`🍕 Failed to register — will keep trying via polling`, "warning");
@@ -271,6 +275,12 @@ async function setupTeammate(
   // Create work loop
   const loop = new TeammateLoop(pi, client);
   loop.debugLog = debug;
+  if (isCommandTimeoutMinutes(teamCommandTimeout)) loop.teamCommandTimeoutMinutes = teamCommandTimeout;
+
+  // ─── Default command timeout (my-pizza-team docs/DESIGN.md "Stalled Teammates") ──
+  // A bash call the model gave no timeout gets the claim's (or the team's)
+  // `commandTimeoutMinutes`; an explicit one is never changed (command-timeout.ts).
+  attachCommandTimeout(pi, new CommandTimeoutDefault(() => loop.commandTimeoutMinutes));
 
   // ─── Session stats (the Team tab's model, context fill, session cost) ──
   // stats-report.ts: after every turn, compaction and model switch.
@@ -672,6 +682,7 @@ async function setupTeammate(
     }).catch(() => null);
     // The pin is persisted daemon-side, so this normally changes nothing.
     if (res && "modelPin" in res) modelPrefs.pin = res.modelPin ?? null;
+    if (res && isCommandTimeoutMinutes(res.commandTimeoutMinutes)) loop.teamCommandTimeoutMinutes = res.commandTimeoutMinutes;
     // A restarted daemon forgot our stats (they're in-memory); tell it again.
     stats.resend();
     if (ctx.hasUI) ctx.ui.notify("🍕 Reconnected to daemon (it had restarted).", "info");

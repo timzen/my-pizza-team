@@ -1413,6 +1413,35 @@ never done twice: a second click while one is pending returns it, and the harnes
 realizes each directive once. A harness that can't (an older one, `mpt agent`) gets
 409 `unsupported`, and the UI suggests Pair.
 
+### Prevention: a default command timeout
+
+Detection and Interrupt fix a hang after it's noticed. Two small things make one
+less likely. Every teammate work prompt carries one line in its completion
+section: run tests, builds and other long commands with a timeout, and never start
+a watch/serve mode the task didn't ask for (daemon/personas/builtins.ts
+`LONG_COMMAND_GUIDANCE`). It's in the daemon's prompt, so it reaches every harness
+and persona. And a harness that can applies a **default timeout** to commands that
+set none. Pi's bash tool takes an optional `timeout` with no default of its own,
+so the Pi teammate fills it in its `tool_call` hook (harnesses/pi/src/command-timeout.ts)
+with `commandTimeoutMinutes`: the work's workflow state's value if set, else the
+team's, else 60 (0 = off). The daemon resolves it and sends it in the claim (and
+the team's value in the registration reply, for commands outside an item); both
+are additive, and a harness that hears nothing uses the default.
+
+*Why never shorten an explicit timeout:* the agent knows its command. A `timeout`
+it chose, shorter or longer, is kept; the default only fills a gap. When a
+defaulted command does time out, the error says so: it was MPT's default
+(`commandTimeoutMinutes`), and a command that needs longer should be re-run with
+an explicit, larger `timeout`. The agent can tell "my limit" from "the team's", and
+knows how to ask for more.
+
+*Why the default is long, and why stalls are still flagged, not killed:* the
+timeout is a backstop for a command that will never end, not a budget. A long
+build is legitimate, so 60 minutes is far above a normal test run, and a state
+that runs longer can raise it. Past that, the stall flag and a human decide. The
+daemon never kills a command on its own guess: it can't see the process, and only
+a person can tell a slow build from a hung one.
+
 ## Team Size: Declared, not Clicked
 
 The team's size is a **number you declare** (`minTeammates`), not a button you

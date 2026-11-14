@@ -72,6 +72,14 @@ export interface TeamConfig {
    * own `stallMinutes` overrides it for that state's runs. config.json only.
    */
   stallMinutes?: number;
+  /**
+   * Minutes a teammate's shell command may run when it sets no timeout of its
+   * own (default `DEFAULT_COMMAND_TIMEOUT_MINUTES`, 60; 0 = off). Applied by a
+   * harness that can (Pi's bash tool); an explicit timeout is never shortened.
+   * A workflow state's own `commandTimeoutMinutes` overrides it for that
+   * state's runs (docs/DESIGN.md "Stalled Teammates"). config.json only.
+   */
+  commandTimeoutMinutes?: number;
   /** API token for authentication (optional; required when binding non-localhost) */
   apiToken?: string;
   /**
@@ -476,6 +484,12 @@ export interface WorkflowState {
    * (docs/DESIGN.md "Stalled Teammates"). Unset = the team's.
    */
   stallMinutes?: number;
+  /**
+   * Teammate states: the default timeout, in minutes, for shell commands that
+   * set none, overriding the team's `commandTimeoutMinutes` — e.g. longer for
+   * a state that runs long builds; 0 = none in this state. Unset = the team's.
+   */
+  commandTimeoutMinutes?: number;
 }
 
 /** A teammate state's completion mode (`WorkflowState.completion`). */

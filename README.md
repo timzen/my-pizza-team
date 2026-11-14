@@ -357,6 +357,10 @@ most of it is editable on the **Config** page. Minimal:
   "stallMinutes": 30,                    // No progress on a claimed item before a live teammate is
                                          // flagged stalled (0 = off; a workflow state's own
                                          // `stallMinutes` overrides it). A flag only: nothing is killed.
+  "commandTimeoutMinutes": 60,           // Default timeout for a teammate's shell command that sets
+                                         // none (Pi's bash; 0 = off; a workflow state's own value
+                                         // overrides it). Never shortens an explicit timeout. Prevention
+                                         // next to `stallMinutes`' detection.
   "teammates": {
     "nouns": ["ripley", "deckard", "neo"] // Name generation (adjective-noun)
   },
@@ -913,7 +917,14 @@ the Pi harness realizes): the stuck run is aborted the way Pi's Escape aborts it
 the command's whole process tree is killed — the work item stays claimed, and the
 agent is told its command was interrupted after so long with no progress and to
 find out why, re-run it with a timeout, and carry on. A harness that can't
-interrupt (an older one, `mpt agent`) is pointed to **Pair** instead. See
+interrupt (an older one, `mpt agent`) is pointed to **Pair** instead. And to
+prevent the hang in the first place, every teammate work prompt says to run tests
+and builds with a timeout and never start a watch/serve mode the task didn't ask
+for, and the Pi harness gives a bash call that sets no `timeout` the team's
+`commandTimeoutMinutes` (default 60; 0 = off; a workflow state may set its own).
+The claim and the registration reply carry the resolved minutes. A timeout the
+agent chose is never changed, and a defaulted command that times out says it was
+MPT's default and to re-run with an explicit, larger `timeout` if it needs more. See
 [docs/DESIGN.md](docs/DESIGN.md#stalled-teammates).
 
 Windows in the team's terminal that no registered teammate, the leader or a
