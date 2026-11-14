@@ -304,6 +304,15 @@ export interface ClaimPersona extends PersonaSettings {
    * owns it (system prompt) for this run.
    */
   inline: boolean;
+  /**
+   * The model id `model` (an alias) resolves to for the claiming harness
+   * (shared/model-aliases.ts; team config `modelAliases`), present whenever
+   * `model` is: null when the alias has no mapping for this harness (the
+   * daemon says so on the run's thread) or the team switched persona models
+   * off (`personaModels: false`). A harness that can switch models uses it for
+   * this work item only. Additive: absent from an older daemon.
+   */
+  modelId?: string | null;
 }
 
 /**

@@ -59,6 +59,8 @@ src/
 │                         #   (applyPersonaSection, personaSystemPromptText)
 ├── persona-scope.ts      # The persona's tools/skills enforced: MPT_PROTOCOL_TOOLS, PersonaToolScope,
 │                         #   checkToolCall, filterSkills / checkSkillCommand, scopeProblems
+├── persona-model.ts      # The persona's model applied: findModel, PersonaModelSwitch (pi.setModel
+│                         #   once per item / persona, restore afterwards)
 ├── permissions.ts        # Dynamic yoloMode toggling + ppt-autonomous authorizer chain link;
 │                         # also keeps the leader/chat agent unblockable on remote-driven runs
 ├── readiness.ts          # Host readiness probe (leader-run): exit 0 = ready, non-zero = not ready
@@ -179,6 +181,23 @@ blocked, and never added either (features.ts and wait-tool.ts own their
 presence). `scopeProblems` lists what can't be applied; the teammate posts it
 once per item on the thread (`reportScopeOnce`), the leader — scoped by the
 assistant persona (`ChatMirror.personaScope`) — notifies once per persona.
+
+**The persona's model.** A persona's `model` alias arrives resolved: the claim's
+`persona.modelId` (the daemon maps the alias for this harness via the team's
+`modelAliases.pi`; null when unmapped or switched off — the daemon comments on
+the thread then). `PersonaModelSwitch` (src/persona-model.ts) looks it up
+(`findModel`: `<provider>/<model>`, or a bare id exactly one provider has) and
+calls `pi.setModel` in `onPersonaChange` at claim — which `TeammateLoop` awaits
+before sending the work prompt — once per work item, so a `/model` while pairing
+stands; `before_agent_start` re-checks it (a no-op for the same item, a restore
+with none held). When the item ends (`onPersonaChange(null)`) the model from
+before the switch is put back. An id Pi doesn't know, or a `setModel` refusal (no
+credentials), keeps the current model and is posted once on the thread. The
+leader does the same for its assistant persona (`GET /api/assistant/persona`
+`modelId`, once per persona + id, a UI warning for problems and the daemon's
+`modelProblem`). Usage needs nothing extra: `summarizeRun` takes the model from the
+run's assistant messages, and `setModel` fires `model_select`, which re-reports the
+session stats (the Team tab's model).
 
 **Poll states (`wait_for_next_check`).** A claim says `completion: "poll"` when the
 task's workflow state polls (my-pizza-team docs/DESIGN.md "Polling States"): each

@@ -22,6 +22,7 @@ import {
   type AgentListResponse, type ClaimPersona,
 } from "../../shared/protocol.ts";
 import { packageVersion } from "../../shared/paths.ts";
+import { resolvePersonaModel } from "../../shared/model-aliases.ts";
 import { dismissParams, focusMember } from "../spawner.ts";
 
 /** The longest wait `reason` accepted: a one-line status, not a report (that goes in a comment). */
@@ -213,6 +214,14 @@ export function registerAgentRoutes(ctx: RouteContext): void {
     const { prompt, persona: claimPersona } = def
       ? claimPromptAndPersona(store, item.ref, def, persona, systemPrompt)
       : { prompt: "", persona: null };
+    // The persona's model alias, resolved for this agent's harness (shared/model-aliases.ts).
+    // An alias with no mapping sets no model; the run's thread says so, once per claim.
+    if (claimPersona?.model) {
+      const harness = store.getMember(body.agentId)?.harness || DEFAULT_HARNESS;
+      const { modelId, problem } = resolvePersonaModel(config, claimPersona.model, harness);
+      claimPersona.modelId = modelId;
+      if (problem) store.addCommentForRef(item.ref, "daemon", `[persona model] ${problem}`);
+    }
     // A poll state's run may end with wait (docs/DESIGN.md "Polling States"):
     // say so, and the harness offers its wait tool. Additive: an older harness
     // ignores it, and never sends WAITED.

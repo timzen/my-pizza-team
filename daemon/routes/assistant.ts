@@ -22,6 +22,8 @@ import type { AssistantDelivery } from "../store/assistant-chat.ts";
 import { DEFAULT_ASSISTANT_PERSONA } from "../personas/builtins.ts";
 import { startLeader } from "../leader-start.ts";
 import { mptInvocation } from "../self.ts";
+import { resolvePersonaModel } from "../../shared/model-aliases.ts";
+import { DEFAULT_HARNESS } from "../../shared/types.ts";
 
 /**
  * The default assistant persona (`builtin:assistant`), re-exported from
@@ -290,7 +292,14 @@ export function registerAssistantRoutes(ctx: RouteContext): void {
     const entry = personaId ? store.getPersona(personaId) : null;
     const resolved = store.resolveAssistantPersona();
     const persona = store.getPersona(resolved.id)!;
-    return { personaId: entry ? personaId : null, persona, entry, systemPrompt: composeSystemPrompt(resolved.body) };
+    // Its model alias, resolved for the leader's harness (the default one before it registers).
+    const model = persona.model
+      ? resolvePersonaModel(config, persona.model, store.getLeader()?.harness || config.defaultHarness || DEFAULT_HARNESS)
+      : null;
+    return {
+      personaId: entry ? personaId : null, persona, entry, systemPrompt: composeSystemPrompt(resolved.body),
+      ...(model ? { modelId: model.modelId, modelProblem: model.problem } : {}),
+    };
   };
 
   app.get("/api/assistant/persona", (c) => c.json(current()));

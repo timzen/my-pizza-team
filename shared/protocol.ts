@@ -396,7 +396,13 @@ export interface SetStatePersonaResponse { success: boolean; workflow?: Workflow
 // `personaId` is the selection (null = `builtin:assistant`); `persona` is what it
 // resolves to (the built-in when unset). `entry` is the selected persona, or null
 // when none is selected — the pre-persona field name, kept for the chat UI.
-export interface AssistantPersonaResponse { personaId: string | null; persona: Persona; entry: Persona | null; systemPrompt: string }
+// `modelId` / `modelProblem` (only when `persona.model` is set): the alias resolved
+// for the leader's harness (shared/model-aliases.ts) — null id when unmapped or
+// persona models are off, and why when unmapped. Additive.
+export interface AssistantPersonaResponse {
+  personaId: string | null; persona: Persona; entry: Persona | null; systemPrompt: string;
+  modelId?: string | null; modelProblem?: string | null;
+}
 // PUT /api/assistant/persona
 export interface SetAssistantPersonaRequest { personaId: string | null }
 export interface SetAssistantPersonaResponse { success: boolean; personaId?: string | null; persona?: Persona; entry?: Persona | null; systemPrompt?: string; session?: AssistantSession; error?: string }

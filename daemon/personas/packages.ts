@@ -18,6 +18,7 @@
 import { TEAM_PERSONA_ID_PATTERN, type Persona } from "../../shared/types.ts";
 import { parsePersonaFile, rawPersonaSettings } from "./library.ts";
 import { validatePersonaMarkdown, validatePersonaSettings } from "./lint.ts";
+import type { PersonaSettingsOptions } from "./settings.ts";
 
 /** One persona file a package ships: its id within the package and its raw text. */
 export interface PackagePersonaFile {
@@ -43,8 +44,9 @@ export class PackagePersonas {
    * Register a package's personas. A second, *different* package (identity) with
    * the same `name` is refused — the first wins, as the loader's identity dedupe
    * does. A file whose name isn't a valid id is skipped with an error.
+   * `opts` carries the team's model aliases, so a `model` naming none is a warning.
    */
-  register(pkg: { name: string; identity: string }, files: PackagePersonaFile[]): PackagePersonaResult {
+  register(pkg: { name: string; identity: string }, files: PackagePersonaFile[], opts: PersonaSettingsOptions = {}): PackagePersonaResult {
     const result: PackagePersonaResult = { personas: [], errors: [], warnings: [] };
     if (!pkg.name) {
       result.errors.push("a package that ships personas needs a package.json \"name\"");
@@ -64,7 +66,7 @@ export class PackagePersonas {
       const id = `${pkg.name}/${file.name}`;
       const persona = parsePersonaFile(id, file.raw, { kind: "package", name: pkg.name, identity: pkg.identity });
       const body = validatePersonaMarkdown(persona.content);
-      const settings = validatePersonaSettings(rawPersonaSettings(file.raw));
+      const settings = validatePersonaSettings(rawPersonaSettings(file.raw), opts);
       const lint = { errors: [...body.errors, ...settings.errors], warnings: [...body.warnings, ...settings.warnings] };
       for (const w of lint.warnings) result.warnings.push(`persona ${id}: ${w}`);
       if (lint.errors.length > 0) {

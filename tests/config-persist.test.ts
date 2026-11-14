@@ -36,6 +36,8 @@ const FULL: Partial<TeamConfig> = {
   assistant: { persona: "builtin:assistant" },
   packages: ["./plain-plugin", { source: "./configured-plugin", config: { project: "ACME", tokenEnv: "ACME_TOKEN" } }],
   dev: { fixtureSource: { dir: "./fixture-items" } },
+  modelAliases: { pi: { strong: "acme/strong-1", fast: "acme/fast-1" } },
+  personaModels: false,
   harnesses: {
     custom: { teammate: "my-agent --name={name} --daemon={url}", leader: "my-agent --lead" },
   },
@@ -71,6 +73,9 @@ function assertPreserved(saved: Partial<TeamConfig>) {
   // Plugin packages (and their settings) have no form on the Config page; a save must keep them.
   assertEquals(saved.packages, FULL.packages);
   assertEquals(saved.dev, FULL.dev);
+  // Persona model aliases: the Config page sends them back as they were.
+  assertEquals(saved.modelAliases, FULL.modelAliases);
+  assertEquals(saved.personaModels, FULL.personaModels);
 }
 
 test("saveConfig writes every persistable field", () => {

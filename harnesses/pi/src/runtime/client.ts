@@ -782,7 +782,13 @@ export class DaemonClient {
    * inject. When no persona is selected the daemon returns its default
    * assistant persona in `systemPrompt`, so this is never empty in practice.
    */
-  async getPersona(): Promise<{ personaId: string | null; entry: PersonaSummary | null; persona?: PersonaSummary; systemPrompt: string }> {
+  async getPersona(): Promise<{
+    personaId: string | null; entry: PersonaSummary | null; persona?: PersonaSummary; systemPrompt: string;
+    /** `persona.model` resolved for the leader's harness (null: unmapped / off); absent when it names no model or from an older daemon. */
+    modelId?: string | null;
+    /** Why `modelId` is null for an unmapped alias. */
+    modelProblem?: string | null;
+  }> {
     return this.get("/api/assistant/persona");
   }
 

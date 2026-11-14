@@ -394,6 +394,16 @@ most of it is editable on the **Config** page. Minimal:
   // ignored and dropped on the next save.
   "assistant": { "persona": "builtin:assistant" },
 
+  // ─── Persona models ────────────────────────────────────────────
+  // A persona names a model alias (frontmatter `model: strong`); this maps each
+  // alias to a model id per harness (Pi: <provider>/<model>, as /model shows it).
+  // Resolved for the claiming teammate's harness at every claim; an alias with no
+  // mapping sets no model and comments on the run's thread. A top-level block (not
+  // under "harnesses", whose entries replace the start templates). Also Config →
+  // Teammates → Persona Models. "personaModels": false ignores persona models.
+  "modelAliases": { "pi": { "strong": "<provider>/<model>", "fast": "<provider>/<model>" } },
+  "personaModels": true,
+
   // ─── Work distribution ─────────────────────────────────────────
   // One teammate per directory (default true): overlapping work waits its turn.
   "exclusiveDirectories": true,
@@ -636,7 +646,11 @@ to the built-in and the daemon logs it. A persona may also set optional,
 harness-neutral **settings** in its frontmatter — `tools` (`allow`/`deny`, `*`
 patterns), `skills`, a `model` alias, and `requires.mcp` — which the daemon passes to
 the teammate's harness with the persona (enforcement depends on the harness — the
-Pi harness enforces `tools` and `skills`; see docs/guide/06-personas.md). Saving a persona lints it (an unclosed code fence or a
+Pi harness enforces `tools` and `skills` and applies `model`; see docs/guide/06-personas.md).
+A `model` alias is mapped to a real model per harness by the team config's
+`modelAliases` (Config → Teammates → Persona Models); the claim carries both the
+alias and the model id resolved for the claiming harness, and `mpt doctor` lists
+aliases personas use that have no mapping. Saving a persona lints it (an unclosed code fence or a
 malformed setting is refused). See `/api/personas` and
 [docs/DESIGN.md](docs/DESIGN.md#personas-one-library-selected-by-reference).
 
@@ -844,6 +858,12 @@ reason naming the persona, and only its skills are listed (`/skill:<name>` for a
 is refused). MPT's own tools (`fail`, `upload_attachment`, …) always stay available,
 and the full tool set comes back when the work item ends. What can't be applied — say,
 a `tools.allow` pattern that matches no tool — is posted once on the work item's thread.
+
+A persona's `model` is applied too: the teammate switches to the model its alias
+maps to (`modelAliases.pi`) when it claims the item, and back when the item ends; the
+assistant switches once per persona (a later `/model` stands). A model Pi doesn't
+know, or has no credentials for, keeps the current one and is reported the same way.
+The usage ledger and the Team tab show the model each run actually used.
 
 Recommended: `@gotgenes/pi-permission-system`, which lets teammates work
 autonomously. Without it they stop at the first permission prompt (the extension

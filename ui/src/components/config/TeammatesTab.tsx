@@ -1,12 +1,12 @@
 /**
  * TeammatesTab — Config → Teammates (`/config/teammates`): name nouns, the
- * one-teammate-per-directory toggle, and the experimental harnesses opt-in +
- * default harness. All edit the page's config.json draft (ConfigPage). Their
+ * one-teammate-per-directory toggle, the persona model aliases, and the
+ * experimental harnesses opt-in + default harness. All edit the page's config.json draft (ConfigPage). Their
  * hints are components/ui/field-hint (copy in lib/field-help.ts).
  */
 
 import { useState } from "react";
-import { harnessOptions, normalizeNoun, type ConfigDraftProps } from "@/lib/config-draft";
+import { harnessOptions, isValidModelAlias, modelAliasRows, normalizeNoun, setModelAlias, type ConfigDraftProps } from "@/lib/config-draft";
 import { Card, CardContent } from "@/components/ui/card";
 import { IconButton } from "@/components/ui/icon-button";
 import { Input } from "@/components/ui/input";
@@ -63,6 +63,8 @@ export function TeammatesTab({ config, setConfig }: ConfigDraftProps) {
 
       <ExclusiveDirectories config={config} setConfig={setConfig} />
 
+      <PersonaModels config={config} setConfig={setConfig} />
+
       <ExperimentalHarnesses config={config} setConfig={setConfig} />
     </div>
   );
@@ -96,6 +98,127 @@ function ExclusiveDirectories({ config, setConfig }: ConfigDraftProps) {
           A folder inside it, or one containing it, counts as the same directory; work with no directory
           always runs in parallel. Takes effect as soon as you save. A stuck <em>At risk</em> item keeps its directory until you
           force-fail it on the Queue page.
+        </p>
+      </CardContent>
+    </Card>
+  );
+}
+
+// --- Persona models (docs/DESIGN.md "Persona settings"; shared/model-aliases.ts) ---
+
+/**
+ * The `personaModels` switch and the `modelAliases` map: a persona names an
+ * alias (`model: strong`), and this maps it to a model id per harness. Existing
+ * rows edit their model id in place (or are removed); a new row picks a
+ * harness, an alias and a model id. Saved with the page; live once saved (the
+ * daemon resolves aliases at every claim).
+ */
+function PersonaModels({ config, setConfig }: ConfigDraftProps) {
+  const [harness, setHarness] = useState("pi");
+  const [alias, setAlias] = useState("");
+  const [modelId, setModelId] = useState("");
+  const enabled = config.personaModels !== false;
+  const rows = modelAliasRows(config.modelAliases);
+  const options = harnessOptions(config.harnesses);
+  const trimmedAlias = alias.trim();
+  const aliasError = trimmedAlias && !isValidModelAlias(trimmedAlias) ? "Letters, digits, \".\", \"_\" and \"-\" only, no spaces." : null;
+  const canAdd = !!trimmedAlias && !aliasError && !!modelId.trim();
+
+  const update = (h: string, a: string, id: string | null) =>
+    setConfig({ ...config, modelAliases: setModelAlias(config.modelAliases, h, a, id) });
+  const add = () => {
+    if (!canAdd) return;
+    update(harness, trimmedAlias, modelId.trim());
+    setAlias("");
+    setModelId("");
+  };
+  const label = (h: string) => options.find((o) => o.value === h)?.label ?? h;
+
+  return (
+    <Card>
+      <CardContent className="p-4 space-y-3">
+        <h2 className="font-semibold">Persona Models</h2>
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            id="persona-models"
+            type="checkbox"
+            aria-describedby="persona-models-hint"
+            checked={enabled}
+            onChange={(e) => setConfig({ ...config, personaModels: e.target.checked })}
+          />
+          Use persona models
+        </label>
+        <FieldHint id="persona-models-hint" field="personaModels" />
+        <FieldHint id="model-aliases-hint" field="modelAliases" />
+        {rows.length > 0 && (
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-xs text-muted-foreground">
+                <th scope="col" className="font-medium pb-1">Harness</th>
+                <th scope="col" className="font-medium pb-1">Alias</th>
+                <th scope="col" className="font-medium pb-1">Model id</th>
+                <th scope="col" className="pb-1"><span className="sr-only">Remove</span></th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={`${r.harness}/${r.alias}`}>
+                  <td className="pr-2 py-1">{label(r.harness)}</td>
+                  <td className="pr-2 py-1"><code>{r.alias}</code></td>
+                  <td className="pr-2 py-1">
+                    <Input
+                      aria-label={`Model id for ${r.alias} (${label(r.harness)})`}
+                      value={r.modelId}
+                      onChange={(e) => update(r.harness, r.alias, e.target.value)}
+                      onBlur={(e) => { if (!e.target.value.trim()) update(r.harness, r.alias, null); }}
+                      className="h-8"
+                    />
+                  </td>
+                  <td className="py-1 text-right">
+                    <IconButton variant="ghost" size="sm" onClick={() => update(r.harness, r.alias, null)} label={`Remove alias ${r.alias} (${label(r.harness)})`}>
+                      <X className="h-3.5 w-3.5" />
+                    </IconButton>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+        {rows.length === 0 && <p className="text-xs text-muted-foreground italic">No aliases: a persona&apos;s model sets nothing until its alias is mapped here.</p>}
+        <div className="flex flex-wrap items-start gap-2">
+          <select
+            aria-label="Harness for the new alias"
+            value={harness}
+            onChange={(e) => setHarness(e.target.value)}
+            className="h-9 rounded-md border border-border bg-background px-2 text-sm"
+          >
+            {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+          <div className="space-y-1">
+            <Input
+              placeholder="Alias, e.g. strong"
+              aria-label="New alias"
+              aria-describedby={aliasError ? "model-alias-error model-aliases-hint" : "model-aliases-hint"}
+              aria-invalid={!!aliasError}
+              value={alias}
+              onChange={(e) => setAlias(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && add()}
+              className="max-w-[160px]"
+            />
+            {aliasError && <p id="model-alias-error" className="text-xs text-destructive">{aliasError}</p>}
+          </div>
+          <Input
+            placeholder="Model id, e.g. provider/model"
+            aria-label="Model id for the new alias"
+            value={modelId}
+            onChange={(e) => setModelId(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && add()}
+            className="max-w-[260px]"
+          />
+          <IconButton variant="outline" size="sm" onClick={add} disabled={!canAdd} label="Add alias"><Plus className="h-3.5 w-3.5" /></IconButton>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Takes effect as soon as you save, from the next work item a teammate picks up.
         </p>
       </CardContent>
     </Card>

@@ -79,6 +79,35 @@ empty allow list (no tools at all — only possible in the file), is saved with 
 warning. A persona's page lists the settings it has under **Harness settings**.
 Built-in personas set none; a package persona's are read-only like the rest of it.
 
+### Model aliases
+
+A persona never names a real model — those differ between harnesses and machines —
+but an **alias**: `model: "strong"`. Your team maps each alias to a model, per
+harness, on **Config → Teammates → Persona Models** (or in `config.json`):
+
+```json
+"modelAliases": { "pi": { "strong": "<provider>/<model>", "fast": "<provider>/<model>" } }
+```
+
+For Pi the model is written as `/model` shows it, `<provider>/<model>` (a bare model
+id works when only one provider has it).
+
+- **On Pi**, a teammate switches to the persona's model when it picks the work item
+  up, and back to the model it had when the item ends. The usage page and the Team
+  tab show the model each run actually used. The assistant switches when its persona
+  names a model (once per persona: pick another with `/model` and that stands).
+- **An alias with no mapping** for the teammate's harness sets no model: the run keeps
+  the harness's default model, and the work item's thread gets one comment saying
+  which `modelAliases` entry to add. Saving a persona whose alias the team doesn't
+  define at all warns too, and `mpt doctor` lists the aliases personas use that have
+  no mapping.
+- **A model the harness can't use** (unknown to it, or no credentials for its
+  provider) keeps the current model, and the thread says so.
+- **Persona models off:** untick **Use persona models** (`"personaModels": false`) to
+  ignore every persona's model — runs keep the harness's model and nothing is posted.
+
+Other harnesses get the resolved model with the persona but may not apply it.
+
 ## Where you pick one
 
 | What | Where | None picked means |

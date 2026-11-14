@@ -2,12 +2,16 @@
  * tests/config-draft.test.ts — The Config page's draft rules
  * (ui/src/lib/config-draft.ts): the PUT body drops read-only fields and only
  * carries `features` when a toggle changed, name nouns are normalized, and the
- * Default Harness picker lists built-ins then valid custom harnesses.
+ * Default Harness picker lists built-ins then valid custom harnesses, and the
+ * Persona Models editor's rows and edits.
  */
 
 import { test } from "node:test";
 import { assertEquals } from "./_assert.ts";
-import { BUILT_IN_HARNESSES, configBody, harnessOptions, normalizeNoun, terminalSwitchWarning, type ConfigData } from "../ui/src/lib/config-draft.ts";
+import {
+  BUILT_IN_HARNESSES, configBody, harnessOptions, isValidModelAlias, modelAliasRows, normalizeNoun, setModelAlias,
+  terminalSwitchWarning, type ConfigData,
+} from "../ui/src/lib/config-draft.ts";
 
 const base: ConfigData = {
   port: 9999,
@@ -76,4 +80,16 @@ test("terminalSwitchWarning: on a change, and while agents run under another ter
     terminalSwitchWarning(saved, saved),
     "1 agent is still running under another terminal: neo (tmux). New windows open in herdr.",
   );
+});
+
+test("persona models: rows are sorted, edits add/replace/remove, and nothing left clears the block", () => {
+  const aliases = { pi: { strong: "acme/s", fast: "acme/f" }, kiro: { strong: "k" } };
+  assertEquals(modelAliasRows(aliases).map((r) => `${r.harness}:${r.alias}=${r.modelId}`), ["kiro:strong=k", "pi:fast=acme/f", "pi:strong=acme/s"]);
+  assertEquals(modelAliasRows(undefined), []);
+  assertEquals(setModelAlias(aliases, "pi", "strong", "acme/s2")?.pi, { strong: "acme/s2", fast: "acme/f" });
+  assertEquals(setModelAlias(undefined, "pi", "strong", "acme/s"), { pi: { strong: "acme/s" } });
+  assertEquals(setModelAlias(aliases, "kiro", "strong", null), { pi: { strong: "acme/s", fast: "acme/f" } }, "an emptied harness is dropped");
+  assertEquals(setModelAlias({ pi: { strong: "x" } }, "pi", "strong", null), null, "null clears the block on save");
+  assertEquals(aliases.kiro, { strong: "k" }, "the draft itself is untouched");
+  assertEquals([isValidModelAlias("strong"), isValidModelAlias("v1.2_x-y"), isValidModelAlias("two words"), isValidModelAlias("-x")], [true, true, false, false]);
 });

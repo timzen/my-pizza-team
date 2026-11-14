@@ -36,8 +36,12 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { DaemonClient } from "./runtime/client.js";
 import { splitIntoBubbles } from "./runtime/bubbles.js";
 import type { ScopedPersona } from "./persona-scope.js";
+import type { ModelPersona } from "./persona-model.js";
 
 const INBOX_POLL_INTERVAL_MS = 1000;
+/** The assistant persona as the leader applies it: scope (persona-scope.ts) + model (persona-model.ts). */
+export type AssistantPersonaSettings = ScopedPersona & ModelPersona & { modelProblem?: string | null };
+
 /** Reasoning deltas are coalesced into one POST per window to spare the daemon. */
 const THOUGHT_FLUSH_MS = 250;
 
@@ -49,8 +53,8 @@ export class ChatMirror {
 
   /** Active persona's system-prompt text (null = fall back to Pi's own prompt). */
   private personaContent: string | null = null;
-  /** The assistant persona's id and tool/skill scope (null until first fetched). */
-  private personaScopeValue: ScopedPersona | null = null;
+  /** The assistant persona's id, tool/skill scope and model (null until first fetched). */
+  private personaScopeValue: AssistantPersonaSettings | null = null;
 
   /** Whether the daemon has designated us as the chat agent. */
 
@@ -126,11 +130,13 @@ export class ChatMirror {
   }
 
   /**
-   * The assistant persona's id with its `tools` / `skills` settings (absent
-   * when it has none), or null when unknown. The leader scopes its tools and
-   * skills by it (persona-scope.ts).
+   * The assistant persona's id with its `tools` / `skills` settings and its
+   * `model` (alias, resolved `modelId`, and the daemon's `modelProblem` for an
+   * unmapped alias) — each absent when it has none — or null when unknown. The
+   * leader scopes its tools and skills by it (persona-scope.ts) and switches to
+   * its model (persona-model.ts).
    */
-  get personaScope(): ScopedPersona | null {
+  get personaScope(): AssistantPersonaSettings | null {
     return this.personaScopeValue;
   }
 
@@ -147,7 +153,9 @@ export class ChatMirror {
       this.personaContent = res.systemPrompt || null;
       // The persona it resolves to (absent from an older daemon: no scope).
       const p = res.persona;
-      this.personaScopeValue = p ? { id: p.id, tools: p.tools, skills: p.skills } : null;
+      this.personaScopeValue = p
+        ? { id: p.id, tools: p.tools, skills: p.skills, model: p.model, modelId: res.modelId, modelProblem: res.modelProblem }
+        : null;
     } catch {
       // Keep the last known persona if the daemon is briefly unreachable.
     }

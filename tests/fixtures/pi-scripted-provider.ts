@@ -2,7 +2,8 @@
  * tests/fixtures/pi-scripted-provider.ts — a scripted, model-free model provider for Pi.
  *
  * Test-only. Loaded into a real `pi` with `-e <this file>` (tests/e2e/_pi.ts builds
- * the command), it registers the provider `mpt-mock` with one model, `scripted`, so
+ * the command), it registers the provider `mpt-mock` with the model `scripted` (and
+ * `scripted-strong`, the same thing under another id, for model switches), so
  * the e2e suite can run Pi with the real MPT extension (harnesses/pi) and make
  * **zero LLM calls**: every assistant turn is the next step of a JSON script. It is
  * to the Pi path what tests/fixtures/fake-acp-agent.ts is to the ACP one.
@@ -67,7 +68,8 @@
  * ## Request log
  *
  * When `MPT_E2E_LOG` names a file, every request is appended to it as one JSON line:
- * `{ role, pid, rule, turn, systemPrompt, tools: [names], messages: [{ role, text }] }`,
+ * `{ role, pid, model, rule, turn, systemPrompt, tools: [names], messages: [{ role, text }] }`
+ * (`model` is `<provider>/<id>`, the model the request was made with),
  * so tests can assert on the persona, state framing, prompts and tool lists.
  *
  * Deterministic: no network, no timers. The response is produced synchronously from
@@ -92,6 +94,12 @@ import {
 /** The provider and model ids, for `--provider` / `--model`. */
 export const PROVIDER = "mpt-mock";
 export const MODEL = "scripted";
+/**
+ * A second model, the same script and rates under another id: what a persona
+ * `model` alias maps to in the e2e suite, so a model switch shows in the
+ * request log (`model`) and the usage ledger.
+ */
+export const STRONG_MODEL = "scripted-strong";
 /** The provider's API id (any unique string: the stream below is its only implementation). */
 const API = "mpt-mock-scripted";
 
@@ -242,6 +250,7 @@ function streamScripted(model: Model, context: TranscriptContext, options?: Simp
       const request = {
         role,
         pid: process.pid,
+        model: `${model.provider}/${model.id}`,
         rule: sel.ruleLabel,
         turn: sel.turn,
         systemPrompt,
@@ -306,15 +315,15 @@ export default function (pi: ProviderHost): void {
     baseUrl: "http://mpt-mock.invalid",
     apiKey: "mpt-mock-no-auth",
     api: API,
-    models: [{
-      id: MODEL,
-      name: "Scripted (no model)",
+    models: [MODEL, STRONG_MODEL].map((id) => ({
+      id,
+      name: id === MODEL ? "Scripted (no model)" : "Scripted strong (no model)",
       reasoning: false,
       input: ["text"],
       cost: COST,
       contextWindow: 200_000,
       maxTokens: 8192,
-    }],
+    })),
     streamSimple: streamScripted,
   });
 }

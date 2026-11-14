@@ -179,6 +179,20 @@ export interface TeamConfig {
    * triage-mode items. Keyed by Work Source id; values are persona ids.
    */
   sourcePersonas?: Record<string, SourcePersonaSetting>;
+  /**
+   * Persona model aliases, per harness: `{ "<harness>": { "<alias>": "<model id>" } }`,
+   * e.g. `{ "pi": { "strong": "<provider>/<model>" } }`. A persona's frontmatter
+   * `model` names an alias; the daemon resolves it for the claiming harness and
+   * sends the model id in the claim (shared/model-aliases.ts; docs/DESIGN.md
+   * "Persona settings"). Unset = no aliases: a persona's `model` sets nothing.
+   * Edited on Config → Teammates; live (read at every claim).
+   */
+  modelAliases?: Record<string, Record<string, string>>;
+  /**
+   * `false` ignores personas' `model` settings entirely (no alias is resolved,
+   * every run keeps the harness's model). Unset/true = applied.
+   */
+  personaModels?: boolean;
 }
 
 /** One `TeamConfig.sourcePersonas` entry. */

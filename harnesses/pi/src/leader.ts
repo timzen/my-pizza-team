@@ -30,6 +30,7 @@ import { ALL_FEATURES_ON, type Features, featuresFromStatus } from "./shared/age
 import { registerLeaderTools } from "./tools.js";
 import { applyFeatureTools, featurePromptNote } from "./features.js";
 import { PersonaToolScope, applyPersonaScope, checkSkillCommand, checkToolCall, reportScopeOnce } from "./persona-scope.js";
+import { PersonaModelSwitch } from "./persona-model.js";
 import { summarizeRun, hasUsage } from "./runtime/usage.js";
 import { LEADER_WINDOW } from "./shared/types.js";
 import { readTerminalMetadata } from "./terminal.js";
@@ -299,15 +300,30 @@ export async function setupLeader(
   // The assistant persona's `tools` and `skills` scope its runs too
   // (persona-scope.ts), applied after the feature toggles; MPT's own tools are
   // never removed. What can't be applied is said once per persona, here.
+  // Its `model` too (persona-model.ts): switched in once per persona (and
+  // model id) — so a `/model` the user picks afterwards stands — and switched
+  // back if the persona stops naming one. A persona change ends the chat
+  // session anyway (PUT /api/assistant/persona), so a new persona's model
+  // applies from the next session's first run.
   const toolScope = new PersonaToolScope(pi);
   const reportedScope = new Set<string>();
+  const modelSwitch = new PersonaModelSwitch(pi, ctx);
+  const reportedModel = new Set<string>();
   pi.on("before_agent_start", async (event) => {
     await chat.refreshPersona();
     await syncFeatures();
     const problems = applyPersonaScope(pi, toolScope, chat.personaScope, event);
-    reportScopeOnce(reportedScope, chat.personaScope?.id ?? "", problems, (text) => {
+    const persona = chat.personaScope;
+    reportScopeOnce(reportedScope, persona?.id ?? "", problems, (text) => {
       if (ctx.hasUI) ctx.ui.notify(`🍕 ${text}`, "warning");
     });
+    const modelKey = persona?.modelId ? `${persona.id ?? ""}|${persona.modelId}` : null;
+    const modelProblem = (await modelSwitch.apply(modelKey, persona)) ?? persona?.modelProblem ?? null;
+    if (modelProblem) {
+      reportScopeOnce(reportedModel, `${persona?.id ?? ""}|${persona?.model ?? ""}`, [modelProblem], (text) => {
+        if (ctx.hasUI) ctx.ui.notify(`🍕 ${text}`, "warning");
+      });
+    }
     const extra = [chat.persona, featurePromptNote(features)].filter(Boolean);
     if (extra.length === 0) return;
     return { systemPrompt: `${event.systemPrompt}\n\n${extra.join("\n\n")}` };

@@ -7,6 +7,7 @@
  * feature toggles (validated by daemon/features.ts).
  */
 
+import { validateModelAliases } from "../../shared/model-aliases.ts";
 import type { RouteContext } from "./types.ts";
 import { readBody, fail } from "./http.ts";
 import type { TeamConfig, WorkflowConfig } from "../../shared/types.ts";
@@ -189,6 +190,12 @@ export function registerSharedRoutes(ctx: RouteContext): void {
       if (body.exclusiveDirectories != null && typeof body.exclusiveDirectories !== "boolean") {
         return fail(c, 400, "exclusiveDirectories must be a boolean");
       }
+      // Persona model aliases (shared/model-aliases.ts): null clears them.
+      const modelAliases = body.modelAliases == null ? null : validateModelAliases(body.modelAliases);
+      if (modelAliases && "error" in modelAliases) return fail(c, 400, modelAliases.error);
+      if (body.personaModels != null && typeof body.personaModels !== "boolean") {
+        return fail(c, 400, "personaModels must be a boolean");
+      }
       // Feature toggles: validated (and the turn-off guard checked) up front too.
       const featureSettings = resolveFeaturesUpdate(config, body, store);
       if ("error" in featureSettings) return fail(c, featureSettings.status, featureSettings.error);
@@ -250,6 +257,16 @@ export function registerSharedRoutes(ctx: RouteContext): void {
       } else if (body.exclusiveDirectories !== undefined) {
         config.exclusiveDirectories = body.exclusiveDirectories;
       }
+      // Persona models. Live: the claim route resolves aliases from this config on
+      // every claim. Absent keeps the current value; null (or no aliases) clears it;
+      // `personaModels` is stored only when off (unset = on).
+      if (body.modelAliases === null) delete config.modelAliases;
+      else if (modelAliases && "value" in modelAliases) {
+        if (Object.keys(modelAliases.value).length > 0) config.modelAliases = modelAliases.value;
+        else delete config.modelAliases;
+      }
+      if (body.personaModels === false) config.personaModels = false;
+      else if (body.personaModels === true || body.personaModels === null) delete config.personaModels;
       // `assistant` is ignored here: its only setting, the persona, is saved by
       // PUT /api/assistant/persona, and the retired `assistant.chatMode` (an old
       // UI may still send it) no longer exists — the dock's size picks the view.

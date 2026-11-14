@@ -35,6 +35,7 @@ import type {
 import { validatePersonaMarkdown } from "../personas/lint.ts";
 import { readPersonaSettings, type RawPersonaSettings } from "../personas/settings.ts";
 import { personaSettingsOf } from "../personas/resolve.ts";
+import { modelAliasNames } from "../../shared/model-aliases.ts";
 import { normalizeKinds } from "../personas/library.ts";
 
 /** The refusal message for a context-library attachment, naming what replaced it. */
@@ -66,7 +67,9 @@ export function sortForKind(personas: Persona[], kind: PersonaKind | undefined):
 }
 
 export function registerPersonaRoutes(ctx: RouteContext): void {
-  const { app, store } = ctx;
+  const { app, store, config } = ctx;
+  // Lint checks a persona's `model` against the team's aliases (live: read per save).
+  const lintOpts = () => ({ modelAliases: modelAliasNames(config) });
 
   // ─── Library ───────────────────────────────────────────────────────
 
@@ -80,7 +83,7 @@ export function registerPersonaRoutes(ctx: RouteContext): void {
     if (!body.title || typeof body.title !== "string") return fail(c, 400, "Field 'title' is required");
     if (typeof body.content !== "string") return fail(c, 400, "Field 'content' is required and must be a string");
     if (body.id !== undefined && typeof body.id !== "string") return fail(c, 400, "Field 'id' must be a string");
-    const settings = readPersonaSettings(rawSettingsOf(body));
+    const settings = readPersonaSettings(rawSettingsOf(body), lintOpts());
     const lint = mergeLint(validatePersonaMarkdown(body.content), settings);
     if (lint.errors.length > 0) return lintRefusal(c, lint);
     const res = store.createPersona({
@@ -127,7 +130,7 @@ export function registerPersonaRoutes(ctx: RouteContext): void {
     if (body.content !== undefined && typeof body.content !== "string") return fail(c, 400, "Field 'content' must be a string");
     // The settings as they'll be: the request's where it sends a field, else the persona's.
     const sent = rawSettingsOf(body);
-    const settings = readPersonaSettings({ ...personaSettingsOf(existing), ...sent });
+    const settings = readPersonaSettings({ ...personaSettingsOf(existing), ...sent }, lintOpts());
     const lint = mergeLint(validatePersonaMarkdown(body.content ?? existing.content), settings);
     if (lint.errors.length > 0) return lintRefusal(c, lint);
     const persona = store.updatePersona(id, {

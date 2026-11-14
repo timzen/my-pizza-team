@@ -1,7 +1,8 @@
 /**
  * lib/config-draft.ts — The Config page's config.json draft: its shape as the UI
  * edits it, the PUT body built from it, and the small pure rules the tabs apply
- * to it (name-noun normalization, the harness picker's options).
+ * to it (name-noun normalization, the harness picker's options, the persona
+ * model alias rows).
  *
  * The draft lives in ConfigPage, above the tabs (components/config/*), so edits
  * on General, Teammates and Triage save together. Kept pure (no React) so the
@@ -45,6 +46,10 @@ export interface ConfigData {
   harnesses?: Record<string, { teammate: string; leader?: string }>;
   /** The assistant block; only `persona`, edited via PUT /api/assistant/persona, not this draft. */
   assistant?: { persona?: string };
+  /** Persona model aliases: harness → alias → model id (shared/model-aliases.ts). `null` clears them on save. */
+  modelAliases?: Record<string, Record<string, string>> | null;
+  /** `false` ignores personas' `model` settings. Unset = on. */
+  personaModels?: boolean;
   /** One teammate per directory (exclusive directory leases). Unset = on. */
   exclusiveDirectories?: boolean;
   /** Which work-item kinds are on, defaults applied (docs/DESIGN.md "Feature Toggles"). */
@@ -126,4 +131,45 @@ export function terminalSwitchWarning(draft: ConfigData, saved: ConfigData | nul
   if (others.length === 0) return null;
   const list = others.map((a) => `${a.name} (${a.terminal})`).join(", ");
   return `${others.length === 1 ? "1 agent is" : `${others.length} agents are`} still running under another terminal: ${list}. New windows open in ${draftTerminal}.`;
+}
+
+/** One row of the Persona Models editor: a harness's alias and the model id it maps to. */
+export interface ModelAliasRow {
+  harness: string;
+  alias: string;
+  modelId: string;
+}
+
+/** The draft's `modelAliases` as editor rows, sorted by harness then alias. */
+export function modelAliasRows(aliases: ConfigData["modelAliases"]): ModelAliasRow[] {
+  const rows: ModelAliasRow[] = [];
+  for (const [harness, map] of Object.entries(aliases ?? {})) {
+    for (const [alias, modelId] of Object.entries(map ?? {})) rows.push({ harness, alias, modelId });
+  }
+  return rows.sort((a, b) => a.harness.localeCompare(b.harness) || a.alias.localeCompare(b.alias));
+}
+
+/** An alias as the daemon accepts it (shared/model-aliases.ts MODEL_ALIAS_PATTERN). */
+export function isValidModelAlias(alias: string): boolean {
+  return /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(alias);
+}
+
+/**
+ * `aliases` with `harness`'s `alias` set to `modelId`, or removed when
+ * `modelId` is null. A harness left with no aliases is dropped, and no aliases
+ * at all is `null`, which clears the block on save.
+ */
+export function setModelAlias(
+  aliases: ConfigData["modelAliases"], harness: string, alias: string, modelId: string | null,
+): Record<string, Record<string, string>> | null {
+  const next: Record<string, Record<string, string>> = {};
+  for (const [h, map] of Object.entries(aliases ?? {})) next[h] = { ...map };
+  if (modelId === null) {
+    const map = next[harness];
+    if (map) delete map[alias];
+  } else {
+    next[harness] = { ...next[harness], [alias]: modelId };
+  }
+  for (const h of Object.keys(next)) if (Object.keys(next[h] ?? {}).length === 0) delete next[h];
+  return Object.keys(next).length > 0 ? next : null;
 }

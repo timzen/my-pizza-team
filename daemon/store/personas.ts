@@ -38,6 +38,7 @@ import { deleteTeamPersona, freeTeamPersonaId, listTeamPersonas, readTeamPersona
 import { type PackagePersonaFile, type PackagePersonaResult, PackagePersonas } from "../personas/packages.ts";
 import { personaSettingsOf, personaUsage, resolvePersona } from "../personas/resolve.ts";
 import { listMirrorPersonaOverrides } from "../personas/usage-disk.ts";
+import { modelAliasNames } from "../../shared/model-aliases.ts";
 import { type SourceEntry, sourceIdForWorkDef } from "../sources/registry.ts";
 import { mirrorMode } from "../sources/mirror.ts";
 import { isSourceSwitchedOff } from "../sources/toggle.ts";
@@ -386,7 +387,7 @@ export class PersonaStore {
    * startup, like sources.
    */
   registerPackagePersonas(pkg: { name: string; identity: string }, files: PackagePersonaFile[]): PackagePersonaResult {
-    return this.packagePersonas.register(pkg, files);
+    return this.packagePersonas.register(pkg, files, { modelAliases: modelAliasNames(this.config) });
   }
 
   /** The whole library: team personas, then built-ins, then package personas. */

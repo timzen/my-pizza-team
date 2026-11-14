@@ -235,7 +235,7 @@ const index = fs.readFileSync(path.join(import.meta.dirname, "../src/index.ts"),
 const leader = fs.readFileSync(path.join(import.meta.dirname, "../src/leader.ts"), "utf-8");
 
 test("index.ts and leader.ts wire the scope into before_agent_start, tool_call and input", () => {
-  assert.match(index, /loop\.onPersonaChange = \(persona\) => \{ toolScope\.applyTools\(persona\?\.tools\); \}/);
+  assert.match(index, /loop\.onPersonaChange = async \(persona\) => \{\s*toolScope\.applyTools\(persona\?\.tools\);/);
   assert.match(index, /applyPersonaScope\(pi, toolScope, persona, event\)/);
   assert.match(index, /reportScopeOnce\(reportedScope, workItemId, problems,[\s\S]*?client\.postComment\(workItemId, text\)/);
   assert.match(index, /pi\.on\("tool_call", async \(event\) => checkToolCall\(loop\.persona,/);

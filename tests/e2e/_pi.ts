@@ -72,6 +72,8 @@ export function scriptedPiHarness(opts: ScriptedPiOptions): HarnessTemplates {
 export interface LoggedRequest {
   role: "leader" | "teammate" | "default";
   pid: number;
+  /** `<provider>/<id>` the request was made with. */
+  model: string;
   rule: string;
   turn: number;
   systemPrompt: string;

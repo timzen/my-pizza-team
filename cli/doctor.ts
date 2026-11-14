@@ -39,7 +39,7 @@ import { managedExtensionDir, readExtensionVersion, resolveExtensionSourceDir } 
 import { createTerminalBackend, formatTerminalStatus, getTerminalBackend } from "../daemon/terminal/index.ts";
 import type { TerminalStatus } from "../daemon/terminal/backend.ts";
 import { findPreCutoffLayout, type PreCutoffFinding } from "../daemon/layout-check.ts";
-import { MIN_UPGRADE_FROM_VERSION, PRE_CUTOFF_UPGRADE_MESSAGE } from "../shared/types.ts";
+import { DEFAULT_HARNESS, MIN_UPGRADE_FROM_VERSION, PRE_CUTOFF_UPGRADE_MESSAGE } from "../shared/types.ts";
 import {
   checkNode,
   checkServiceWrapper,
@@ -53,6 +53,7 @@ import {
 } from "../shared/runtime-config.ts";
 import { cliEntryScript } from "../shared/paths.ts";
 import { readTeamConfigFile } from "../shared/team-config.ts";
+import { personaModelsEnabled, resolvePersonaModel } from "../shared/model-aliases.ts";
 import { loadAgentEnv } from "../shared/env-file.ts";
 import type { ServiceProgram } from "./service.ts";
 import type { PluginLoadStatus, SourcesResponse } from "../shared/protocol.ts";
@@ -148,6 +149,24 @@ export interface DoctorFacts {
    * how many keys it defines. Never values. Absent = not checked.
    */
   agentEnv?: { path: string | null; problem: string | null; keys: number };
+  /**
+   * Which persona `model` aliases the team's default harness can't resolve
+   * (`personaModelFacts`), from the running daemon's persona library and
+   * config.json. Absent/null = not known (daemon down, or config unreadable).
+   */
+  personaModels?: PersonaModelFacts | null;
+}
+
+/** The persona-model facts `mpt doctor` reports (shared/model-aliases.ts). */
+export interface PersonaModelFacts {
+  /** The harness teammates spawn with (`defaultHarness`, else pi): the one aliases are checked for. */
+  harness: string;
+  /** `personaModels: false` — persona models are ignored, so nothing is unmapped. */
+  off: boolean;
+  /** How many personas name a `model`. */
+  inUse: number;
+  /** Each alias in use with no mapping for `harness`, and the personas naming it. */
+  unmapped: Array<{ alias: string; personas: string[] }>;
 }
 
 /** The Node facts (shared/runtime-config.ts), gathered so the checks stay pure. */
@@ -438,6 +457,8 @@ export function evaluate(f: DoctorFacts): Check[] {
 
   if (f.agentEnv) checks.push(agentEnvCheck(f.agentEnv));
 
+  if (f.daemonRunning && f.personaModels) checks.push(...personaModelChecks(f.personaModels));
+
   if (f.node) checks.push(...nodeChecks(f.node));
 
   return checks;
@@ -475,6 +496,47 @@ export function agentEnvCheck(env: NonNullable<DoctorFacts["agentEnv"]>): Check 
     };
   }
   return { name: "Agent env", status: "ok", detail: `${env.path} (${env.keys} variable(s), passed to every new window)` };
+}
+
+/**
+ * The persona `model` aliases (shared/model-aliases.ts) the team's default
+ * harness can't resolve — or which are in use while `personaModels` is off.
+ * Collected so the check stays pure; `personas` is the daemon's library
+ * (`GET /api/personas`), `config` the raw config.json.
+ */
+export function personaModelFacts(
+  personas: Array<{ id: string; model?: string }>,
+  config: { modelAliases?: Record<string, Record<string, string>>; personaModels?: boolean; defaultHarness?: string },
+): PersonaModelFacts {
+  const harness = config.defaultHarness || DEFAULT_HARNESS;
+  const using = personas.filter((p) => typeof p.model === "string" && p.model);
+  const byAlias = new Map<string, string[]>();
+  for (const p of using) {
+    if (resolvePersonaModel(config, p.model!, harness).problem) byAlias.set(p.model!, [...(byAlias.get(p.model!) ?? []), p.id]);
+  }
+  return {
+    harness,
+    off: !personaModelsEnabled(config),
+    inUse: using.length,
+    unmapped: [...byAlias].sort(([a], [b]) => a.localeCompare(b)).map(([alias, ids]) => ({ alias, personas: ids })),
+  };
+}
+
+/**
+ * The persona-model checks: nothing when no persona names a `model`; a
+ * warning per alias with no mapping for the default harness (those runs keep
+ * the harness's model, and their threads say so); else one ok line.
+ */
+export function personaModelChecks(f: PersonaModelFacts): Check[] {
+  if (f.inUse === 0) return [];
+  if (f.off) return [{ name: "Persona models", status: "ok", detail: `off (personaModels: false): ${f.inUse} persona(s) name a model; every run keeps the harness's model` }];
+  if (f.unmapped.length === 0) return [{ name: "Persona models", status: "ok", detail: `${f.inUse} persona(s) name a model; every alias maps for ${f.harness}` }];
+  return f.unmapped.map((u) => ({
+    name: `Persona model "${u.alias}"`,
+    status: "warn" as const,
+    detail: `no mapping for the ${f.harness} harness — used by ${u.personas.join(", ")}; their runs keep the default model`,
+    fix: `add it on Config → Teammates (Persona Models), or set "modelAliases": { "${f.harness}": { "${u.alias}": "<model id>" } } in config.json`,
+  }));
 }
 
 /**
@@ -774,6 +836,14 @@ export async function gather(opts: GatherOptions): Promise<DoctorFacts> {
       if (res.ok) plugins = (await res.json() as Partial<SourcesResponse>).plugins ?? null;
     } catch { /* an older or unreachable daemon: the check is skipped */ }
   }
+  let personaModels: PersonaModelFacts | null = null;
+  if (daemonRunning) {
+    try {
+      const res = await fetch(`${opts.daemonUrl}/api/personas`, { signal: AbortSignal.timeout(1500) });
+      const config = readTeamConfigFile(opts.teamDir) ?? {};
+      if (res.ok) personaModels = personaModelFacts((await res.json() as { personas?: Array<{ id: string; model?: string }> }).personas ?? [], config);
+    } catch { /* unreachable daemon or unreadable config.json: the check is skipped */ }
+  }
 
   // tmux specifically: its presence and socket are what the checks below compare
   // (the daemon's tmux server), whatever the team's `terminal` says.
@@ -810,6 +880,7 @@ export async function gather(opts: GatherOptions): Promise<DoctorFacts> {
     experimentalHarnesses: experimentalHarnessFacts(opts.teamDir),
     plugins,
     agentEnv: agentEnvFacts(opts.teamDir),
+    personaModels,
   };
 }
 

@@ -18,7 +18,11 @@
  *   - the teammate's request carrying the state's persona in its system prompt
  *     (not in the work prompt), and MPT's teammate tools;
  *   - the persona's `tools` policy narrowing the declared tools (MPT's kept), and
- *     a pattern that matches nothing reported once on the item's thread.
+ *     a pattern that matches nothing reported once on the item's thread;
+ *   - the persona's `model` alias (team config `modelAliases.pi`) switching the
+ *     teammate to `mpt-mock/scripted-strong` for the item — every work request
+ *     and the usage ledger's run name it — while the leader stays on `scripted`,
+ *     and the teammate is back on `scripted` once the item ends.
  */
 
 import * as fs from "node:fs";
@@ -68,7 +72,10 @@ test("a scripted Pi leads and works a board task end to end, with no model", { s
   const script = path.join(sb.root, "script.json");
   const log = path.join(sb.root, "requests.jsonl");
   fs.writeFileSync(script, JSON.stringify(SCRIPT, null, 2));
-  sb.writeTeamConfig({ minTeammates: 0, harnesses: { pi: scriptedPiHarness({ script, log }) } });
+  sb.writeTeamConfig({
+    minTeammates: 0, harnesses: { pi: scriptedPiHarness({ script, log }) },
+    modelAliases: { pi: { strong: "mpt-mock/scripted-strong" } },
+  });
   await sb.startDaemon();
 
   // ─── The leader: started from the web UI, answers the chat ─────────
@@ -90,6 +97,8 @@ test("a scripted Pi leads and works a board task end to end, with no model", { s
     // Scopes the teammate's tools (harnesses/pi/src/persona-scope.ts): only `read`
     // plus MPT's own tools; the pattern matching nothing is reported on the thread.
     tools: { allow: ["read", "nomatch*"] },
+    // Switches the teammate's model for the item (harnesses/pi/src/persona-model.ts).
+    model: "strong",
   });
   assertEquals(persona.status, 201, JSON.stringify(persona.body));
   const wf = await send(sb, "/api/workflows/default/states/in_progress", { persona: "scripted-implementer" }, "PUT");
@@ -134,6 +143,9 @@ test("a scripted Pi leads and works a board task end to end, with no model", { s
   assertEquals(Math.round(work.costUsd * 1e6), 23_400, JSON.stringify(work));
   const chatRun = (await runs()).find((r) => r.kind === "chat")!;
   assertEquals(Math.round(chatRun.costUsd * 1e6), 11_700, JSON.stringify(chatRun));
+  // The ledger names the model each run actually used: the persona's for the work.
+  assertEquals(work.model, "scripted-strong", JSON.stringify(work));
+  assertEquals(chatRun.model, "scripted", JSON.stringify(chatRun));
 
   // ─── The request log: what each Pi actually sent its model ─────────
   const requests = readRequestLog(log);
@@ -165,6 +177,16 @@ test("a scripted Pi leads and works a board task end to end, with no model", { s
   }
   const scopeNotes = bodies.filter((b) => b.includes("persona scripted-implementer: tools.allow pattern 'nomatch*' matched no tools"));
   assertEquals(scopeNotes.length, 1, bodies.join("\n"));
+  // The persona's model: every work request went to the alias's model, the leader's didn't.
+  for (const req of workReqs) assertEquals(req.model, "mpt-mock/scripted-strong", "the work ran on the persona's model");
+  assertEquals(leaderReq.model, "mpt-mock/scripted");
+  assert(!bodies.some((b) => b.includes("[persona model]") || b.includes("can't be used")), bodies.join("\n"));
+  // After the item the teammate is back on the default (restored, then a fresh session):
+  // the Team tab's model, reported on model_select.
+  type Agent = { name: string; session?: { model?: { id: string } | null } };
+  const teammateModel = async () => (await get<{ agents: Agent[] }>(sb, "/api/agents")).agents.find((a) => a.name === name)?.session?.model?.id;
+  assert(await sb.waitFor(async () => (await teammateModel()) === "scripted", 10_000), `teammate model: ${await teammateModel()}`);
+
   // The second turn saw the tool's result.
   assert(workReqs[1]!.messages.some((m) => m.role === "toolResult"), JSON.stringify(workReqs[1]!.messages));
 

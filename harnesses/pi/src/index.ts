@@ -30,6 +30,7 @@ import { readTeammateFlag, registerTeammateFlags } from "./teammate-flag.js";
 import { setWaitToolActive } from "./wait-tool.js";
 import { applyPersonaSection, personaSystemPromptText } from "./persona-prompt.js";
 import { PersonaToolScope, applyPersonaScope, checkSkillCommand, checkToolCall, reportScopeOnce } from "./persona-scope.js";
+import { PersonaModelSwitch } from "./persona-model.js";
 import { PERSONA_SYSTEM_PROMPT_CAPABILITY } from "./shared/agent-protocol.js";
 import { summarizeRun, hasUsage } from "./runtime/usage.js";
 import { readSessionStats, sameStats, type SessionStats } from "./runtime/session-stats.js";
@@ -336,7 +337,27 @@ async function setupTeammate(
   // written is posted once on the item's thread.
   const toolScope = new PersonaToolScope(pi);
   const reportedScope = new Set<string>();
-  loop.onPersonaChange = (persona) => { toolScope.applyTools(persona?.tools); };
+
+  // And its `model` (persona-model.ts): the claim's `modelId` (the team's alias,
+  // resolved by the daemon for this harness) is switched in at claim — before
+  // the work prompt is sent — and the previous model put back when the item
+  // ends. A model this Pi can't use is said once on the thread; the current
+  // model is kept.
+  const modelSwitch = new PersonaModelSwitch(pi, ctx);
+  const reportedModel = new Set<string>();
+  const applyModel = async (workItemId: string | null, persona: typeof loop.persona) => {
+    const problem = await modelSwitch.apply(persona ? workItemId : null, persona);
+    if (problem && workItemId) {
+      reportScopeOnce(reportedModel, workItemId, [problem], (text) => {
+        debug(`[ppt-debug persona model] ${text}`);
+        client.postComment(workItemId, text).catch(() => {});
+      });
+    }
+  };
+  loop.onPersonaChange = async (persona) => {
+    toolScope.applyTools(persona?.tools);
+    await applyModel(loop.currentTask, persona);
+  };
 
   pi.on("before_agent_start", async (event) => {
     const persona = loop.persona;
@@ -348,6 +369,9 @@ async function setupTeammate(
         client.postComment(workItemId, text).catch(() => {});
       });
     }
+    // Normally a no-op (applied at claim, once per item); restores the model on
+    // a run with no persona model held.
+    await applyModel(workItemId, persona);
     return applyPersonaSection(event, personaSystemPromptText(loop.persona));
   });
 

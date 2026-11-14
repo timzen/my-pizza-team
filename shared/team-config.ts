@@ -94,7 +94,7 @@ const KEY_ORDER = [
   "port", "tmuxSession", "terminal", "herdrSession", "defaultWorkflow", "autosave", "maxTeammates", "minTeammates",
   "agentTimeoutSeconds", "apiToken", "teammates", "readinessProbe", "agentEnvFile", "harnesses",
   "defaultHarness", "experimental", "triage", "retry", "exclusiveDirectories", "features",
-  "assistant", "sourcePersonas", "favoriteDirectories", "packages", "dev",
+  "assistant", "sourcePersonas", "modelAliases", "personaModels", "favoriteDirectories", "packages", "dev",
 ];
 
 /** Derived, never persisted: workflows live in the workflows/ directory. */
@@ -105,7 +105,7 @@ const OMIT_WHEN_FALSY = new Set(["terminal", "herdrSession", "apiToken", "readin
 
 /** Optional blocks where an empty object/array means the same as absent. */
 const OMIT_WHEN_EMPTY = new Set([
-  "teammates", "experimental", "triage", "retry", "assistant", "sourcePersonas", "favoriteDirectories",
+  "teammates", "experimental", "triage", "retry", "assistant", "sourcePersonas", "modelAliases", "favoriteDirectories",
 ]);
 
 /** Whether `key: value` carries nothing a reload wouldn't reproduce (see the header). */

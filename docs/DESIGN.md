@@ -1770,6 +1770,36 @@ requires: { mcp: ["code-search"] }       # needed, checked — never started
   skill files are still on disk, so this scopes what is offered, not what can be
   read. What can't be applied (a pattern matching nothing, an unloaded skill, a
   denied protocol tool) is posted once on the work item's thread at claim.
+- **`model` is an alias, resolved by the daemon per harness**
+  (shared/model-aliases.ts). Model ids are harness- and machine-specific, and
+  a persona (often from a package) must stay portable, so it names a kind of
+  model and the team config maps it: `"modelAliases": { "pi": { "strong":
+  "<provider>/<model>" } }`. Keyed by harness like `harnesses`, but its own
+  top-level block: a `harnesses` entry replaces the built-in start templates
+  wholesale, so aliases there would mean restating start commands to name a
+  model. At claim the daemon resolves the alias for the claiming member's
+  registered harness and sends both (`ClaimPersona.model` + `modelId`); the
+  leader gets the same for its assistant persona. *Why resolve in the daemon:*
+  the config lives there, one resolution serves every harness, and an unmapped
+  alias is reported in one place — no model is set and the run's thread gets one
+  `[persona model]` comment naming the key to add — rather than by each harness.
+  `"personaModels": false` switches the whole feature off (null `modelId`, no
+  comment): a deliberate choice is not a problem. Lint warns about an alias no
+  harness maps (a typo); `mpt doctor` lists aliases in use with no mapping for
+  the default harness.
+- **How Pi applies `model`** (harnesses/pi/src/persona-model.ts): `pi.setModel`
+  to the claim's `modelId` at claim — awaited before the work prompt is sent,
+  so the first run already uses it — and back to the previous model when the
+  item ends, so it never leaks into the next item (a fresh session starts on
+  Pi's default anyway). It is applied once per item, not per run: a model
+  someone picks with `/model` while pairing stands. A model Pi doesn't know,
+  can't find unambiguously, or can't use (no credentials) keeps the current
+  model and is said once on the thread. The assistant applies its persona's
+  model once per persona and model id (a later `/model` stands; a persona
+  change ends the chat session anyway), warning in its window instead. Usage
+  and the Team tab need nothing new: a run's usage records the model its
+  assistant messages name, and `setModel` fires `model_select`, which re-reports
+  the session's model.
 - **Linted like the body** ("Linting: one linter for every persona"): a wrong
   shape or a non-`*` pattern is an **error** (the save is refused; a package
   persona is marked `lintError`), and the bad field or pattern is left out of
