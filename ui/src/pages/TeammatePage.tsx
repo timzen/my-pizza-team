@@ -2,9 +2,11 @@
  * TeammatePage — Watch one teammate work, live (`/teammates/:id`).
  *
  * Fills the center column (docs/DESIGN.md "Watching and Pairing with a Teammate"): a header strip — status,
- * what it's working on (linked to the work item's page, where the full prompt
- * and thread live), the persona it's working with (a chip linking to it), and
- * its directory — over `AgentTerminal` (the CLI-ish
+ * its model (components/team/ModelChip: the effective model, 📌 for a pin, a
+ * failover mark, and a picker to pin another — read-only on the phone view;
+ * docs/DESIGN.md "Choosing a Model"), what it's working on (linked to the work
+ * item's page, where the full prompt and thread live), the persona it's
+ * working with (a chip linking to it), and its directory — over `AgentTerminal` (the CLI-ish
  * `TranscriptView` + composer, shared with the assistant's terminal mode).
  *
  * Watching is read-only: having this page open is what turns the teammate's
@@ -21,7 +23,7 @@
  */
 
 import { useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useLocation, useParams } from "react-router-dom";
 import { useApi, apiPost } from "@/hooks/useApi";
 import { useTranscriptStream } from "@/hooks/useTranscriptStream";
 import { AgentTerminal } from "@/components/transcript/AgentTerminal";
@@ -29,7 +31,9 @@ import { Button } from "@/components/ui/button";
 import type { PairingState } from "@/lib/transcript-types";
 import { workItemPath } from "@/lib/work-item-link";
 import { Badge } from "@/components/ui/badge";
-import { ModelName, SessionStats, StatusIcon } from "@/components/team/TeamParts";
+import { SessionStats, StatusIcon } from "@/components/team/TeamParts";
+import { ModelChip } from "@/components/team/ModelChip";
+import { isMobilePath } from "@/lib/mobile";
 import { PersonaChip } from "@/components/personas/PersonaChip";
 import { statusLabel, type Teammate } from "@/lib/team";
 import { FolderOpen, Eye, WifiOff, MessageSquare, Play, CheckCircle2, XCircle } from "lucide-react";
@@ -46,6 +50,7 @@ type WorkItem = WorkItemView;
 
 export function TeammatePage() {
   const { id = "" } = useParams();
+  const phone = isMobilePath(useLocation().pathname);
   const stream = useTranscriptStream(id);
   const { connected } = stream;
   const { data: agents } = useApi<{ agents: Agent[] }>("/api/agents", [], { pollInterval: 5000 });
@@ -90,7 +95,7 @@ export function TeammatePage() {
         {agent && <StatusIcon teammate={agent} className="h-4 w-4 shrink-0 text-muted-foreground" />}
         <h1 className="font-semibold">{agent?.name ?? id}</h1>
         {agent && <span className="text-xs text-muted-foreground">{statusLabel(agent.status)}</span>}
-        {agent && <ModelName teammate={agent} className="text-xs" />}
+        {agent && <ModelChip agent={agent} readOnly={phone} />}
         {agent && <SessionStats teammate={agent} className="text-xs" />}
         {current && (
           <Link to={workItemPath(current)} className="min-w-0 max-w-full truncate text-sm text-primary hover:underline" title={current.title}>

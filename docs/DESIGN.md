@@ -2617,6 +2617,17 @@ switch its model, and only between runs.
   harness declared the `set-model` capability; for any other the model routes
   answer 409 `unsupported` ("not supported by this harness") instead of queueing
   an ask nothing would realize. Everything is additive: no protocol bump.
+- **In the UI, where you look at one agent.** The model chip sits in the
+  teammate page's header (`/teammates/:id`), not on the Team tab's rows: a
+  picker on every row would invite changing models by accident, and the page is
+  where you watch what the model is doing. It shows the effective model (what the
+  session reports running), a 📌 for a pin and a "failover" mark while a
+  substitute is in effect, with a tooltip saying why; a pick shows "switching to
+  …" until the agent reports the directive, then the new model — or the agent's
+  reason. The assistant's model is on Config → General's Assistant card, beside
+  its persona, applied at once like the persona. The phone view shows the chip
+  read-only. The UI never interprets a model id: it lists what the harness
+  reported and sends back its `ref`.
 - **Routes.** `POST /api/agents/:id/model` `{ model | null }` (the assistant too,
   by the leader's id); `POST /api/agents/model` `{ model, scope: "teammates" }`
   pins every live teammate (naming those that can't); `GET /api/agents/:id/model`
@@ -3237,6 +3248,10 @@ one-line diff, merges rarely conflict, and it's `jq`-able.
 
 A teammate's page (`/teammates/:id`) is its Pi session rendered like a terminal,
 not chat bubbles — you're looking over its shoulder, not texting it.
+
+Its header strip names what it's doing and with what: status, its model (a
+chip you can re-pin — "Choosing a Model"), the work item, the persona, the
+directory.
 
 **Live, and only while watched.** The SSE subscription registers a viewer; the
 extension polls the resulting "watched" bit (with a 30s grace so page hops don't

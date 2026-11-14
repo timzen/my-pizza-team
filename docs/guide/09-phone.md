@@ -7,7 +7,8 @@ team, not the whole app. Four tabs along the bottom:
   while the team is new (spawning is left to the full UI), then your teammates (what each is working on, its model, context fill, and
   cost), then the queue: at risk, waiting, working, with **Force-fail** /
   **Re-enqueue** / **Cancel**. Tap a teammate to watch it live, or **Pair** (see
-  [Teammates](03-teammates.md#pairing-with-a-teammate)). The tab gets an amber dot
+  [Teammates](03-teammates.md#pairing-with-a-teammate)); its model shows in the
+  header, read-only (choose it from the full UI). The tab gets an amber dot
   when something is at risk.
 - **Chat** — the assistant chat, with history. On a phone **Enter starts a new
   line**; tap ➤ to send. The tab shows how many replies you haven't read.

@@ -109,7 +109,10 @@ A model you chose for one teammate or the assistant. It lasts as long as that ag
 does — new sessions and a Reset included — and wins over its persona's model; clear
 it to go back to the persona's (or the default) model. The agent switches between
 runs, never in the middle of one, and a harness that can't switch models says it's
-not supported. See [Personas](06-personas.md#model-aliases).
+not supported. Pin one from the teammate's model chip
+([Choosing its model](03-teammates.md#choosing-its-model)) or, for the assistant, on
+[Config → General](08-configuration.md#the-assistant). See
+[Personas](06-personas.md#model-aliases).
 
 ## MORIBUND
 

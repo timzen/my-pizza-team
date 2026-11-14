@@ -105,6 +105,27 @@ watching.
 - A teammate nobody is watching doesn't stream anything, so leaving the page costs
   nothing.
 
+### Choosing its model
+
+The header's **model chip** shows the model the teammate is running. A pin icon (📌) means you
+pinned it (a [model pin](glossary.md#model-pin)); an amber **failover** mark means a
+substitute is standing in while its usual model is throttled or failing. Hover or
+focus the chip for the why.
+
+Click the chip (or Tab to it and press Enter) for the models its harness can use:
+
+- **Pick one** to pin it. The chip reads "switching to …" until the teammate
+  switches — after its current run, never in the middle of one — then shows the new
+  model with its pin. If the teammate can't use it, the reason appears under the chip
+  and nothing changes.
+- **Clear pin** goes back to its persona's model (or the default).
+- **Apply … to all teammates** pins the same model on every live teammate.
+
+A teammate whose harness can't switch models shows the chip without the menu; its
+tooltip says it's not supported by that harness. The assistant's model is set on
+[Config → General](08-configuration.md#the-assistant). On the
+[phone](09-phone.md) the chip is read-only.
+
 ## Pairing with a teammate
 
 Watching never interrupts anything. To talk to a teammate, click **Pair**: it stops

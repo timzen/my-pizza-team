@@ -822,7 +822,11 @@ directive the agent carries out between runs, then marks done or failed with the
 reason. A user's choice is a **pin**: kept for the agent's life (new sessions, a
 Reset, a daemon restart — returned as `modelPin` at registration), it wins over the
 persona's model, and `model: null` clears it. Any other harness gets 409
-`unsupported` ("not supported by this harness"). See
+`unsupported` ("not supported by this harness"). In the web UI a teammate's model
+is the **model chip** in its page's header (`/teammates/:id`: 📌 for a pin, a
+failover mark, a menu with its models, **Clear pin** and **Apply … to all
+teammates**; read-only on the phone), and the assistant's is the **Model** picker
+on Config → General → Assistant, beside its persona. See
 [docs/DESIGN.md](docs/DESIGN.md#choosing-a-model).
 
 Windows in the team's terminal that no registered teammate, the leader or a

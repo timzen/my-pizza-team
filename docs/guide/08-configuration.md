@@ -2,7 +2,7 @@
 
 Settings live under the **config** (gear) icon, at `/config`:
 
-- **General** — the **Work items** toggles, the **Assistant**'s persona (its chat or
+- **General** — the **Work items** toggles, the **Assistant**'s persona and model (its chat or
   terminal look follows the dock's size — see
   [The assistant](04-assistant.md#chat-in-the-dock-terminal-at-full-page)), port, the
   **terminal** and its session name, team size (min/max teammates), default workflow, the **readiness probe**,
@@ -27,10 +27,27 @@ Each tab has its own address (`/config/teammates`, `/config/sources`,
 `/config/workflows`, `/config/personas`, `/config/triage`, `/config/theme`). **Save
 Configuration** appears on General, Teammates, and Triage — it saves the edits from
 all three at once. Sources has its own Save per plugin (and source personas apply at
-once), Workflows and Personas save as you go, the assistant's persona applies at once,
+once), Workflows and Personas save as you go, the assistant's persona and model apply at once,
 and Theme applies immediately.
 
 Every Config tab (Workflows and Personas included) lights the gear in the nav.
+
+## The assistant
+
+**Config → General → Assistant** has two pickers, side by side, and both apply at
+once — no Save:
+
+- **Persona** — who the assistant is. Switching ends the current chat (it stays in
+  the history) and starts a new one (see [Personas](06-personas.md)).
+- **Model** — the models the assistant's harness can use. Picking one pins it (a
+  [model pin](glossary.md#model-pin)): the line under it reads "Switching to … after
+  its current reply…" until the assistant has switched, then names the model it's
+  running. **Default** clears the pin. If it can't use the model, the reason shows
+  under the picker. The picker is disabled while the assistant isn't running, or
+  when its harness can't switch models ("not supported by this harness").
+
+A teammate's model is chosen on its own page — see
+[Choosing its model](03-teammates.md#choosing-its-model).
 
 ## Work items (feature toggles)
 
