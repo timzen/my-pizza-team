@@ -792,6 +792,8 @@ advances a board task; FAILED leaves it for a human). See
 4. POST /api/agents/work-items/:id/state  → { state: "COMPLETE" } or { state: "FAILED" }
 5. POST /api/agents/heartbeat             → keep-alive (restores this agent's MORIBUND items)
    POST /api/agents/:id/session-stats     → optional, after each turn: context fill + session cost
+   POST /api/agents/:id/models            → optional: the models the harness can use changed
+   GET  /api/agents/:id/directives        → asks to realize itself (new-session, set-model)
 ```
 
 **Registration** carries a name, a working `directory` (the only work-selection
@@ -810,6 +812,18 @@ title, body, and the rendered **Your Role** block). A harness that registers wit
 prompt without that block and puts it in its system prompt instead; any other
 harness gets the block at the top of the prompt, as before. See
 [docs/DESIGN.md](docs/DESIGN.md#the-persona-in-the-system-prompt).
+
+**Models.** A harness that registers with `capabilities: ["set-model"]` (the Pi
+teammate and assistant do) and its available `models` (`{ ref, id, name, provider }`;
+ids are opaque to MPT) can be switched from the web UI: `POST /api/agents/:id/model`
+`{ model | null }` (the assistant by the leader's id; `POST /api/agents/model`
+`{ model, scope: "teammates" }` for every live teammate) queues a `set-model`
+directive the agent carries out between runs, then marks done or failed with the
+reason. A user's choice is a **pin**: kept for the agent's life (new sessions, a
+Reset, a daemon restart — returned as `modelPin` at registration), it wins over the
+persona's model, and `model: null` clears it. Any other harness gets 409
+`unsupported` ("not supported by this harness"). See
+[docs/DESIGN.md](docs/DESIGN.md#choosing-a-model).
 
 Windows in the team's terminal that no registered teammate, the leader or a
 starting spawn accounts for (such as panes a terminal's session restore relaunched)
@@ -873,7 +887,10 @@ A persona's `model` is applied too: the teammate switches to the model its alias
 maps to (`modelAliases.pi`) when it claims the item, and back when the item ends; the
 assistant switches once per persona (a later `/model` stands). A model Pi doesn't
 know, or has no credentials for, keeps the current one and is reported the same way.
-The usage ledger and the Team tab show the model each run actually used.
+The usage ledger and the Team tab show the model each run actually used. A model
+pinned from the web UI wins over the persona's (the effective model is resolved in
+one place, harnesses/pi/src/model-choice.ts), and both roles report the models
+their Pi can use for the UI's picker.
 
 Recommended: `@gotgenes/pi-permission-system`, which lets teammates work
 autonomously. Without it they stop at the first permission prompt (the extension

@@ -105,6 +105,9 @@ id works when only one provider has it).
   provider) keeps the current model, and the thread says so.
 - **Persona models off:** untick **Use persona models** (`"personaModels": false`) to
   ignore every persona's model — runs keep the harness's model and nothing is posted.
+- **A pinned model wins.** A model you pin on a teammate or the assistant (a
+  [model pin](glossary.md#model-pin)) is used instead of its persona's model, for
+  every work item, until you clear the pin.
 
 Other harnesses get the resolved model with the persona but may not apply it.
 

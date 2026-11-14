@@ -103,6 +103,14 @@ Moving the card onward is the completion.
 The read-only copy MPT keeps of an item from a [source](#source). Change the item in
 the source; each new revision runs once. See [Sources](07-sources.md).
 
+## Model pin
+
+A model you chose for one teammate or the assistant. It lasts as long as that agent
+does — new sessions and a Reset included — and wins over its persona's model; clear
+it to go back to the persona's (or the default) model. The agent switches between
+runs, never in the middle of one, and a harness that can't switch models says it's
+not supported. See [Personas](06-personas.md#model-aliases).
+
 ## MORIBUND
 
 A run whose teammate went silent mid-work — shown as **at risk** in the Queue. It's

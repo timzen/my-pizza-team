@@ -159,7 +159,7 @@ test("a claim from an older daemon (no persona) adds nothing", async () => {
 const index = fs.readFileSync(path.join(import.meta.dirname, "../src/index.ts"), "utf-8");
 
 test("index.ts declares the capability at both registrations and wires the hook to the loop's persona", () => {
-  assert.match(index, /const capabilities = \[PERSONA_SYSTEM_PROMPT_CAPABILITY\]/);
+  assert.match(index, /const capabilities = \[PERSONA_SYSTEM_PROMPT_CAPABILITY, SET_MODEL_CAPABILITY\]/);
   assert.strictEqual((index.match(/client\.register\(\{[^}]*capabilities/gs) ?? []).length, 2);
   assert.match(index, /pi\.on\("before_agent_start"[\s\S]*?applyPersonaSection\(event, personaSystemPromptText\(loop\.persona\)\)/);
 });

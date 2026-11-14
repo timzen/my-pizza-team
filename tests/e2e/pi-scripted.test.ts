@@ -19,6 +19,8 @@
  *     (not in the work prompt), and MPT's teammate tools;
  *   - the persona's `tools` policy narrowing the declared tools (MPT's kept), and
  *     a pattern that matches nothing reported once on the item's thread;
+ *   - model switching: the available models reported, a user's pin realized by
+ *     the teammate and the leader (`set-model`), an unknown model failed;
  *   - the persona's `model` alias (team config `modelAliases.pi`) switching the
  *     teammate to `mpt-mock/scripted-strong` for the item — every work request
  *     and the usage ledger's run name it — while the leader stays on `scripted`,
@@ -186,6 +188,33 @@ test("a scripted Pi leads and works a board task end to end, with no model", { s
   type Agent = { name: string; session?: { model?: { id: string } | null } };
   const teammateModel = async () => (await get<{ agents: Agent[] }>(sb, "/api/agents")).agents.find((a) => a.name === name)?.session?.model?.id;
   assert(await sb.waitFor(async () => (await teammateModel()) === "scripted", 10_000), `teammate model: ${await teammateModel()}`);
+
+  // ─── Model switching (docs/DESIGN.md "Choosing a Model") ───────────
+  // The teammate reported what it can use; a user's pin is realized by the
+  // agent (set-model) and the Team tab's model follows; an unknown model fails
+  // with the harness's reason; the assistant takes the same route.
+  type ModelState = {
+    supported: boolean; models: Array<{ ref: string }> | null; pin: string | null;
+    lastChange: { status: string; error: string | null } | null;
+  };
+  const teammateId = (await get<{ agents: Array<{ id: string; name: string }> }>(sb, "/api/agents")).agents.find((a) => a.name === name)!.id;
+  const modelState = (id: string) => get<ModelState>(sb, `/api/agents/${encodeURIComponent(id)}/model`);
+  const before = await modelState(teammateId);
+  assert(before.supported, JSON.stringify(before));
+  assert(before.models?.some((m) => m.ref === "mpt-mock/scripted-strong"), JSON.stringify(before.models));
+  assertEquals((await send(sb, `/api/agents/${teammateId}/model`, { model: "mpt-mock/scripted-strong" })).status, 201);
+  assert(await sb.waitFor(async () => (await modelState(teammateId)).lastChange?.status === "done" && (await teammateModel()) === "scripted-strong", 15_000),
+    `pin not realized: ${JSON.stringify(await modelState(teammateId))}, model ${await teammateModel()}`);
+  assertEquals((await modelState(teammateId)).pin, "mpt-mock/scripted-strong");
+  assertEquals((await send(sb, `/api/agents/${teammateId}/model`, { model: "mpt-mock/no-such-model" })).status, 201);
+  assert(await sb.waitFor(async () => (await modelState(teammateId)).lastChange?.status === "failed", 15_000), JSON.stringify(await modelState(teammateId)));
+  assertStringIncludes((await modelState(teammateId)).lastChange!.error ?? "", "isn't a model this Pi knows");
+  assertEquals((await modelState(teammateId)).pin, "mpt-mock/scripted-strong", "a refused model doesn't move the pin");
+  // The assistant (the leader), through the same per-agent route.
+  assertEquals((await send(sb, "/api/agents/leader/model", { model: "mpt-mock/scripted-strong" })).status, 201);
+  const leaderModel = async () => (await get<{ agents: Array<Agent & { id: string }> }>(sb, "/api/agents")).agents.find((a) => a.id === "leader")?.session?.model?.id;
+  assert(await sb.waitFor(async () => (await modelState("leader")).lastChange?.status === "done" && (await leaderModel()) === "scripted-strong", 15_000),
+    `leader pin not realized: ${JSON.stringify(await modelState("leader"))}, model ${await leaderModel()}`);
 
   // The second turn saw the tool's result.
   assert(workReqs[1]!.messages.some((m) => m.role === "toolResult"), JSON.stringify(workReqs[1]!.messages));

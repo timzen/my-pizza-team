@@ -99,6 +99,14 @@ export class ChatMirror {
   public onSessionDirective: ((action: string, params: Record<string, unknown>) => Promise<void>) | null = null;
 
   /**
+   * Take a `set-model` directive (my-pizza-team docs/DESIGN.md "Choosing a
+   * Model"). Set by leader.ts to model-choice.ts's SetModelRealizer, which waits
+   * for a run in flight and marks the directive itself. It doesn't roll the
+   * session, so it never goes through `onSessionDirective`.
+   */
+  public onModelDirective: ((directive: { id: string; params: Record<string, unknown> }) => void | Promise<void>) | null = null;
+
+  /**
    * Hand one inbox message to Pi. Set by leader.ts to the shared
    * `deliverWebMessage` (session-transcript.ts) — the same delivery a teammate's
    * web pairing uses, so the terminal view tags it `web` and honours its
@@ -230,6 +238,11 @@ export class ChatMirror {
     if (!this.onSessionDirective) return;
     const { directives } = await this.client.getSelfDirectives();
     for (const directive of directives) {
+      // (The literal, not SET_MODEL_ACTION: this module imports no values, so tests load it standalone.)
+      if (directive.action === "set-model" && this.onModelDirective) {
+        await Promise.resolve(this.onModelDirective(directive)).catch(() => {});
+        continue;
+      }
       try {
         // Set before queueing the command: the session can be replaced before the
         // next await resumes, and session_shutdown must see the flag.

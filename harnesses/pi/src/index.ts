@@ -30,11 +30,12 @@ import { readTeammateFlag, registerTeammateFlags } from "./teammate-flag.js";
 import { setWaitToolActive } from "./wait-tool.js";
 import { applyPersonaSection, personaSystemPromptText } from "./persona-prompt.js";
 import { PersonaToolScope, applyPersonaScope, checkSkillCommand, checkToolCall, reportScopeOnce } from "./persona-scope.js";
-import { PersonaModelSwitch } from "./persona-model.js";
+import { PersonaModelSwitch, modelProblem } from "./persona-model.js";
+import { ModelListReporter, ModelPreferences, SetModelRealizer, availableModels } from "./model-choice.js";
 import { mcpRequirementProblem, registeredMcpServers } from "./persona-mcp.js";
-import { PERSONA_SYSTEM_PROMPT_CAPABILITY } from "./shared/agent-protocol.js";
+import { PERSONA_SYSTEM_PROMPT_CAPABILITY, SET_MODEL_CAPABILITY } from "./shared/agent-protocol.js";
 import { summarizeRun, hasUsage } from "./runtime/usage.js";
-import { readSessionStats, sameStats, type SessionStats } from "./runtime/session-stats.js";
+import { attachSessionStats } from "./stats-report.js";
 
 /**
  * This extension's build version, read from its own package.json.
@@ -218,7 +219,11 @@ async function setupTeammate(
   const { registerTeammateTools } = await import("./tools.js");
   // This harness puts the claim's persona in its system prompt (see the
   // before_agent_start hook below), so the daemon leaves it out of the work prompt.
-  const capabilities = [PERSONA_SYSTEM_PROMPT_CAPABILITY];
+  // And it switches models on request (`set-model`, model-choice.ts).
+  const capabilities = [PERSONA_SYSTEM_PROMPT_CAPABILITY, SET_MODEL_CAPABILITY];
+  // The agent's model preferences (model-choice.ts): the user's pin comes back
+  // in every registration reply, so it holds from this session's start.
+  const modelPrefs = new ModelPreferences();
 
   // Check daemon reachability
   const serverUp = await client.checkHealth();
@@ -228,13 +233,16 @@ async function setupTeammate(
 
   // Register with the daemon. The agent's working directory (its pi cwd) is the
   // only work-selection signal — the daemon biases matching by directory.
+  const initialModels = availableModels(ctx.modelRegistry);
   try {
-    await client.register({
+    const res = await client.register({
       name: memberId,
       directory: cwd,
       metadata: readTerminalMetadata(pi),
       capabilities,
+      models: initialModels,
     });
+    modelPrefs.pin = res.modelPin ?? null;
   } catch {
     if (ctx.hasUI) {
       ctx.ui.notify(`🍕 Failed to register — will keep trying via polling`, "warning");
@@ -258,22 +266,10 @@ async function setupTeammate(
   loop.debugLog = debug;
 
   // ─── Session stats (the Team tab's model, context fill, session cost) ──
-  // Reported after every turn — that's when the context grows and cost accrues
-  // — after compaction, which shrinks the context, and when the model is
-  // switched. Unchanged numbers aren't re-sent. The first report is the fresh
-  // session's baseline (system prompt).
-  let lastStats: SessionStats | null = null;
-  const reportStats = (c: unknown, model?: { id?: string; name?: string; provider?: string }) => {
-    const stats = readSessionStats(c as Parameters<typeof readSessionStats>[0], model);
-    if (sameStats(lastStats, stats)) return;
-    lastStats = stats;
-    client.reportSessionStats(stats).catch(() => {});
-  };
-  pi.on("turn_end", async (_event, c) => { reportStats(c); });
-  pi.on("agent_end", async (_event, c) => { reportStats(c); });
-  pi.on("session_compact", async (_event, c) => { reportStats(c); });
-  pi.on("model_select", async (event, c) => { reportStats(c, event.model); });
-  reportStats(ctx);
+  // stats-report.ts: after every turn, compaction and model switch.
+  const stats = attachSessionStats(pi, client, ctx);
+  // …and the models this Pi can use (the web UI's picker), again when they change.
+  const modelList = new ModelListReporter((models) => client.reportAvailableModels(models), initialModels);
 
   // Register tools. The `fail` tool lets the agent give up on a claimed work
   // item with a comment when it can't proceed, and `wait_for_next_check` ends
@@ -344,17 +340,41 @@ async function setupTeammate(
   // the work prompt is sent — and the previous model put back when the item
   // ends. A model this Pi can't use is said once on the thread; the current
   // model is kept.
+  //
+  // The persona's model is one input of the effective model (model-choice.ts
+  // ModelPreferences.resolve: a user's pin wins over it); whichever wins is
+  // what the switch applies.
   const modelSwitch = new PersonaModelSwitch(pi, ctx);
   const reportedModel = new Set<string>();
   const applyModel = async (workItemId: string | null, persona: typeof loop.persona) => {
-    const problem = await modelSwitch.apply(persona ? workItemId : null, persona);
+    const target = modelPrefs.resolve(persona ? workItemId : null, persona);
+    const problem = await modelSwitch.applyTarget(target);
     if (problem && workItemId) {
       reportScopeOnce(reportedModel, workItemId, [problem], (text) => {
         debug(`[ppt-debug persona model] ${text}`);
         client.postComment(workItemId, text).catch(() => {});
       });
-    }
+    } else if (problem) debug(`[ppt-debug model] ${problem}`);
+    return { origin: target?.origin ?? null, problem };
   };
+  // The pin holds from the session's start, before any work is claimed.
+  await applyModel(null, null);
+
+  // `set-model` directives (model-choice.ts): realized between runs — one that
+  // arrives mid-run waits for agent_settled — then marked done or failed.
+  const modelRealizer = new SetModelRealizer({
+    prefs: modelPrefs,
+    check: (modelId) => modelProblem(ctx.modelRegistry, modelId),
+    apply: () => applyModel(loop.currentTask, loop.persona),
+    complete: (id, status, error) => client.completeSelfDirective(id, status, error),
+    log: (text) => debug(`[ppt-debug set-model] ${text}`),
+  });
+  loop.onModelDirective = (directive) => modelRealizer.offer(directive);
+  pi.on("agent_settled", async () => {
+    await modelRealizer.runSettled();
+    modelList.check(ctx.modelRegistry);
+  });
+  pi.on("model_select", async () => { modelList.check(ctx.modelRegistry); });
   // And its `requires.mcp` (persona-mcp.ts): checked once per item at claim
   // against the MCP servers this Pi has (its mcp.json files, read-only, and
   // extension registrations). Missing ones are said once on the thread; the
@@ -409,6 +429,7 @@ async function setupTeammate(
   pi.on("agent_start" as any, async () => {
     debug(`[ppt-debug agent_start] fired. isAutonomous=${loop.isAutonomous} currentTask=${loop.currentTask}`);
     loop.handleAgentStart();
+    modelRealizer.runStarted();
   });
 
   // ─── agent_end: capture results ──────────────────────────────────
@@ -609,9 +630,13 @@ async function setupTeammate(
   // Re-register when the daemon reports it doesn't know us (restart/upgrade),
   // so an `mpt upgrade` or daemon restart doesn't shut down a running teammate.
   loop.reregister = async () => {
-    await client.register({ name: memberId, directory: cwd, metadata: readTerminalMetadata(pi), capabilities }).catch(() => {});
+    const res = await client.register({
+      name: memberId, directory: cwd, metadata: readTerminalMetadata(pi), capabilities, models: availableModels(ctx.modelRegistry),
+    }).catch(() => null);
+    // The pin is persisted daemon-side, so this normally changes nothing.
+    if (res && "modelPin" in res) modelPrefs.pin = res.modelPin ?? null;
     // A restarted daemon forgot our stats (they're in-memory); tell it again.
-    if (lastStats) client.reportSessionStats(lastStats).catch(() => {});
+    stats.resend();
     if (ctx.hasUI) ctx.ui.notify("🍕 Reconnected to daemon (it had restarted).", "info");
   };
 
@@ -638,6 +663,7 @@ async function setupTeammate(
   pi.on("session_shutdown", async () => {
     clearInterval(widgetInterval);
     loop.stop();
+    modelRealizer.stop();
     pairing.stop();
     // Drop our lease; the last agent out restores the directory's config. A
     // fresh-session reset re-acquires in the new instance moments later.

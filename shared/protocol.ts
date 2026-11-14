@@ -19,15 +19,19 @@ import type {
   AgentRegisterResponse as AgentRegisterResponseOf,
   AssistantDelivery,
   AssistantOrigin,
+  AvailableModel,
+  LeaderDirective,
   PairingReleaseAction,
   PersonaRequirements,
   PersonaSettings,
   PersonaToolPolicy,
+  SetModelSource,
   StatusResponse as AgentStatusResponse,
 } from "./agent-protocol.ts";
 
-export { LEADER_ALREADY_CONNECTED, PERSONA_SYSTEM_PROMPT_CAPABILITY, PROTOCOL_VERSION } from "./agent-protocol.ts";
+export { LEADER_ALREADY_CONNECTED, PERSONA_SYSTEM_PROMPT_CAPABILITY, PROTOCOL_VERSION, SET_MODEL_ACTION, SET_MODEL_CAPABILITY } from "./agent-protocol.ts";
 export type {
+  AvailableModel, SetModelParams, SetModelSource,
   AgentCapability, AgentClaimResponse, ClaimPersona, AgentNextWorkResponse, AgentSetWorkItemStateResponse, AssistantDelivery, AssistantInboxItem,
   AssistantInboxResponse, AssistantOrigin, CreateLeaderDirectiveResponse, LeaderDirective, LeaderDirectivesResponse,
   PairingPoll, PairingReleaseAction, PersonaRequirements, PersonaSettings, PersonaToolPolicy, TranscriptBackfill, TranscriptWatchResponse,
@@ -434,7 +438,12 @@ export interface AgentRegisterRequest {
    * `persona-system-prompt`). Unknown values are ignored; absent = none.
    */
   capabilities?: string[];
+  /** The models this harness can use now (agent-protocol.ts `AvailableModel`); absent = not reported. */
+  models?: AvailableModel[];
 }
+
+// POST /api/agents/:id/models — the harness's available models changed.
+export interface AgentModelsRequest { models: AvailableModel[] }
 /** The registration reply (agent-protocol.ts), with the daemon's workflow config type. */
 export type AgentRegisterResponse = AgentRegisterResponseOf<WorkflowConfig>;
 
@@ -490,6 +499,15 @@ export interface AgentView {
   workItemId: string | null;
   /** The persona that item was claimed with (its snapshot), or null — idle, or none. */
   persona: PersonaRef | null;
+  // Model switching (docs/DESIGN.md "Choosing a Model"). Always sent by the
+  // daemon; optional so a fixture (or an older daemon) without them reads as
+  // "not supported", "never reported" and "no pin".
+  /** Can this agent's harness switch models on request (`set-model`)? False: "not supported by this harness". */
+  modelSwitching?: boolean;
+  /** The models its harness reported it can use, or null when it never reported any. */
+  models?: AvailableModel[] | null;
+  /** The model a user pinned on it (`AvailableModel.ref`), or null for none. */
+  modelPin?: string | null;
 }
 export interface AgentListResponse { daemonVersion: string; protocolVersion: number; agents: AgentView[] }
 
@@ -979,8 +997,54 @@ export interface SetSchedulePendingResponse { success: boolean; schedule?: Sched
 export interface CreateLeaderDirectiveRequest { action: string; memberId?: string; params?: Record<string, unknown> }
 // Reply: `CreateLeaderDirectiveResponse`, agent-protocol.ts.
 
-// PUT /api/leader/directives/:id
-export interface UpdateLeaderDirectiveRequest { status: string }
+// PUT /api/leader/directives/:id (and PUT /api/agents/:id/directives/:directiveId,
+// where a `failed` status may carry the reason)
+export interface UpdateLeaderDirectiveRequest { status: string; error?: string }
+
+// --- Model switching (docs/DESIGN.md "Choosing a Model") ---
+
+/** The latest `set-model` directive for an agent, as the UI reports it. */
+export interface ModelChangeView {
+  id: string;
+  model: string | null;
+  source: SetModelSource;
+  reason?: string;
+  status: "pending" | "done" | "failed" | "cancelled";
+  /** Why it failed, when it did. */
+  error: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// GET /api/agents/:id/model
+export interface AgentModelResponse {
+  /** False for a harness that can't switch models on request ("not supported by this harness"). */
+  supported: boolean;
+  /** What the harness reported it can use, or null when it never reported. */
+  models: AvailableModel[] | null;
+  /** The user's pin, or null. */
+  pin: string | null;
+  /** The model the session is running now (session stats), or null when unknown. */
+  current: MemberSessionStats["model"];
+  /** The latest set-model ask, or null. */
+  lastChange: ModelChangeView | null;
+}
+
+// POST /api/agents/:id/model — pin a model (null clears the pin). 409 with
+// `unsupported: true` for a harness that can't.
+export interface SetAgentModelRequest { model: string | null; reason?: string }
+export interface SetAgentModelResponse { success: boolean; directive?: LeaderDirective; error?: string; unsupported?: boolean }
+
+// POST /api/agents/model — pin a model on every live teammate.
+export interface SetTeamModelRequest { model: string | null; scope: "teammates"; reason?: string }
+export interface SetTeamModelResponse {
+  success: boolean;
+  /** One set-model directive per teammate that can take it. */
+  directives: Array<{ memberId: string; directiveId: string }>;
+  /** Live teammates whose harness can't switch models. */
+  unsupported: string[];
+  error?: string;
+}
 export interface UpdateLeaderDirectiveResponse { success: boolean; error?: string }
 
 // ─── Directory suggestions (docs/DESIGN.md "Favorite Directories") ───

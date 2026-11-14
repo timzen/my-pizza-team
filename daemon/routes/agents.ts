@@ -18,11 +18,12 @@ import { buildWorkDefPrompt, stateFraming } from "../prompt.ts";
 import { personaRefOf, personaSettingsOf } from "../personas/resolve.ts";
 import { DEFAULT_HARNESS, isExperimentalHarness, type ResolvedPersona, type TeamConfig, type TriageOutcome, type TriageProposal, type WorkDef, type WorkItemRef } from "../../shared/types.ts";
 import {
-  LEADER_ALREADY_CONNECTED, MIN_PROTOCOL_VERSION, PERSONA_SYSTEM_PROMPT_CAPABILITY, PROTOCOL_VERSION,
+  LEADER_ALREADY_CONNECTED, MIN_PROTOCOL_VERSION, PERSONA_SYSTEM_PROMPT_CAPABILITY, PROTOCOL_VERSION, SET_MODEL_CAPABILITY,
   type AgentListResponse, type ClaimPersona,
 } from "../../shared/protocol.ts";
 import { packageVersion } from "../../shared/paths.ts";
 import { resolvePersonaModel } from "../../shared/model-aliases.ts";
+import { parseAvailableModels } from "../agent-models.ts";
 import { dismissParams, focusMember } from "../spawner.ts";
 
 /** The longest wait `reason` accepted: a one-line status, not a report (that goes in a comment). */
@@ -45,6 +46,8 @@ export function registerAgentRoutes(ctx: RouteContext): void {
       instanceId?: string;
       /** What the harness does itself (shared/agent-protocol.ts PERSONA_SYSTEM_PROMPT_CAPABILITY). */
       capabilities?: unknown;
+      /** The models the harness can use now (shared/agent-protocol.ts AvailableModel). */
+      models?: unknown;
     };
     if (!body.id || !body.name) {
       return fail(c, 400, "Fields 'id' and 'name' are required");
@@ -105,6 +108,8 @@ export function registerAgentRoutes(ctx: RouteContext): void {
       capabilities: Array.isArray(body.capabilities)
         ? body.capabilities.filter((x): x is string => typeof x === "string")
         : undefined,
+      // Additive too: absent (or not a list) = not reported (daemon/agent-models.ts).
+      models: parseAvailableModels(body.models),
     });
 
     return c.json({
@@ -112,6 +117,9 @@ export function registerAgentRoutes(ctx: RouteContext): void {
       config: { defaultWorkflow: config.defaultWorkflow, workflows: store.getWorkflows(), tmuxSession: config.tmuxSession },
       protocolVersion: PROTOCOL_VERSION,
       daemonVersion: packageVersion(),
+      // The user's model pin, applied from the start of this session by a harness
+      // that can switch models (docs/DESIGN.md "Choosing a Model").
+      modelPin: store.getModelPin(body.id),
     });
   });
 
@@ -389,6 +397,11 @@ export function registerAgentRoutes(ctx: RouteContext): void {
           // The persona of the work in hand: null when idle or it has none.
           workItemId: item?.id ?? null,
           persona: item?.persona ?? null,
+          // Model switching (daemon/routes/models.ts): can its harness, what it can
+          // use, and the user's pin.
+          modelSwitching: store.memberHasCapability(m.id, SET_MODEL_CAPABILITY),
+          models: store.getAvailableModels(m.id),
+          modelPin: store.getModelPin(m.id),
         };
       }),
     } satisfies AgentListResponse);
@@ -504,9 +517,12 @@ export function registerAgentRoutes(ctx: RouteContext): void {
     return c.json({ directives: store.getMemberDirectives(c.req.param("id")) });
   });
 
+  // The agent's report. A `failed` one may say why (`error`: e.g. a set-model's
+  // unknown model); a done user set-model sets the pin (completeMemberDirective).
   app.put("/api/agents/:id/directives/:directiveId", async (c) => {
-    const body = await readBody(c) as { status?: string };
-    const ok = store.updateLeaderDirective(c.req.param("directiveId"), body.status || "done");
+    const body = await readBody(c) as { status?: string; error?: unknown };
+    const error = typeof body.error === "string" && body.error.trim() ? body.error.trim().slice(0, 1000) : undefined;
+    const ok = store.completeMemberDirective(c.req.param("directiveId"), body.status || "done", error);
     if (!ok) return fail(c, 404, "Directive not found");
     return c.json({ success: true });
   });

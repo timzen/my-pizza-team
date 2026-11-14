@@ -153,5 +153,7 @@ test("index.ts and leader.ts wire the model switch", () => {
   assert.match(index, /pi\.on\("before_agent_start"[\s\S]*?await applyModel\(workItemId, persona\)/);
   assert.match(index, /reportScopeOnce\(reportedModel, workItemId, \[problem\],[\s\S]*?client\.postComment\(workItemId, text\)/);
   assert.match(leader, /new PersonaModelSwitch\(pi, ctx\)/);
-  assert.match(leader, /await modelSwitch\.apply\(modelKey, persona\)/);
+  // Both apply the effective model (model-choice.ts), of which the persona's is one input.
+  assert.match(index, /modelPrefs\.resolve\(persona \? workItemId : null, persona\)[\s\S]*?modelSwitch\.applyTarget\(target\)/);
+  assert.match(leader, /modelPrefs\.resolve\(persona \? persona\.id \?\? "" : null, persona\)[\s\S]*?modelSwitch\.applyTarget\(target\)/);
 });

@@ -58,7 +58,7 @@ import {
 } from "../shared/types.ts";
 import { normalizeDirectory } from "../shared/directory.ts";
 import { saveTeamConfig } from "../shared/team-config.ts";
-import type { PluginLoadStatus } from "../shared/protocol.ts";
+import type { AvailableModel, ModelChangeView, PluginLoadStatus, SetModelParams } from "../shared/protocol.ts";
 import type { TeamPersonaInput, TeamPersonaUpdate } from "./personas/library.ts";
 import { cachedTerminalStatus, type SpawnCapability } from "./spawner.ts";
 import type { TerminalBackend, TerminalStatus } from "./terminal/backend.ts";
@@ -940,10 +940,33 @@ export class Store {
     name: string,
     directory?: string,
     metadata: Record<string, unknown> = {},
-    handshake?: { protocolVersion?: number; harness?: string; harnessVersion?: string; instanceId?: string; capabilities?: string[] },
+    handshake?: {
+      protocolVersion?: number; harness?: string; harnessVersion?: string; instanceId?: string; capabilities?: string[];
+      models?: AvailableModel[] | null;
+    },
   ): void {
     this.members.registerMember(id, name, directory, metadata, handshake);
   }
+
+  /** Record the models an agent's harness can use now; see `MemberStore.setAvailableModels`. */
+  setAvailableModels(id: string, models: AvailableModel[]): void { this.members.setAvailableModels(id, models); }
+
+  /** The models an agent's harness last reported, or null when it never did. */
+  getAvailableModels(id: string): AvailableModel[] | null { return this.members.getAvailableModels(id); }
+
+  /** The model a user pinned on this agent, or null (docs/DESIGN.md "Choosing a Model"). */
+  getModelPin(id: string): string | null { return this.members.getModelPin(id); }
+
+  /** Ask an agent to switch models (a `set-model` self-directive); see `MemberStore.requestModelChange`. */
+  requestModelChange(memberId: string, params: SetModelParams): { directive: LeaderDirective } | { error: "unknown" | "unsupported" } {
+    return this.members.requestModelChange(memberId, params);
+  }
+
+  /** An agent reporting its self-directive's outcome (a done user set-model sets the pin); false if unknown. */
+  completeMemberDirective(id: string, status: string, error?: string): boolean { return this.members.completeMemberDirective(id, status, error); }
+
+  /** The latest set-model ask for an agent, or null. */
+  getLastModelChange(memberId: string): ModelChangeView | null { return this.members.getLastModelChange(memberId); }
 
   /** Did this agent's harness declare `capability` at registration? See `MemberStore.hasCapability`. */
   memberHasCapability(id: string, capability: string): boolean { return this.members.hasCapability(id, capability); }

@@ -1799,7 +1799,8 @@ requires: { mcp: ["code-search"] }       # needed, checked — never started
   change ends the chat session anyway), warning in its window instead. Usage
   and the Team tab need nothing new: a run's usage records the model its
   assistant messages name, and `setModel` fires `model_select`, which re-reports
-  the session's model.
+  the session's model. The persona's model is one input of the agent's
+  effective model: a user's pin wins over it ("Choosing a Model").
 - **`requires.mcp` is checked, never acted on.** MCP servers are the user's
   harness configuration (credentials, commands, per-project trust), so MPT
   never starts, installs or registers one — a persona that could would be a
@@ -2526,7 +2527,8 @@ POST /api/leader/directives      # { action, memberId?, params? }
 PUT  /api/leader/directives/:id  # { status }
 ```
 
-A directive has an `action` (`spawn`, `dismiss`, `new-session`, `resume-session`),
+A directive has an `action` (`spawn`, `dismiss`, `new-session`, `resume-session`,
+`set-model` — "Choosing a Model"),
 an optional `memberId`, `params` (e.g. spawn `name`/`cwd`), and a `status`. The
 daemon realizes `spawn` and `dismiss` itself — always; one it can't is failed with
 the reason, never handed on — and the target agent realizes `new-session` and
@@ -2570,6 +2572,56 @@ rather than left with a Reset that silently does nothing. An older UI's
 
 *Why:* one concept, one queue, one poll — new asks are new *actions*, not new
 endpoints.
+
+## Choosing a Model
+
+The user can change an agent's model from the web UI, and the daemon will be
+able to fail over when model calls are throttled or failing. Both are asks to
+the agent — a `set-model` self-directive (above) — because only the harness can
+switch its model, and only between runs.
+
+- **Model ids are opaque.** The harness reports the models it can use right now
+  (`AvailableModel`: `ref`, `id`, `name`, `provider`; Pi: its registry's
+  `getAvailable()`, the models with credentials, not the whole catalogue, with
+  `ref` = `provider/id`) at registration and again when the list changes
+  (`POST /api/agents/:id/models`). The daemon stores them per agent (in memory,
+  like capabilities) and lists them for the UI; whatever comes back as a model is
+  validated by the harness. No provider logic in the daemon or the UI.
+- **`set-model` `{ model, reason?, source: "user" | "failover" | "default" }`.**
+  The agent realizes it **between runs**: one that arrives while a run is in
+  flight waits for it to settle (Pi: `agent_settled`, after its own retries and
+  follow-ups) — switching mid-run would split one answer across two models. The
+  agent then checks the model (known and available), switches, and marks the
+  directive `done`, or `failed` with the reason, its preferences untouched. The
+  resulting `model_select` re-reports the session stats, so the Team tab's model
+  follows. A newer ask supersedes a pending one (cancelled).
+- **A user's choice is a pin.** A done `set-model` with source `user` is the
+  agent's pin: persisted by the daemon (the settings table, so it outlives the
+  agent's sessions, a Team-tab Reset and a daemon restart), returned as
+  `modelPin` in every registration reply so each new session starts on it,
+  cleared by `model: null`, and dropped when the agent is dismissed. It is set
+  when the agent reports done, so it is never a model the harness refused.
+- **One resolution, on the harness side** (Pi: harnesses/pi/src/model-choice.ts
+  `ModelPreferences.resolve`):
+
+      effective = failover ?? pin ?? persona model ?? team default ?? harness default
+
+  The persona's model (its alias resolved by the daemon, "Persona settings")
+  applies to the work item it was claimed with (the assistant persona's, to the
+  leader); the team default and the failover substitute arrive as `set-model`
+  with source `default` / `failover`. *Why the harness:* it is where every input
+  meets — the claim, the pin from registration, the directives — and where the
+  switch happens; the daemon sends inputs, not an answer it would have to keep
+  in step with every run.
+- **Old harnesses keep working.** `set-model` is handed only to an agent whose
+  harness declared the `set-model` capability; for any other the model routes
+  answer 409 `unsupported` ("not supported by this harness") instead of queueing
+  an ask nothing would realize. Everything is additive: no protocol bump.
+- **Routes.** `POST /api/agents/:id/model` `{ model | null }` (the assistant too,
+  by the leader's id); `POST /api/agents/model` `{ model, scope: "teammates" }`
+  pins every live teammate (naming those that can't); `GET /api/agents/:id/model`
+  — supported, models, pin, the live model, the latest ask — and `GET
+  /api/agents` carries `modelSwitching`, `models` and `modelPin` per agent.
 
 ## One Agent to Talk To
 

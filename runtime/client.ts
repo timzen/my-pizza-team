@@ -43,6 +43,7 @@ import {
   type AgentSetWorkItemStateResponse,
   type AssistantDelivery,
   type AssistantInboxResponse,
+  type AvailableModel,
   type CreateLeaderDirectiveResponse,
   type FeatureName,
   type LeaderDirective,
@@ -377,6 +378,12 @@ export class DaemonClient {
      * work prompt). Additive: an older daemon ignores it.
      */
     capabilities?: string[];
+    /**
+     * The models this harness can use now (shared/agent-protocol.ts
+     * `AvailableModel`), for the web UI's model picker. Additive: an older
+     * daemon ignores it.
+     */
+    models?: AvailableModel[];
   }): Promise<AgentRegisterResponse> {
     return this.post<AgentRegisterResponse>("/api/agents/register", {
       id: this.agentId,
@@ -392,7 +399,19 @@ export class DaemonClient {
       // process registering as the same live leader is refused.
       instanceId: processInstanceId(),
       ...(opts.capabilities?.length ? { capabilities: opts.capabilities } : {}),
+      ...(opts.models ? { models: opts.models } : {}),
     });
+  }
+
+  /**
+   * Report that the models this harness can use changed (POST
+   * /api/agents/:id/models). Never throws — it's for the UI's picker, and an
+   * older daemon without the route just doesn't list them.
+   */
+  async reportAvailableModels(models: AvailableModel[]): Promise<void> {
+    try {
+      await this.post<{ success: boolean }>(`/api/agents/${encodeURIComponent(this.agentId)}/models`, { models });
+    } catch { /* display-only */ }
   }
 
   /**
@@ -759,11 +778,11 @@ export class DaemonClient {
     return { watched: !!res.watched };
   }
 
-  /** Mark a self-directive done (or failed). */
-  async completeSelfDirective(id: string, status = "done"): Promise<AssistantMirrorResponse> {
+  /** Mark a self-directive done (or failed, optionally saying why — an older daemon ignores `error`). */
+  async completeSelfDirective(id: string, status = "done", error?: string): Promise<AssistantMirrorResponse> {
     return this.put<AssistantMirrorResponse>(
       `/api/agents/${encodeURIComponent(this.agentId)}/directives/${encodeURIComponent(id)}`,
-      { status },
+      error ? { status, error } : { status },
     );
   }
 

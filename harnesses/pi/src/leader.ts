@@ -21,6 +21,10 @@
 //      including its own new-session/resume-session self-directives
 //   6. Scope its tools and skills by the assistant persona's settings
 //      (persona-scope.ts), its own tools always kept
+//   7. Run on its effective model (model-choice.ts: a user's pin, else the
+//      assistant persona's model), realize `set-model` directives between runs,
+//      and report its available models and session stats (the model the
+//      Assistant card and Team tab show)
 
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -30,7 +34,10 @@ import { ALL_FEATURES_ON, type Features, featuresFromStatus } from "./shared/age
 import { registerLeaderTools } from "./tools.js";
 import { applyFeatureTools, featurePromptNote } from "./features.js";
 import { PersonaToolScope, applyPersonaScope, checkSkillCommand, checkToolCall, reportScopeOnce } from "./persona-scope.js";
-import { PersonaModelSwitch } from "./persona-model.js";
+import { PersonaModelSwitch, modelProblem } from "./persona-model.js";
+import { ModelListReporter, ModelPreferences, SetModelRealizer, availableModels } from "./model-choice.js";
+import { SET_MODEL_CAPABILITY } from "./shared/agent-protocol.js";
+import { attachSessionStats, type SessionStatsReporter } from "./stats-report.js";
 import { summarizeRun, hasUsage } from "./runtime/usage.js";
 import { LEADER_WINDOW } from "./shared/types.js";
 import { readTerminalMetadata } from "./terminal.js";
@@ -61,6 +68,11 @@ export async function setupLeader(
   // Set once the daemon refuses us because another leader is live: everything
   // stops, and shutdown must not deregister — the member row is the other one's.
   let rejected = false;
+  // The assistant's model preferences (model-choice.ts); the user's pin comes
+  // back in every registration reply. Stats are attached once registered, and
+  // re-sent on a later registration (which clears the daemon's copy).
+  const modelPrefs = new ModelPreferences();
+  let stats: SessionStatsReporter | null = null;
 
   /**
    * Register with the daemon. Safe to call repeatedly; throws if the daemon is
@@ -73,12 +85,17 @@ export async function setupLeader(
     // flags; a hand-started `pi` simply reports nothing. The leader itself never
     // reads them back — it doesn't touch tmux (docs/DESIGN.md "The Daemon Is the
     // Supervisor").
-    await client.register({
+    const res = await client.register({
       name: "leader",
       directory: cwd,
       metadata: readTerminalMetadata(pi),
+      // It switches models on request (`set-model`, model-choice.ts).
+      capabilities: [SET_MODEL_CAPABILITY],
+      models: availableModels(ctx.modelRegistry),
     });
+    if ("modelPin" in res) modelPrefs.pin = res.modelPin ?? null;
     registered = true;
+    stats?.resend();
   }
 
   // Register with daemon. Refused as a second leader (e.g. a pane a terminal's
@@ -307,8 +324,22 @@ export async function setupLeader(
   // applies from the next session's first run.
   const toolScope = new PersonaToolScope(pi);
   const reportedScope = new Set<string>();
+  //
+  // The persona's model is one input of the effective model (model-choice.ts
+  // ModelPreferences.resolve): a user's pin (set from the Assistant card) wins.
   const modelSwitch = new PersonaModelSwitch(pi, ctx);
   const reportedModel = new Set<string>();
+  const applyModel = async () => {
+    const persona = chat.personaScope;
+    const target = modelPrefs.resolve(persona ? persona.id ?? "" : null, persona);
+    const problem = await modelSwitch.applyTarget(target);
+    if (problem) {
+      reportScopeOnce(reportedModel, target?.key ?? "", [problem], (text) => {
+        if (ctx.hasUI) ctx.ui.notify(`🍕 ${text}`, "warning");
+      });
+    }
+    return { origin: target?.origin ?? null, problem };
+  };
   pi.on("before_agent_start", async (event) => {
     await chat.refreshPersona();
     await syncFeatures();
@@ -317,10 +348,10 @@ export async function setupLeader(
     reportScopeOnce(reportedScope, persona?.id ?? "", problems, (text) => {
       if (ctx.hasUI) ctx.ui.notify(`🍕 ${text}`, "warning");
     });
-    const modelKey = persona?.modelId ? `${persona.id ?? ""}|${persona.modelId}` : null;
-    const modelProblem = (await modelSwitch.apply(modelKey, persona)) ?? persona?.modelProblem ?? null;
-    if (modelProblem) {
-      reportScopeOnce(reportedModel, `${persona?.id ?? ""}|${persona?.model ?? ""}`, [modelProblem], (text) => {
+    const applied = await applyModel();
+    // The daemon's word on an alias with no mapping, unless a pin overrides the persona anyway.
+    if (!applied.problem && persona?.modelProblem && applied.origin !== "pin" && applied.origin !== "failover") {
+      reportScopeOnce(reportedModel, `${persona.id ?? ""}|${persona.model ?? ""}`, [persona.modelProblem], (text) => {
         if (ctx.hasUI) ctx.ui.notify(`🍕 ${text}`, "warning");
       });
     }
@@ -343,7 +374,29 @@ export async function setupLeader(
     await chat.mirrorTerminalInput(event.text);
   });
 
-  pi.on("agent_start", async () => { await chat.handleAgentStart(); });
+  // ─── Model (model-choice.ts) ─────────────────────────────────────────
+  // The pin holds from the session's start; `set-model` directives arrive with
+  // the chat's self-directives and are realized between runs (one arriving
+  // mid-run waits for agent_settled). Session stats and the available models are
+  // reported like a teammate's, so the model shows wherever the UI lists it.
+  stats = attachSessionStats(pi, client, ctx);
+  const modelList = new ModelListReporter((models) => client.reportAvailableModels(models), availableModels(ctx.modelRegistry));
+  pi.on("model_select", async () => { modelList.check(ctx.modelRegistry); });
+  await chat.refreshPersona();
+  await applyModel();
+  const modelRealizer = new SetModelRealizer({
+    prefs: modelPrefs,
+    check: (modelId) => modelProblem(ctx.modelRegistry, modelId),
+    apply: applyModel,
+    complete: (id, status, error) => client.completeSelfDirective(id, status, error),
+  });
+  chat.onModelDirective = (directive) => modelRealizer.offer(directive);
+  onDeactivate(() => modelRealizer.stop());
+
+  pi.on("agent_start", async () => {
+    modelRealizer.runStarted();
+    await chat.handleAgentStart();
+  });
 
   // Reasoning deltas feed the ephemeral "peek behind the …" buffer.
   pi.on("message_update", (event) => {
@@ -368,7 +421,11 @@ export async function setupLeader(
     await chat.handleAssistantMessageEnd(text);
   });
 
-  pi.on("agent_settled", async () => { await chat.handleAgentSettled(); });
+  pi.on("agent_settled", async () => {
+    await chat.handleAgentSettled();
+    await modelRealizer.runSettled();
+    modelList.check(ctx.modelRegistry);
+  });
 
   // Usage ledger: the leader's runs are the chat (web or its own pane), so
   // they're reported as `chat` — the part of the spend that used to go
@@ -478,6 +535,7 @@ export async function setupLeader(
     clearInterval(heartbeatTimer);
     clearInterval(widgetInterval);
     chat.stop();
+    modelRealizer.stop();
     // Refused as a second leader: the registered member is the live leader's.
     if (rejected) return;
     // A chat-driven session roll (New chat / Resume) shuts this session down and

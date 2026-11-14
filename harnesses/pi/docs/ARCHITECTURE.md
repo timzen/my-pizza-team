@@ -59,8 +59,11 @@ src/
 │                         #   (applyPersonaSection, personaSystemPromptText)
 ├── persona-scope.ts      # The persona's tools/skills enforced: MPT_PROTOCOL_TOOLS, PersonaToolScope,
 │                         #   checkToolCall, filterSkills / checkSkillCommand, scopeProblems
-├── persona-model.ts      # The persona's model applied: findModel, PersonaModelSwitch (pi.setModel
-│                         #   once per item / persona, restore afterwards)
+├── persona-model.ts      # The persona's model applied: findModel, modelProblem, PersonaModelSwitch
+│                         #   (pi.setModel once per key — applyTarget — restore afterwards)
+├── model-choice.ts       # The effective model: availableModels + ModelListReporter, ModelPreferences.resolve
+│                         #   (failover ?? pin ?? persona ?? team default ?? Pi's), SetModelRealizer (set-model)
+├── stats-report.ts       # attachSessionStats: the Team tab's stats, reported by teammate and leader alike
 ├── persona-mcp.ts        # The persona's requires.mcp checked: knownMcpServers (Pi's mcp.json files,
 │                         #   read-only, + getMcpServers), mcpRequirementProblem
 ├── permissions.ts        # Dynamic yoloMode toggling + ppt-autonomous authorizer chain link;
@@ -137,9 +140,9 @@ teammate's own work run → `work` (+ `workItemId`); a run while paused/pairing 
 `pairing` (+ the held item); a foreign run → `other`; the leader → `chat`. The
 kind is decided before completion/release changes loop state.
 
-**Session stats (teammates, every turn).** On `turn_end`, `agent_end`,
+**Session stats (teammates and the leader, every turn).** On `turn_end`, `agent_end`,
 `session_compact`, and `model_select` (with the event's new model) — and once at setup, as the fresh session's baseline — the
-teammate posts `readSessionStats(ctx)` (`src/runtime/session-stats.ts`) to
+agent (src/stats-report.ts `attachSessionStats`) posts `readSessionStats(ctx)` (`src/runtime/session-stats.ts`) to
 `POST /api/agents/:id/session-stats`: `ctx.getContextUsage()` (tokens, window,
 percent; null when Pi doesn't know yet), `ctx.model` (id, name, provider), and the session's cumulative cost,
 summed over every entry exactly as Pi's footer does. Unchanged numbers aren't
@@ -197,9 +200,30 @@ before the switch is put back. An id Pi doesn't know, or a `setModel` refusal (n
 credentials), keeps the current model and is posted once on the thread. The
 leader does the same for its assistant persona (`GET /api/assistant/persona`
 `modelId`, once per persona + id, a UI warning for problems and the daemon's
-`modelProblem`). Usage needs nothing extra: `summarizeRun` takes the model from the
+`modelProblem`). The persona's model is one input of the effective model (next
+paragraph): `applyTarget` is what both roles call. Usage needs nothing extra: `summarizeRun` takes the model from the
 run's assistant messages, and `setModel` fires `model_select`, which re-reports the
 session stats (the Team tab's model).
+
+**The effective model and `set-model`** (my-pizza-team docs/DESIGN.md "Choosing a
+Model"; src/model-choice.ts). Both roles register with the `set-model` capability
+and their `availableModels` (`ctx.modelRegistry.getAvailable()` — models with
+credentials — each with `ref` `provider/id`); `ModelListReporter` re-sends the
+list (`POST /api/agents/:id/models`) on `agent_settled` and `model_select` when it
+changed. `ModelPreferences.resolve` is the one place the model is decided:
+failover ?? the user's pin ?? the persona's model (held item / assistant persona)
+?? the team default ?? Pi's default (null: the switch restores). The pin comes from
+the registration reply's `modelPin`, so every fresh session starts on it (applied
+at setup, before any claim); its key is the same across items, so a pinned
+teammate doesn't switch back and forth between them. `set-model` directives come
+through the self-directive poll (`TeammateLoop.onModelDirective`,
+`ChatMirror.onModelDirective` — they don't roll the session) into
+`SetModelRealizer`: busy from `agent_start` to `agent_settled`, it holds a
+directive that arrives mid-run until the run settles, then checks the model
+(`modelProblem`: known and available), sets the source's preference (`user` → pin,
+`default`, `failover`), re-applies the effective model and marks the directive
+done — or failed with the reason, the preference put back. `session_shutdown`
+stops it; what waited stays pending for the next instance.
 
 **The persona's required MCP servers.** `requires.mcp` is only checked: in
 `onPersonaChange` at claim, `mcpRequirementProblem` (src/persona-mcp.ts) compares
@@ -465,8 +489,10 @@ switched-off kind (pass-through if the status read fails); `team_status` and
 | `/api/assistant/session` | POST | Report the Pi session file backing the chat (enables resume) |
 | `/api/assistant/messages` | POST | Mirror terminal-typed input as a user message (`origin: "tui"`) |
 | `/api/assistant/persona` | GET | Effective system prompt (daemon-vended: chat framing + selected persona or default) |
-| `/api/agents/:id/directives` | GET | Self-directives to realize in-process (`new-session`, `resume-session`); the leader's chat and every teammate poll it |
-| `/api/agents/:id/directives/:id` | PUT | Mark a self-directive done/failed |
+| `/api/agents/:id/directives` | GET | Self-directives to realize in-process (`new-session`, `resume-session`, `set-model`); the leader's chat and every teammate poll it |
+| `/api/agents/:id/directives/:id` | PUT | Mark a self-directive done/failed (`error`: why it failed) |
+| `/api/agents/:id/models` | POST | The available models changed (also sent at registration) |
+| `/api/agents/:id/session-stats` | POST | The leader's session stats too (model, context, cost) |
 | `/api/thoughts` | GET | Read the user's Thoughts board + groups for the list_thoughts / get_thought tools |
 | `/api/work-defs` | POST | Create a Solitary or Scheduled WorkDef for the create_task / create_schedule tools (`pending: true` to save it pending) |
 | `/api/work-defs/:id` | GET / PUT | Read a WorkDef (get_task) / edit a pending WorkDef's definition (edit_task; 409 once active) |

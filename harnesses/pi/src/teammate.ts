@@ -40,7 +40,8 @@
 //
 // Alongside the work poll, the loop polls its own session directives
 // (`new-session`: Reset in the web UI) and rolls the session on request — see
-// pollSessionDirectives.
+// pollSessionDirectives. A `set-model` from the same poll is handed to
+// `onModelDirective` (model-choice.ts realizes it between runs).
 //
 // The teammate never assumes workflow state names — the prompt tells it what to
 // do. This makes it compatible with any workflow configuration.
@@ -108,6 +109,14 @@ export class TeammateLoop {
    * contexts. Any other action is failed, not retried.
    */
   public onSessionDirective: ((action: string, params: Record<string, unknown>) => void) | null = null;
+
+  /**
+   * Take a `set-model` directive (my-pizza-team docs/DESIGN.md "Choosing a
+   * Model"). Wired by setupTeammate to model-choice.ts's SetModelRealizer, which
+   * waits for a run in flight to end and reports the outcome itself. Unset, a
+   * set-model is failed like any action this loop can't realize.
+   */
+  public onModelDirective: ((directive: { id: string; params: Record<string, unknown> }) => void | Promise<void>) | null = null;
 
   /**
    * Called on every successful claim with how the item finishes: `poll` (its
@@ -350,6 +359,13 @@ export class TeammateLoop {
     if (!this.running || !this.onSessionDirective) return;
     const { directives } = await this.client.getSelfDirectives();
     for (const directive of directives) {
+      // A model switch doesn't roll the session: the realizer takes it (and
+      // marks it), and the poll goes on. (The literal, not SET_MODEL_ACTION:
+      // this module imports no values, so tests load it standalone.)
+      if (directive.action === "set-model" && this.onModelDirective) {
+        await Promise.resolve(this.onModelDirective(directive)).catch(() => {});
+        continue;
+      }
       // One we can't realize must leave the queue, or it is retried forever.
       if (directive.action !== "new-session") {
         await this.client.completeSelfDirective(directive.id, "failed").catch(() => {});

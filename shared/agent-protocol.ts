@@ -193,6 +193,14 @@ export interface AgentRegisterResponse<W = unknown> {
   protocolVersion?: number;
   /** The daemon's build version, for the UI's skew banner. Informational — never gated on. */
   daemonVersion?: string;
+  /**
+   * The model pinned on this agent by a user (a done `set-model` with source
+   * `user`), or null for none. It outlives the harness session, so a harness
+   * that declared `SET_MODEL_CAPABILITY` applies it from the start of every new
+   * session (docs/DESIGN.md "Choosing a Model"). Additive: absent from an older
+   * daemon, which means none.
+   */
+  modelPin?: string | null;
 }
 
 /** GET /api/agents/next-work?agentId=X */
@@ -233,8 +241,36 @@ export interface AgentClaimResponse {
  */
 export const PERSONA_SYSTEM_PROMPT_CAPABILITY = "persona-system-prompt";
 
+/**
+ * The capability a harness declares when it realizes the `set-model` directive
+ * (`SET_MODEL_ACTION`) itself — between runs — and reports the models it can use
+ * (`AvailableModel`). The daemon hands `set-model` only to an agent that
+ * declared it; for any other the model routes answer "not supported by this
+ * harness" (docs/DESIGN.md "Choosing a Model"). Additive both ways.
+ */
+export const SET_MODEL_CAPABILITY = "set-model";
+
 /** Every capability a harness may declare at registration. */
-export type AgentCapability = typeof PERSONA_SYSTEM_PROMPT_CAPABILITY;
+export type AgentCapability = typeof PERSONA_SYSTEM_PROMPT_CAPABILITY | typeof SET_MODEL_CAPABILITY;
+
+/**
+ * A model the harness can use right now (configured, with credentials), as it
+ * reports it at registration (`models`) and on change (POST
+ * /api/agents/:id/models). Opaque to the daemon and the UI: `ref` is the string
+ * this harness accepts back — in `set-model`, a pin, a model alias mapping
+ * (Pi: `provider/id`) — and the rest is for display and for matching the
+ * session's model (`MemberSessionStats.model`: same `id` and `provider`).
+ */
+export interface AvailableModel {
+  /** What to send back to select it (Pi: `provider/id`). */
+  ref: string;
+  /** The harness's model id (as `MemberSessionStats.model.id`). */
+  id: string;
+  /** A display name (falls back to `id`). */
+  name: string;
+  /** Who serves it (as `MemberSessionStats.model.provider`); empty when the harness has no such notion. */
+  provider: string;
+}
 
 /**
  * A persona's tool policy (frontmatter `tools`; docs/DESIGN.md "Persona
@@ -404,7 +440,7 @@ export interface AssistantInboxResponse {
 /**
  * A directive is an ask to do something about an agent. The daemon realizes
  * `spawn` and `dismiss` itself (it is the only terminal owner); the target agent
- * realizes `new-session` / `resume-session`.
+ * realizes `new-session` / `resume-session` and `set-model`.
  */
 export interface LeaderDirective {
   id: string;
@@ -423,6 +459,31 @@ export interface LeaderDirective {
 /** GET /api/leader/directives (and GET /api/agents/:id/directives) */
 export interface LeaderDirectivesResponse {
   directives: LeaderDirective[];
+}
+
+/**
+ * The directive asking an agent to switch its model (docs/DESIGN.md "Choosing a
+ * Model"): realized by the agent itself, between runs — a run in flight is let
+ * finish first — and marked `done`, or `failed` with the reason (an unknown or
+ * unavailable model). Handed only to an agent that declared
+ * `SET_MODEL_CAPABILITY`. Params: `SetModelParams`.
+ */
+export const SET_MODEL_ACTION = "set-model";
+
+/**
+ * Who asked for a model: `user` (a pin, which outlives the session and overrides
+ * the persona's model; `model: null` clears it), `default` (the team default),
+ * or `failover` (a substitute while the usual model is throttled or failing).
+ */
+export type SetModelSource = "user" | "failover" | "default";
+
+/** The `params` of a `set-model` directive. `model` is an `AvailableModel.ref`, opaque to the daemon. */
+export interface SetModelParams {
+  /** The model to use, or null to clear this source's choice. */
+  model: string | null;
+  /** Why, for logs and the UI. */
+  reason?: string;
+  source: SetModelSource;
 }
 
 /** POST /api/leader/directives */

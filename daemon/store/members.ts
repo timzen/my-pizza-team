@@ -14,8 +14,13 @@
  *     leader realizes them any more), with daemon-assigned spawn names, and
  *     whether this daemon can realize spawns at all (a spawn it can't is failed
  *     on creation);
- *   - agent self-directives (`new-session`, `resume-session`), including a
- *     teammate reset (`resetMemberSession`), which the target agent realizes;
+ *   - agent self-directives (`new-session`, `resume-session`, `set-model`),
+ *     including a teammate reset (`resetMemberSession`), which the target agent
+ *     realizes;
+ *   - model switching (docs/DESIGN.md "Choosing a Model"): each agent's reported
+ *     available models (in memory), its user pin (persisted, so it outlives the
+ *     agent's sessions and a daemon restart; cleared on dismiss), and the
+ *     `set-model` asks (`requestModelChange`, `completeMemberDirective`);
  *   - the teammate pool (`minTeammates`) and its reconciler.
  *
  * The Store delegates its member methods here one line each. What this needs
@@ -42,6 +47,11 @@ import {
 } from "../spawner.ts";
 import { assistantStartability, type AssistantStartability } from "../leader-start.ts";
 import type { StoreDomainContext } from "./domain.ts";
+import { SET_MODEL_ACTION, SET_MODEL_CAPABILITY, type AvailableModel, type ModelChangeView, type SetModelParams } from "../../shared/protocol.ts";
+import { readSetModelParams } from "../agent-models.ts";
+
+/** The settings-table key prefix of a member's model pin (`model-pin:<memberId>`). */
+const MODEL_PIN_KEY = "model-pin:";
 
 /** How long after hearing `dismissed` an agent is assumed to have exited. */
 export const DISMISS_EXIT_GRACE_MS = 3_000;
@@ -60,7 +70,7 @@ export const SPAWN_REGISTER_GRACE_MS = 60_000;
  * These need in-process Pi APIs (session replacement), which tmux keystrokes
  * cannot express. See docs/DESIGN.md "Assistant Chat Model".
  */
-export const SELF_HANDLED_ACTIONS = new Set(["new-session", "resume-session"]);
+export const SELF_HANDLED_ACTIONS = new Set(["new-session", "resume-session", SET_MODEL_ACTION]);
 
 /**
  * Reserved singleton identity for the leader: the agent that realizes directives
@@ -152,6 +162,13 @@ export class MemberStore {
    */
   private capabilities = new Map<string, Set<string>>();
   /**
+   * The models each agent's harness said it can use (`models` at registration,
+   * POST /api/agents/:id/models). In memory only, like `capabilities`: it
+   * describes a running process and is reported again on re-registration. No
+   * entry = never reported.
+   */
+  private availableModels = new Map<string, AvailableModel[]>();
+  /**
    * Ids explicitly dismissed by a human (tombstones). A dismissed id's next
    * heartbeat is told to shut down; an unknown-but-not-dismissed id is told to
    * re-register. In-memory only — a daemon restart clears it (and also wipes
@@ -196,7 +213,10 @@ export class MemberStore {
     name: string,
     directory?: string,
     metadata: Record<string, unknown> = {},
-    handshake?: { protocolVersion?: number; harness?: string; harnessVersion?: string; instanceId?: string; capabilities?: string[] },
+    handshake?: {
+      protocolVersion?: number; harness?: string; harnessVersion?: string; instanceId?: string; capabilities?: string[];
+      models?: AvailableModel[] | null;
+    },
   ): void {
     // (Re)registering clears any dismiss tombstone for this id.
     this.dismissedIds.delete(id);
@@ -208,6 +228,9 @@ export class MemberStore {
     // A registration states the harness's capabilities afresh (none = none).
     if (handshake?.capabilities?.length) this.capabilities.set(id, new Set(handshake.capabilities));
     else this.capabilities.delete(id);
+    // …and its available models (none sent = not reported).
+    if (handshake?.models) this.availableModels.set(id, handshake.models);
+    else this.availableModels.delete(id);
     this.db.prepare(
       `INSERT OR REPLACE INTO members (id, name, directory, metadata, protocol_version, harness, harness_version, status, last_heartbeat)
        VALUES (?, ?, ?, ?, ?, ?, ?, 'idle', ?)`
@@ -325,6 +348,87 @@ export class MemberStore {
     this.sessionStats.delete(id);
     this.instanceIds.delete(id);
     this.capabilities.delete(id);
+    this.availableModels.delete(id);
+    // The model pin is kept: a removal is also a session reset (the Team tab's
+    // Reset deregisters) and the pin is for the agent's life. Dismissal ends it.
+  }
+
+  // --- Models (docs/DESIGN.md "Choosing a Model") ---
+
+  /** Record the models an agent's harness can use now (POST /api/agents/:id/models). */
+  setAvailableModels(id: string, models: AvailableModel[]): void {
+    this.availableModels.set(id, models);
+  }
+
+  /** The models an agent's harness last reported, or null when it never did. */
+  getAvailableModels(id: string): AvailableModel[] | null {
+    return this.availableModels.get(id) ?? null;
+  }
+
+  /** The model a user pinned on this agent, or null. Persisted: it outlives sessions and restarts. */
+  getModelPin(id: string): string | null {
+    const row = this.db.prepare("SELECT value FROM settings WHERE key = ?").get(MODEL_PIN_KEY + id) as { value: string } | undefined;
+    return row ? row.value : null;
+  }
+
+  /** Set (or, with null, clear) an agent's model pin. */
+  setModelPin(id: string, model: string | null): void {
+    if (model === null) this.db.prepare("DELETE FROM settings WHERE key = ?").run(MODEL_PIN_KEY + id);
+    else this.db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)").run(MODEL_PIN_KEY + id, model);
+  }
+
+  /**
+   * Ask an agent to switch its model: a `set-model` self-directive it realizes
+   * between runs. An earlier set-model still pending for it is cancelled first
+   * — only the latest ask matters, and a stale one would otherwise be realized
+   * after it. `unknown` for no such member; `unsupported` when its harness
+   * didn't declare `set-model` (an older harness would never realize it).
+   */
+  requestModelChange(memberId: string, params: SetModelParams): { directive: LeaderDirective } | { error: "unknown" | "unsupported" } {
+    if (!this.getMember(memberId)) return { error: "unknown" };
+    if (!this.hasCapability(memberId, SET_MODEL_CAPABILITY)) return { error: "unsupported" };
+    this.db.prepare(
+      "UPDATE leader_directives SET status = 'cancelled', error = 'superseded by a newer model change', updated_at = ? WHERE member_id = ? AND action = ? AND status = 'pending'",
+    ).run(Date.now(), memberId, SET_MODEL_ACTION);
+    return { directive: this.createLeaderDirective(SET_MODEL_ACTION, { memberId, params: { ...params } }) };
+  }
+
+  /**
+   * An agent reporting how its self-directive went (PUT
+   * /api/agents/:id/directives/:directiveId). A `set-model` from a user that is
+   * `done` sets (or, with a null model, clears) the agent's pin: the pin is what
+   * the agent actually switched to, never a model it refused. False when the
+   * directive is unknown.
+   */
+  completeMemberDirective(id: string, status: string, error?: string): boolean {
+    const directive = this.getLeaderDirective(id);
+    if (!directive) return false;
+    this.updateLeaderDirective(id, status, error);
+    if (directive.action === SET_MODEL_ACTION && status === "done" && directive.memberId) {
+      const params = readSetModelParams(directive.params);
+      if (params?.source === "user") this.setModelPin(directive.memberId, params.model);
+    }
+    return true;
+  }
+
+  /** The latest set-model ask for an agent (any status), or null. */
+  getLastModelChange(memberId: string): ModelChangeView | null {
+    const row = this.db.prepare(
+      "SELECT * FROM leader_directives WHERE member_id = ? AND action = ? ORDER BY created_at DESC, rowid DESC LIMIT 1",
+    ).get(memberId, SET_MODEL_ACTION) as Record<string, unknown> | undefined;
+    if (!row) return null;
+    const params = readSetModelParams(row.params ? JSON.parse(row.params as string) : {});
+    if (!params) return null;
+    return {
+      id: row.id as string,
+      model: params.model,
+      source: params.source,
+      ...(params.reason ? { reason: params.reason } : {}),
+      status: row.status as ModelChangeView["status"],
+      error: (row.error as string) || null,
+      createdAt: new Date(row.created_at as number).toISOString(),
+      updatedAt: new Date(row.updated_at as number).toISOString(),
+    };
   }
 
   /** Record an agent's session stats (context fill, session cost); stamps `at`. */
@@ -353,6 +457,8 @@ export class MemberStore {
     this.dismissedIds.add(id);
     this.dismissals.set(id, { toldAt: null, exited: offline });
     this.removeMember(id);
+    // Dismissal ends the agent's life, and with it its model pin.
+    this.setModelPin(id, null);
   }
 
   /** A dismissed agent's heartbeat was just answered `dismissed`; it is now exiting. */
@@ -615,12 +721,18 @@ export class MemberStore {
     return rows.map((r) => this.rowToDirective(r)).filter((d) => !SELF_HANDLED_ACTIONS.has(d.action));
   }
 
-  /** Pending directives an agent must realize itself, oldest first. */
+  /**
+   * Pending directives an agent must realize itself, oldest first. A `set-model`
+   * goes only to an agent whose harness declared it can (`set-model`): an older
+   * one would fail or ignore it.
+   */
   getMemberDirectives(memberId: string): LeaderDirective[] {
     const rows = this.db.prepare(
       "SELECT * FROM leader_directives WHERE member_id = ? AND status = 'pending' ORDER BY created_at ASC",
     ).all(memberId) as Array<Record<string, unknown>>;
-    return rows.map((r) => this.rowToDirective(r)).filter((d) => SELF_HANDLED_ACTIONS.has(d.action));
+    const canSetModel = this.hasCapability(memberId, SET_MODEL_CAPABILITY);
+    return rows.map((r) => this.rowToDirective(r))
+      .filter((d) => SELF_HANDLED_ACTIONS.has(d.action) && (d.action !== SET_MODEL_ACTION || canSetModel));
   }
 
   /**

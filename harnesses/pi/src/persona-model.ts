@@ -24,6 +24,11 @@
 // the model its assistant messages record (runtime/usage.ts), and `setModel`
 // fires `model_select`, which re-reports the session stats.
 //
+// The persona's model is one input of the agent's *effective* model, which
+// model-choice.ts resolves (a user's pin, the persona's model, the team
+// default); whichever wins is applied here, through `applyTarget`, so one
+// switch — one remembered "previous" model — serves them all.
+//
 // Type-only imports on purpose: like persona-scope.ts, this module loads
 // standalone under Node's type stripping, which is what lets tests import it.
 
@@ -39,6 +44,8 @@ export interface ModelRef {
 export interface ModelLookup {
   find(provider: string, modelId: string): ModelRef | undefined;
   getAll(): ModelRef[];
+  /** The models with auth/config (Pi: `getAvailable`); absent in a minimal fake, which then counts every model. */
+  getAvailable?(): ModelRef[];
 }
 
 /** The slice of Pi's extension context the switch reads: the live model and the registry. */
@@ -52,6 +59,18 @@ export interface ModelPersona {
   id: string | null;
   model?: string;
   modelId?: string | null;
+}
+
+/**
+ * A model to switch to, as model-choice.ts resolves it: the id, an idempotency
+ * `key` (a repeat apply with the same key does nothing), and how to name it in
+ * a problem (`who`: "persona implementer", "pinned model"; `label`).
+ */
+export interface ModelTarget {
+  modelId: string;
+  key: string;
+  who: string;
+  label: string;
 }
 
 /** `provider/id`, how models are named in reports. */
@@ -84,6 +103,22 @@ export function findModel(registry: ModelLookup, modelId: string): { model: Mode
 }
 
 /**
+ * Can this Pi use `modelId` now? Null when it can: known to the registry and,
+ * when the registry says which models have credentials (`getAvailable`), one of
+ * those. Otherwise why not — what a `set-model` directive is failed with.
+ */
+export function modelProblem(registry: ModelLookup, modelId: string): string | null {
+  const found = findModel(registry, modelId);
+  if ("problem" in found) return found.problem;
+  let available: ModelRef[] | undefined;
+  try { available = registry.getAvailable?.(); } catch { available = undefined; }
+  if (available && !available.some((m) => sameModel(m, found.model))) {
+    return `"${modelId}" isn't available here (no credentials for ${found.model.provider}?)`;
+  }
+  return null;
+}
+
+/**
  * Switches the session's model to the held persona's for as long as it is
  * held, and back afterwards. One per session (a fresh session starts on Pi's
  * configured default model anyway).
@@ -93,6 +128,8 @@ export class PersonaModelSwitch {
   private previous: ModelRef | null = null;
   /** The key `apply` last handled (null: nothing held). */
   private appliedKey: string | null = null;
+  /** The tail of the `applyTarget` chain (calls run one at a time). */
+  private queue: Promise<void> = Promise.resolve();
 
   private readonly pi: Pick<ExtensionAPI, "setModel">;
   private readonly ctx: ModelContext;
@@ -115,15 +152,36 @@ export class PersonaModelSwitch {
    */
   async apply(key: string | null, persona: ModelPersona | null): Promise<string | null> {
     const modelId = persona?.modelId;
-    if (!key || !persona || !modelId) {
+    if (!key || !persona || !modelId) return this.applyTarget(null);
+    return this.applyTarget({
+      modelId,
+      key,
+      who: `persona ${persona.id ?? "(unnamed)"}`,
+      label: persona.model ? `model "${persona.model}" (${modelId})` : `model ${modelId}`,
+    });
+  }
+
+  /**
+   * Apply a resolved model (model-choice.ts), or — with null — put back the
+   * model active before the first switch. Idempotent per `target.key`, like
+   * `apply`. Calls are serialized, so a directive's switch and a claim's never
+   * interleave their `setModel`s. Returns a problem to report, or null.
+   */
+  applyTarget(target: ModelTarget | null): Promise<string | null> {
+    const next = this.queue.then(() => this.applyNow(target));
+    this.queue = next.then(() => undefined, () => undefined);
+    return next;
+  }
+
+  private async applyNow(target: ModelTarget | null): Promise<string | null> {
+    if (!target) {
       await this.restore();
       return null;
     }
-    if (key === this.appliedKey) return null;
+    if (target.key === this.appliedKey) return null;
     await this.restore();
-    this.appliedKey = key;
-    const who = `persona ${persona.id ?? "(unnamed)"}`;
-    const alias = persona.model ? `model "${persona.model}" (${modelId})` : `model ${modelId}`;
+    this.appliedKey = target.key;
+    const { modelId, who, label: alias } = target;
     const current = this.ctx.model;
     const found = findModel(this.ctx.modelRegistry, modelId);
     if ("problem" in found) return `${who}: ${alias} can't be used: ${found.problem}; keeping ${modelName(current)}.`;
